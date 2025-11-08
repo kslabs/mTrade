@@ -18,6 +18,12 @@ config.json
 *.pid
 mtrade_server.pid
 
+# Конфиденциальные ключи (не коммитить)
+config/secrets.json
+config/secrets_test.json
+config/*.key
+config/*.pem
+
 # Логи
 *.log
 
