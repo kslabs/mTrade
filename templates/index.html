@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <!-- VERSION: 2025-11-06-20:15 - CACHE KILLER {{ cache_buster }} -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Gate.io Multi-Trading Platform [{{ cache_buster }}]</title>
+    <style>
+        * {margin:0;padding:0;box-sizing:border-box}
+        body {font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;background:#1a1a1a;min-height:100vh;padding:20px;color:#e0e0e0}
+        .container {max-width:1600px;margin:0 auto}
+        .header {background:#2a2a2a;border-radius:8px;padding:12px 20px;margin-bottom:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px}
+        .header-left {display:flex;align-items:center;gap:15px;justify-self:start}
+        .header-center {display:flex;align-items:center;gap:12px;justify-self:center}
+        .header-right {display:flex;align-items:center;gap:20px;justify-self:end}
+        .header h1 {color:#4CAF50;margin:0;font-size:18px;font-weight:600}
+        .header p {color:#666;font-size:11px;margin:0}
+        .mode-label {font-weight:500;color:#999;font-size:11px}
+        .mode-label.active {color:#4CAF50}
+        .server-status-inline {display:flex;align-items:center;gap:8px;padding:6px 12px;background:#1a1a1a;border-radius:6px;border:1px solid #3a3a3a;font-size:12px}
+        .status-dot {width:8px;height:8px;border-radius:50%;background:#4CAF50;animation:pulse 2s infinite}
+        .uptime-display {color:#999;font-size:12px;font-family:'Courier New',monospace}
+        .server-controls-inline {display:flex;gap:8px}
+        .server-btn-small {padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500;transition:.2s}
+        .server-btn-small.restart {background:#FF9800;color:#fff}
+        .server-btn-small.restart:hover {background:#F57C00}
+        .server-btn-small.shutdown {background:#f44336;color:#fff}
+        .server-btn-small.shutdown:hover {background:#d32f2f}
+        .toggle-switch {position:relative;width:60px;height:30px;background:#1a1a1a;border-radius:15px;cursor:pointer;transition:background .3s;border:2px solid #3a3a3a}
+        .toggle-switch.active {background:#4CAF50}
+        .toggle-slider {position:absolute;top:3px;left:3px;width:24px;height:24px;background:#fff;border-radius:50%;transition:transform .3s;box-shadow:0 2px 5px rgba(0,0,0,.4)}
+        .toggle-switch.active .toggle-slider {transform:translateX(30px)}
+        .grid {display:grid;grid-template-columns:1fr 80px 1fr;gap:15px;margin-bottom:15px}
+        .indicator-card {display:flex;align-items:flex-end;justify-content:center;padding:8px 6px;height:100%}
+        .indicator-scale {position:relative;width:56px;height:calc(100vh - 260px);background:linear-gradient(#0d0d0d,#111);border-radius:8px;border:1px solid #2a2a2a;box-shadow:inset 0 0 20px rgba(0,0,0,.7);display:block}
+        .indicator-marker {position:absolute;left:50%;transform:translateX(-50%);width:90%;height:3px;border-radius:2px;box-shadow:0 1px 6px rgba(0,0,0,.6);transition:top .6s cubic-bezier(.22,1,.36,1),height .25s,box-shadow .25s,opacity .25s}
+        .indicator-marker .label {position:absolute;left:100%;margin-left:8px;top:-8px;font-size:11px;color:#ccc;white-space:nowrap}
+        .marker-tooltip {position:absolute;left:100%;top:-30px;margin-left:10px;background:rgba(0,0,0,.8);color:#fff;padding:6px 8px;border-radius:6px;font-size:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.6);opacity:0;transform:translateY(6px);transition:.18s}
+        .indicator-marker:hover .marker-tooltip {opacity:1;transform:translateY(0)}
+        .card {background:#2a2a2a;border-radius:8px;padding:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a}
+        .card h3 {color:#4CAF50;margin-bottom:12px;font-size:14px;border-bottom:1px solid #3a3a3a;padding-bottom:8px;font-weight:600}
+        @keyframes pulse {0%,100%{opacity:1}50%{opacity:.6}}
+        .orderbook-container {background:#1a1a1a;border-radius:8px;padding:10px;border:1px solid #3a3a3a}
+        .orderbook-header {display:grid;grid-template-columns:1fr .9fr .9fr 1fr;gap:5px;padding:6px 5px;font-size:10px;font-weight:600;color:#666;border-bottom:1px solid #3a3a3a}
+        .orderbook-asks,.orderbook-bids {max-height:250px;overflow-y:auto}
+        .orderbook-row {display:grid;grid-template-columns:1fr .9fr .9fr 1fr;gap:5px;padding:2px 5px;font-size:11px;cursor:pointer}
+        .orderbook-row:hover {background:#2a2a2a}
+        .orderbook-asks .price {color:#f44336}
+        .orderbook-bids .price {color:#4CAF50}
+        .orderbook-row .amount,.orderbook-row .total {color:#999}
+        .orderbook-row .cumulative {color:#888;font-weight:600;font-size:10px}
+        .orderbook-spread {display:flex;justify-content:space-between;align-items:center;padding:6px 5px;font-size:11px;font-weight:600;color:#999;border-top:1px solid #3a3a3a;border-bottom:1px solid #3a3a3a;background:#252525}
+        #currentPrice {color:#4CAF50;font-size:12px;font-weight:700}
+        #spreadValue {color:#FF9800}
+        .network-switch {display:flex;align-items:center;gap:6px;background:#1a1a1a;border:1px solid #3a3a3a;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer}
+        .network-switch.work {border-color:#4CAF50}
+        .network-switch.test {border-color:#2196F3}
+        .network-indicator {width:10px;height:10px;border-radius:50%;background:#4CAF50}
+        .network-switch.test .network-indicator {background:#2196F3}
+        .perm-toggle {display:inline-block;width:14px;height:14px;border-radius:50%;margin-left:6px;position:relative;cursor:pointer;box-shadow:0 0 0 1px #555,inset 0 0 4px rgba(0,0,0,.6)}
+        .perm-toggle.on {background:#4CAF50}
+        .perm-toggle.off {background:#f44336}
+        .base-currency-tabs {background:#2a2a2a;border-radius:8px;padding:10px;margin-bottom:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a;display:flex;gap:8px;overflow-x:auto}
+        .base-currency-tabs {padding:8px 10px} /* меньше высота контейнера */
+        .tab-item { /* уплотнено + место под индикатор разрешения */
+            padding:4px 18px 4px 10px;
+            line-height:1.05;
+            min-height:auto;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:4px;
+            position:relative; /* нужно для абсолютного индикатора */
+        }
+        .tab-item .code-label {display:inline;font-weight:600}
+        .tab-item .symbol-label {display:inline;margin:0;font-size:11px;color:#bbb;font-weight:500;line-height:1;position:static}
+        .tab-item .symbol-label:empty{display:none}
+        .currency-gear-btn {padding:8px 12px;background:#1a1a1a;border:1px solid #3a3a3a;color:#ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+        .currency-gear-btn:hover {background:#2f2f2f;color:#fff}
+        .perm-indicator {width:10px;height:10px;border-radius:50%;position:absolute;top:4px;right:4px;box-shadow:0 0 0 1px #222,inset 0 0 4px rgba(0,0,0,.6);cursor:pointer}
+        .perm-indicator.on {background:#4CAF50}
+        .perm-indicator.off {background:#f44336}
+        #currencyManagerModal {position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.65);z-index:1000}
+        #currencyManagerModal .modal-inner {background:#222;border:1px solid #3a3a3a;border-radius:10px;padding:18px;max-width:580px;width:92%;max-height:80vh;overflow:auto;box-shadow:0 6px 24px rgba(0,0,0,.6)}
+        #currencyManagerModal h4 {margin:0 0 12px;font-size:15px;color:#4CAF50;font-weight:600}
+        .cm-row {display:grid;grid-template-columns:70px 70px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #2e2e2e;font-size:12px}
+        .cm-row input {background:#111;border:1px solid #333;border-radius:4px;padding:6px;color:#eee;font-size:12px}
+        .cm-row.disabled {opacity:.5}
+        .cm-actions {display:flex;gap:8px;margin-top:14px}
+        .cm-btn {padding:8px 14px;border:none;border-radius:6px;background:#3a3a3a;color:#ddd;font-size:12px;font-weight:600;cursor:pointer}
+        .cm-btn.save {background:#4CAF50;color:#fff}
+        .cm-btn.add {background:#2196F3;color:#fff}
+        .cm-btn.cancel {background:#757575;color:#fff}
+        .cm-btn.delete {background:#f44336;color:#fff}
+        .cm-btn:hover {filter:brightness(1.15)}
+        .tab-item .code-label {font-weight:600}
+        .tab-item .symbol-label {font-size:11px;color:#bbb;display:block;margin-top:3px;font-weight:500}
+        /* --- Compact tabs final overrides (placed last to win specificity) --- */
+        .base-currency-tabs{align-items:center;gap:8px}
+        .currency-gear-btn{padding:6px 10px}
+        .base-currency-tabs .tab-item{
+            padding:4px 18px 4px 10px;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:6px;
+            line-height:1;
+            min-height:auto;
+            position:relative;
+        }
+        .base-currency-tabs .tab-item .code-label{font-weight:600}
+        .base-currency-tabs .tab-item .symbol-label{display:inline!important;margin:0!important;font-size:11px;color:#bbb;font-weight:500}
+        .base-currency-tabs .tab-item .symbol-label:empty{display:none!important}
+        .base-currency-tabs .tab-item .perm-indicator{right:4px;top:4px;z-index:2}
+        /* Акцент активной вкладки и индикатора разрешения */
+        .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important}
+        .base-currency-tabs .tab-item.active .symbol-label {color:#eaffea!important}
+        .base-currency-tabs .tab-item .perm-indicator {border:1px solid #111}
+        .base-currency-tabs .tab-item.active .perm-indicator.on {box-shadow:0 0 0 1px #0d3,inset 0 0 4px rgba(0,0,0,.4)}
+        /* Усиленный стиль кнопок выбора валюты */
+        .base-currency-tabs .tab-item {background:#1a1a1a;border:1px solid #3a3a3a;color:#ccc;font-weight:600;min-width:64px;border-radius:6px;cursor:pointer;user-select:none}
+        .base-currency-tabs .tab-item:hover {background:#2f2f2f;color:#fff}
+        .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important}
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="header-left"><div><h1>🚀 mTrade</h1><p>Gate.io Trading Platform</p></div></div>
+        <div class="header-center">
+            <div id="networkSwitcher" class="network-switch" onclick="toggleNetworkMode()" title="Переключить сеть"><div class="network-indicator"></div><span id="networkModeLabel">WORK</span><span id="networkConnStatus" style="font-size:10px;margin-left:4px;color:#999;"></span></div>
+            <span class="mode-label" id="normalLabelHeader">📊 Обычный</span>
+            <div class="toggle-switch" id="modeToggleHeader" onclick="toggleMode()"><div class="toggle-slider"></div></div>
+            <span class="mode-label" id="copyLabelHeader">🔄 Копи</span>
+        </div>
+        <div class="header-right">
+            <div class="server-status-inline"><div class="status-dot" id="statusDot"></div><span id="serverPID" style="color:#999;font-size:11px;">PID: ---</span></div>
+            <div class="uptime-display" id="uptimeDisplay"><strong>00д 00:00:00</strong></div>
+            <div class="server-controls-inline"><button class="server-btn-small restart" id="restartServerBtn">🔄</button><button class="server-btn-small shutdown" id="shutdownServerBtn">⏹️</button></div>
+        </div>
+    </div>
+
+    <div class="base-currency-tabs" id="currencyTabsWrapper">
+        <div style="display:flex;gap:8px;flex:1;overflow-x:auto;" id="currencyTabsContainer"><div class="loading" style="padding:10px;color:#666;font-size:12px;">Загрузка валют...</div></div>
+        <button id="manageCurrenciesBtn" class="currency-gear-btn" title="Управление валютами" onclick="openCurrencyManager()">⚙️</button>
+    </div>
+    <!-- Модальное окно управления валютами -->
+    <div id="currencyManagerModal" onclick="if(event.target===this)closeCurrencyManager()">
+        <div class="modal-inner">
+            <h4>⚙️ Управление базовыми валютами</h4>
+            <div id="currencyManagerRows"></div>
+            <div class="cm-actions">
+                <button class="cm-btn add" onclick="addCurrencyRow()">➕ Добавить</button>
+                <button class="cm-btn save" onclick="saveCurrenciesList()">💾 Сохранить</button>
+                <button class="cm-btn cancel" onclick="closeCurrencyManager()">✖ Отмена</button>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">Данные сохраняются на сервере (currencies.json). Минимум 1 валюта, коды уникальны.</div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h3>📈 Рынок и стакан</h3>
+            <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT <span style="font-size:12px;font-weight:400;color:#999;" id="quoteBalanceInline"></span></div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
+            <div class="balances-grid">
+                <div class="balance-item"><div class="balance-label">Баланс <span id="baseSymbol">BTC</span></div><div class="balance-value" id="baseBalance">0.00000000</div><div class="balance-usd" id="baseBalanceUSD">≈ $0.00</div></div>
+                <div class="balance-item" id="pairParamsBlock"><div class="balance-label">Параметры пары</div><div style="display:grid;grid-template-columns:auto auto;gap:4px;font-size:10px;color:#ccc;"><div>Min Quote:</div><div id="minQuoteAmount">-</div><div>Min Base:</div><div id="minBaseAmount">-</div><div>Amt Prec:</div><div id="amountPrecision">-</div><div>Price Prec:</div><div id="pricePrecision">-</div></div></div>
+            </div>
+            <div class="orderbook-container">
+                <div class="orderbook-header"><div>Цена (<span id="obQuoteSymbol">USDT</span>)</div><div>Кол-во</div><div>Сумма</div><div>Σ Накоп.</div></div>
+                <div class="orderbook-asks" id="orderbookAsks"><div class="loading">Загрузка...</div></div>
+                <div class="orderbook-spread"><span id="currentPrice">-</span><span><span style="margin-right:5px;">Спред:</span><span id="spreadValue">-</span></span></div>
+                <div class="orderbook-bids" id="orderbookBids"><div class="loading">Загрузка...</div></div>
+            </div>
+            <div style="margin-top:10px;text-align:center;font-size:.85em;color:#888;"><span id="wsStatus">🔄 Подключение к WebSocket...</span></div>
+        </div>
+        <div class="card indicator-card" style="grid-column:2;display:flex;align-items:flex-end;justify-content:center;">
+            <div id="indicatorScale" class="indicator-scale" aria-hidden="false">
+                <div id="markerSell" class="indicator-marker marker-sell"><span class="label">Sell</span><div class="marker-tooltip">Sell: -</div></div>
+                <div id="markerBE" class="indicator-marker marker-be"><span class="label">BE</span><div class="marker-tooltip">BE: -</div></div>
+                <div id="markerLast" class="indicator-marker marker-last"><span class="label">Last</span><div class="marker-tooltip">Last: -</div></div>
+                <div id="markerStart" class="indicator-marker marker-start"><span class="label">Start</span><div class="marker-tooltip">Start: -</div></div>
+                <div id="markerBuy" class="indicator-marker marker-buy"><span class="label">Buy</span><div class="marker-tooltip">Buy: -</div></div>
+                <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label">Price:</div><div class="value" id="indPrice">-</div></div><div class="row"><div class="label">Sell:</div><div class="value" id="indSell">-</div></div><div class="row"><div class="label">BE:</div><div class="value" id="indBE">-</div></div><div class="row"><div class="label">Last:</div><div class="value" id="indLast">-</div></div><div class="row"><div class="label">Start:</div><div class="value" id="indStart">-</div></div><div class="row"><div class="label">Buy:</div><div class="value" id="indBuy">-</div></div></div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>📊 Таблица безубыточности</h3>
+            <div id="breakEvenNote">Таблица отображает текущий цикл выбранной базовой валюты.</div>
+            <table id="breakEvenTable" style="width:100%;margin-top:12px;border-collapse:collapse;">
+                <thead><tr style="text-align:left;color:#ccc;font-size:12px;border-bottom:1px solid #333;"><th style="padding:8px;">Стадия</th><th style="padding:8px;">ΔPsell %</th></tr></thead>
+                <tbody id="breakEvenBody"><tr><td style="padding:8px;color:#999;">—</td><td style="padding:8px;color:#999;">—</td></tr></tbody>
+            </table>
+            <div id="buyHistory" style="margin-top:10px;font-size:11px;color:#ccc;line-height:1.4;">История покупок: —</div>
+        </div>
+    </div>
+</div>
+<script>
+window.__diagLogs=[];
+function logDbg(m){
+  try{
+    __diagLogs.push(Date.now()+': '+m);
+    if(__diagLogs.length>200) __diagLogs.shift();
+  }catch(_){/* noop */}
+  console.log('[DBG]',m);
+}
+const $=id=>document.getElementById(id);
+let currentNetworkMode='work';
+let currentBaseCurrency='BTC';
+let currentQuoteCurrency='USDT';
+let currenciesList=[];
+let autoTradeActive=false;
+let tradingPermissions = {}; // статус разрешений торговли
+function formatPrice(v){
+  const n=parseFloat(v);
+  if(isNaN(n)) return '-';
+  if(n<0.0001 && n>0) return n.toExponential(4);
+  if(n>=1000) return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8});
+  return n.toFixed(8).replace(/\.0+$/,'').replace(/0+$/,'')
+}
+function updateTradeIndicators(d){
+  d=d||{};
+  const priceEl=$('indPrice');
+  if(priceEl&&d.price) priceEl.textContent=formatPrice(d.price);
+  ['sell','be','last','start','buy'].forEach(k=>{
+    const el=$('ind'+k.charAt(0).toUpperCase()+k.slice(1));
+    if(el&&d[k]!==undefined){
+      const v=d[k];
+      el.textContent=(v===null||v===undefined)?'-':formatPrice(v)
+    }
+  })
+}
+function updateNetworkUI(){
+  const sw=$('networkSwitcher'),lbl=$('networkModeLabel');
+  if(!sw||!lbl) return;
+  sw.classList.remove('work','test');
+  sw.classList.add(currentNetworkMode==='test'?'test':'work');
+  lbl.textContent=currentNetworkMode==='test'?'TEST':'WORK';
+  const tb=$('editTestBalanceBtn');
+  if(tb) tb.style.display=currentNetworkMode==='test'?'inline-block':'none'
+}
+function setNetworkConnectionState(st){
+  const sw=$('networkSwitcher');
+  const cs=$('networkConnStatus');
+  if(!sw) return;
+  sw.classList.remove('pending','error');
+  if(st==='pending'){
+    sw.classList.add('pending');
+    if(cs) cs.textContent='подключение...';
+  }else if(st==='error'){
+    sw.classList.add('error');
+    if(cs) cs.textContent='ошибка';
+  }else{
+    if(cs) cs.textContent='';
+  }
+}
+async function loadNetworkMode(){
+  try{
+    const r=await fetch('/api/network');
+    const d=await r.json();
+    if(d.success){
+      currentNetworkMode=d.mode;
+      updateNetworkUI();
+      logDbg('network mode='+currentNetworkMode);
+    }
+  }catch(e){ logDbg('loadNetworkMode err '+e) }
+}
+async function loadCurrenciesFromServer(){
+  try{
+    const r=await fetch('/api/currencies');
+    const d=await r.json();
+    if(d.success&&Array.isArray(d.currencies)){
+      currenciesList=d.currencies;
+      renderCurrencyTabs(currenciesList);
+    } else {
+      logDbg('loadCurrencies fail');
+    }
+  }catch(e){ logDbg('loadCurrencies exc '+e) }
+}
+function renderCurrencyTabs(list){
+  const cont=$('currencyTabsContainer');
+  if(!cont) return;
+  cont.innerHTML='';
+  const arr=Array.isArray(list)?list:[];
+  logDbg('renderCurrencyTabs raw len='+(arr.length));
+  let norm=arr.map(c=>{if(typeof c==='string')return {code:c.toUpperCase(),symbol:''};return {code:(c.code||'').toUpperCase(),symbol:(c.symbol||'').trim()};}).filter(o=>o.code);
+  // Fallback: если активная валюта отсутствует, добавляем её чтобы была кнопка
+  const codes=new Set(norm.map(o=>o.code));
+  if(currentBaseCurrency && !codes.has(currentBaseCurrency)){
+    logDbg('active base '+currentBaseCurrency+' отсутствует в списке -> добавляю временно');
+    norm.unshift({code:currentBaseCurrency.toUpperCase(),symbol:''});
+  }
+  // Если список пуст – загрузить дефолтные
+  if(!norm.length){
+    logDbg('список пуст – добавляю дефолтные');
+    norm=['BTC','ETH','SOL','BNB','XRP','ADA','AVAX','DOT','MATIC','LINK'].map(c=>({code:c,symbol:''}));
+    if(!currentBaseCurrency) currentBaseCurrency='BTC';
+  }
+  if(!currentBaseCurrency) currentBaseCurrency=norm[0].code;
+  norm.forEach(cur=>{
+    const el=document.createElement('div');
+    el.className='tab-item'+(cur.code===currentBaseCurrency?' active':'');
+    el.dataset.code=cur.code;
+    el.innerHTML=`<span class='code-label'>${cur.code}</span>${cur.symbol?`<span class='symbol-label'>${cur.symbol}</span>`:''}`;
+    el.onclick=()=>switchBaseCurrency(cur.code);
+    cont.appendChild(el);
+  });
+  updatePairNameUI();
+  updateTabsPermissionsUI();
+}
+function updatePairNameUI(){
+  const pair=`${currentBaseCurrency}_${currentQuoteCurrency}`;
+  const nameEl=$('currentPairName');
+  const baseSym=$('baseSymbol');
+  const obQuote=$('obQuoteSymbol');
+  if(nameEl){ nameEl.childNodes[0].nodeValue=pair+' '; }
+  if(baseSym) baseSym.textContent=currentBaseCurrency;
+  if(obQuote) obQuote.textContent=currentQuoteCurrency;
+}
+function switchBaseCurrency(code){
+  currentBaseCurrency=code.toUpperCase();
+  const cont=$('currencyTabsContainer');
+  if(cont){
+    [...cont.querySelectorAll('.tab-item')].forEach(n=>n.classList.toggle('active',n.dataset.code===currentBaseCurrency));
+  }
+  updatePairNameUI();
+  subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
+  setTimeout(()=>{
+    loadMarketData();
+    loadPairBalances();
+    loadPairParams(true);
+    loadBreakEvenTable();
+  },700);
+}
+function changeQuoteCurrency(){
+  const sel=document.querySelector('#quoteCurrency');
+  if(!sel) return;
+  currentQuoteCurrency=sel.value.toUpperCase();
+  updatePairNameUI();
+  subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
+  setTimeout(()=>{
+    loadMarketData();
+    loadPairBalances();
+    loadPairParams(true);
+    loadBreakEvenTable();
+  },700);
+}
+async function loadPairParams(force){
+  try{
+    const r=await fetch(`/api/pair/info?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}${force?'&force=1':''}`);
+    const d=await r.json();
+    if(d.success){
+      const info=d.data||{};
+      if($('minQuoteAmount')) $('minQuoteAmount').textContent=info.min_quote_amount!=null?String(info.min_quote_amount):'-';
+      if($('minBaseAmount')) $('minBaseAmount').textContent=info.min_base_amount!=null?String(info.min_base_amount):'-';
+      if($('amountPrecision')) $('amountPrecision').textContent=info.amount_precision!=null?String(info.amount_precision):'-';
+      if($('pricePrecision')) $('pricePrecision').textContent=info.price_precision!=null?String(info.price_precision):'-';
+    }
+  }catch(e){ logDbg('loadPairParams exc '+e) }
+}
+async function subscribeToPairData(base,quote){
+  try{
+    logDbg(`subscribeToPairData ${base}_${quote}`);
+    setNetworkConnectionState('pending');
+    const wsStatus=$('wsStatus');
+    if(wsStatus){ wsStatus.textContent='🔄 Подключение...'; wsStatus.style.color='#ffa500'; }
+    const resp=await fetch('/api/pair/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base_currency:base,quote_currency:quote})});
+    const data=await resp.json();
+    if(data.success){
+      if(wsStatus){ wsStatus.textContent='✅ WebSocket подключен'; wsStatus.style.color='#4caf50'; }
+      setNetworkConnectionState('connected');
+      setTimeout(()=>{
+        try{
+          loadMarketData();
+          loadPairBalances();
+          loadPairParams(true);
+        }catch(e){ logDbg('post-subscribe load err '+e); }
+      },800);
+    }else{
+      logDbg('subscribe error '+data.error);
+      if(wsStatus){ wsStatus.textContent='❌ Ошибка подключения'; wsStatus.style.color='#f44336'; }
+      setNetworkConnectionState('error');
+    }
+  }catch(e){
+    logDbg('subscribe exception '+e);
+    const wsStatus=$('wsStatus');
+    if(wsStatus){ wsStatus.textContent='❌ Ошибка подключения'; wsStatus.style.color='#f44336'; }
+    setNetworkConnectionState('error');
+  }
+}
+async function loadMarketData(){
+  try{
+    const r=await fetch(`/api/pair/data?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
+    const d=await r.json();
+    if(!d.success){ logDbg('loadMarketData fail '+(d.error||'')); return; }
+    const ob=d.orderbook||d.data?.orderbook;
+    const ticker=d.ticker||d.data?.ticker;
+    if(ob) updateOrderBook(ob); else logDbg('orderbook missing');
+    if(ticker){
+      const last=parseFloat(ticker.last||ticker.last_price||ticker.close||ticker.price||0);
+      const priceStr=formatPrice(last);
+      const cp=$('currentPrice'); if(cp) cp.textContent=priceStr;
+      const pp=$('currentPairPrice'); if(pp) pp.textContent='$'+priceStr;
+      const sell=parseFloat(ticker.lowest_ask||ticker.ask||0);
+      const bid=parseFloat(ticker.highest_bid||ticker.bid||0);
+      const spread=(isFinite(sell)&&isFinite(bid)&&sell>0)?((sell-bid)/sell*100):null;
+      const sv=$('spreadValue'); if(sv) sv.textContent=spread==null?'-':spread.toFixed(3)+'%';
+      updateTradeIndicators({price:last});
+    }
+    loadPerBaseIndicators();
+  }catch(e){ logDbg('loadMarketData exc '+e) }
+}
+function updateOrderBook(ob){
+  try{
+    if(!ob||!ob.asks||!ob.bids) return;
+    const asksEl=$('orderbookAsks');
+    const bidsEl=$('orderbookBids');
+    if(asksEl) asksEl.innerHTML='';
+    if(bidsEl) bidsEl.innerHTML='';
+    let cumA=0,cumB=0;
+    ob.asks.slice(0,20).forEach(r=>{
+      const p=parseFloat(r[0]);
+      const a=parseFloat(r[1]);
+      const t=p*a; cumA+=a;
+      const div=document.createElement('div');
+      div.className='orderbook-row';
+      div.innerHTML=`<div class='price'>${formatPrice(p)}</div><div class='amount'>${a.toFixed(6)}</div><div class='total'>${t.toFixed(6)}</div><div class='cumulative'>${cumA.toFixed(4)}</div>`;
+      if(asksEl) asksEl.appendChild(div);
+    });
+    ob.bids.slice(0,20).forEach(r=>{
+      const p=parseFloat(r[0]);
+      const a=parseFloat(r[1]);
+      const t=p*a; cumB+=a;
+      const div=document.createElement('div');
+      div.className='orderbook-row';
+      div.innerHTML=`<div class='price'>${formatPrice(p)}</div><div class='amount'>${a.toFixed(6)}</div><div class='total'>${t.toFixed(6)}</div><div class='cumulative'>${cumB.toFixed(4)}</div>`;
+      if(bidsEl) bidsEl.appendChild(div);
+    });
+  }catch(e){ logDbg('updateOrderBook err '+e) }
+}
+async function loadPerBaseIndicators(){
+  try{
+    const r=await fetch(`/api/trade/indicators?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
+    const d=await r.json();
+    if(d.success&&d.indicators){ updateTradeIndicators(d.indicators); }
+  }catch(e){ logDbg('loadPerBaseIndicators err '+e) }
+}
+async function loadPairBalances(){
+  if(!currentBaseCurrency||!currentQuoteCurrency) return;
+  try{
+    const r=await fetch(`/api/pair/balances?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
+    const d=await r.json();
+    if(d.success){
+      const baseBalEl=document.getElementById('baseBalance');
+      const baseUsdEl=document.getElementById('baseBalanceUSD');
+      const inlineEl=document.getElementById('quoteBalanceInline');
+      const baseAvail=parseFloat(d.balances?.base?.available||'0');
+      const baseEq=d.base_equivalent||0;
+      if(baseBalEl) baseBalEl.textContent=(isFinite(baseAvail)?baseAvail:0).toFixed(8);
+      if(baseUsdEl) baseUsdEl.textContent=`≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
+      if(inlineEl) inlineEl.textContent=`Баланс: ${(isFinite(baseAvail)?baseAvail:0).toFixed(8)} ${currentBaseCurrency} ≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
+    }
+  }catch(e){ logDbg('loadPairBalances err '+e) }
+}
+function renderBreakEvenTable(arr,buys,active){const body=$('breakEvenBody');const hist=$('buyHistory');if(!body)return;body.innerHTML='';if(!Array.isArray(arr)||arr.length===0){body.innerHTML=`<tr><td style='padding:8px;color:#999;'>—</td><td style='padding:8px;color:#999;'>—</td></tr>`}else{arr.forEach((v,i)=>{const stage='Stage '+(i+1);let val='—';if(typeof v==='number'){val=(v>=0?'+':'')+v.toFixed(4)+'%';}const tr=document.createElement('tr');tr.innerHTML=`<td style='padding:6px;font-size:11px;color:${active?'#e0e0e0':'#999'};'>${stage}</td><td style='padding:6px;font-size:11px;color:${v<0?'#f44336':'#4CAF50'};'>${val}</td>`;body.appendChild(tr)})}if(hist){hist.textContent=Array.isArray(buys)&&buys.length?'История покупок: '+buys.map(p=>formatPrice(p)).join(', '):'История покупок: —'}}
+async function loadBreakEvenTable(){
+  try{
+    const r=await fetch(`/api/autotrader/stats?base_currency=${currentBaseCurrency}`);
+    const d=await r.json();
+    if(d.success){
+      renderBreakEvenTable(d.break_even_table,d.buys,d.cycle_active);
+    }else{
+      logDbg('loadBreakEvenTable fail '+(d.error||''));
+    }
+  }catch(e){ logDbg('loadBreakEvenTable err '+e) }
+}
+async function toggleNetworkMode(){
+  const next=currentNetworkMode==='work'?'test':'work';
+  logDbg('toggleNetworkMode -> '+next);
+  try{
+    const resp=await fetch('/api/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:next})});
+    const data=await resp.json();
+    logDbg('network POST resp '+JSON.stringify(data));
+    if(data.success){
+      currentNetworkMode=data.mode;
+      updateNetworkUI();
+      setNetworkConnectionState('pending');
+      await loadCurrenciesFromServer();
+      await subscribeToPairData(currentBaseCurrency||'BTC',currentQuoteCurrency||'USDT');
+      setTimeout(()=>{
+        loadMarketData();
+        loadPairBalances();
+        loadPairParams(true);
+        loadBreakEvenTable();
+      },1100);
+    }else{
+      logDbg('network switch fail '+(data.error||''));
+      setNetworkConnectionState('error');
+    }
+  }catch(e){
+    logDbg('toggleNetworkMode exception '+e);
+    setNetworkConnectionState('error');
+  }
+}
+function toggleMode(){
+  const t=$('modeToggleHeader');
+  if(t) t.classList.toggle('active');
+}
+function openCurrencyManager(){buildCurrencyManagerRows();$('currencyManagerModal').style.display='flex';}
+function closeCurrencyManager(){$('currencyManagerModal').style.display='none';}
+function buildCurrencyManagerRows(){const rows=$('currencyManagerRows');if(!rows)return;rows.innerHTML='';const arr=Array.isArray(currenciesList)?currenciesList:[];arr.forEach((c,i)=>{const code=(c.code||c||'').toUpperCase();const symbol=(c.symbol||c.code||c||'');const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='${code}' placeholder='Код'><input type='text' class='cm-symbol' value='${symbol}' placeholder='Символ'><div style='color:#888;font-size:11px;'>${tradingPermissions[code]!==false?'Торговля: ✅':'Торговля: ❌'}</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row)});}
+function addCurrencyRow(){const rows=$('currencyManagerRows');const i=rows.querySelectorAll('.cm-row').length;const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='' placeholder='Код'><input type='text' class='cm-symbol' value='' placeholder='Символ'><div style='color:#888;font-size:11px;'>Новая</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row);}
+function deleteCurrencyRow(idx){const rows=$('currencyManagerRows');const row=[...rows.querySelectorAll('.cm-row')].find(r=>r.dataset.index==idx);if(row)row.remove();}
+function saveCurrenciesList(){const rows=$('currencyManagerRows');const items=[...rows.querySelectorAll('.cm-row')].map(r=>({code:r.querySelector('.cm-code').value.trim().toUpperCase(),symbol:r.querySelector('.cm-symbol').value.trim()})).filter(o=>o.code);if(!items.length){alert('Нужна минимум 1 валюта');return;}const codes=items.map(i=>i.code);const dup=codes.filter((c,i)=>codes.indexOf(c)!==i);if(dup.length){alert('Дубликаты: '+dup.join(','));return;}fetch('/api/currencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currencies:items})}).then(r=>r.json()).then(d=>{if(d.success){currenciesList=items;renderCurrencyTabs(currenciesList);closeCurrencyManager();logDbg('currencies saved');}else alert('Ошибка: '+(d.error||'fail'))}).catch(e=>alert('Ошибка сохранения: '+e));}
+async function initApp(){try{await loadNetworkMode();const sel=document.querySelector('#quoteCurrency');if(sel)currentQuoteCurrency=sel.value.toUpperCase();await loadCurrenciesFromServer();await loadTradingPermissions();await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);await Promise.all([loadMarketData(),loadPairBalances(),loadPairParams(true),loadBreakEvenTable(),loadTradingPermissions()]);setInterval(loadMarketData,5000);setInterval(loadPairBalances,15000);setInterval(loadBreakEvenTable,6000);setInterval(loadPerBaseIndicators,7000);setInterval(loadTradingPermissions,20000);}catch(e){logDbg('initApp exc '+e)}}
+// === Trading permissions (вкладки) ===
+function loadTradingPermissions(){return fetch('/api/trade/permissions').then(r=>r.json()).then(d=>{if(d.success){tradingPermissions=d.permissions||{};updateTabsPermissionsUI();}else logDbg('perm load fail')}).catch(e=>logDbg('perm exc '+e));}
+function updateTabsPermissionsUI(){const cont=$('currencyTabsContainer');if(!cont)return;[...cont.querySelectorAll('.tab-item')].forEach(el=>{const code=el.dataset.code;let ind=el.querySelector('.perm-indicator');if(!ind){ind=document.createElement('div');ind.className='perm-indicator';el.appendChild(ind);}const enabled=tradingPermissions[code]!==false;ind.classList.toggle('on',enabled);ind.classList.toggle('off',!enabled);ind.title=enabled?'Торговля включена':'Торговля отключена';ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};});}
+function toggleTradingPermission(code,current){const next=!current;fetch('/api/trade/permission',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base_currency:code,enabled:next})}).then(r=>r.json()).then(d=>{if(d.success){tradingPermissions[code]=next;updateTabsPermissionsUI();logDbg('perm '+code+' -> '+next)}else logDbg('perm set fail '+(d.error||''))}).catch(e=>logDbg('perm set exc '+e));}
+document.addEventListener('DOMContentLoaded',()=>{ initApp(); });
+</script>
+</body>
+</html>
