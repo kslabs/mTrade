@@ -77,7 +77,6 @@
         }
         .tab-item .code-label {display:inline;font-weight:600}
         .tab-item .symbol-label {display:inline;margin:0;font-size:11px;color:#bbb;font-weight:500;line-height:1;position:static}
-        .tab-item .symbol-label:empty{display:none}
         .currency-gear-btn {padding:8px 12px;background:#1a1a1a;border:1px solid #3a3a3a;color:#ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
         .currency-gear-btn:hover {background:#2f2f2f;color:#fff}
         .perm-indicator {width:10px;height:10px;border-radius:50%;position:absolute;top:4px;right:4px;box-shadow:0 0 0 1px #222,inset 0 0 4px rgba(0,0,0,.6);cursor:pointer}
@@ -124,6 +123,12 @@
         .base-currency-tabs .tab-item {background:#1a1a1a;border:1px solid #3a3a3a;color:#ccc;font-weight:600;min-width:64px;border-radius:6px;cursor:pointer;user-select:none}
         .base-currency-tabs .tab-item:hover {background:#2f2f2f;color:#fff}
         .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important}
+        /* --- Server controls overrides --- */
+        .server-btn-small.restart { /* 2x larger icon and centered */
+            width:36px; height:36px; padding:0;
+            font-size:22px; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+        }
     </style>
 </head>
 <body>
@@ -520,7 +525,43 @@ async function initApp(){try{await loadNetworkMode();const sel=document.querySel
 function loadTradingPermissions(){return fetch('/api/trade/permissions').then(r=>r.json()).then(d=>{if(d.success){tradingPermissions=d.permissions||{};updateTabsPermissionsUI();}else logDbg('perm load fail')}).catch(e=>logDbg('perm exc '+e));}
 function updateTabsPermissionsUI(){const cont=$('currencyTabsContainer');if(!cont)return;[...cont.querySelectorAll('.tab-item')].forEach(el=>{const code=el.dataset.code;let ind=el.querySelector('.perm-indicator');if(!ind){ind=document.createElement('div');ind.className='perm-indicator';el.appendChild(ind);}const enabled=tradingPermissions[code]!==false;ind.classList.toggle('on',enabled);ind.classList.toggle('off',!enabled);ind.title=enabled?'Торговля включена':'Торговля отключена';ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};});}
 function toggleTradingPermission(code,current){const next=!current;fetch('/api/trade/permission',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base_currency:code,enabled:next})}).then(r=>r.json()).then(d=>{if(d.success){tradingPermissions[code]=next;updateTabsPermissionsUI();logDbg('perm '+code+' -> '+next)}else logDbg('perm set fail '+(d.error||''))}).catch(e=>logDbg('perm set exc '+e));}
-document.addEventListener('DOMContentLoaded',()=>{ initApp(); });
+
+// === Server controls ===
+async function handleServerRestart(){
+  const btn=$('restartServerBtn');
+  if(!btn) return;
+  const prev=btn.textContent;
+  try{
+    btn.disabled=true; btn.textContent='⏳';
+    const r=await fetch('/api/server/restart',{method:'POST'});
+    let msg='Сервер перезапускается...';
+    try{ const d=await r.json(); if(d && d.message) msg=d.message; }catch(_){/* ignore */}
+    alert(msg);
+    setTimeout(()=>{ try{ location.reload(); }catch(_){/* noop */} }, 5000);
+  }catch(e){
+    alert('Ошибка перезапуска: '+e);
+  }finally{
+    btn.textContent=prev; btn.disabled=false;
+  }
+}
+async function handleServerShutdown(){
+  const btn=$('shutdownServerBtn');
+  if(!btn) return;
+  if(!confirm('Остановить сервер?')) return;
+  try{
+    btn.disabled=true;
+    const r=await fetch('/api/server/shutdown',{method:'POST'});
+    let msg='Сервер останавливается...';
+    try{ const d=await r.json(); if(d && d.message) msg=d.message; }catch(_){/* ignore */}
+    alert(msg);
+  }catch(e){
+    alert('Ошибка остановки: '+e);
+  }finally{
+    btn.disabled=false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded',()=>{ initApp(); const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); } const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }});
 </script>
 </body>
 </html>
