@@ -75,7 +75,7 @@ class Config:
     CURRENCIES_FILE = "currencies.json"
     WORK_SECRETS_FILE = os.path.join('config', 'secrets.json')        # рабочая сеть
     TEST_SECRETS_FILE = os.path.join('config', 'secrets_test.json')   # тестовая сеть
-    TEST_API_HOST = "https://api-testnet.gateio.ws"
+    TEST_API_HOST = "https://fx-api-testnet.gateio.ws"  # Новый домен тестовой сети Gate.io
     NETWORK_CONFIG_FILE = "network_mode.json"
     TEST_BALANCES_FILE = 'test_balances.json'
 
@@ -216,6 +216,34 @@ class Config:
         except Exception as e:
             print(f"[TEST_BALANCE] save error: {e}")
             return False
+
+    @staticmethod
+    def generate_simulated_orderbook(base_price: float = 50000.0, depth: int = 20) -> dict:
+        """
+        Генерировать симулированный стакан заявок для тестового режима
+        
+        Args:
+            base_price: Базовая цена
+            depth: Глубина стакана
+            
+        Returns:
+            Словарь с asks и bids
+        """
+        orderbook = {'asks': [], 'bids': []}
+        
+        # Генерируем asks (продажа) - цены выше базовой
+        for i in range(depth):
+            price = base_price * (1 + (i + 1) * 0.0001 + random.uniform(-0.00005, 0.00005))
+            amount = random.uniform(0.01, 2.0)
+            orderbook['asks'].append([str(round(price, 2)), str(round(amount, 8))])
+        
+        # Генерируем bids (покупка) - цены ниже базовой
+        for i in range(depth):
+            price = base_price * (1 - (i + 1) * 0.0001 + random.uniform(-0.00005, 0.00005))
+            amount = random.uniform(0.01, 2.0)
+            orderbook['bids'].append([str(round(price, 2)), str(round(amount, 8))])
+        
+        return orderbook
 
 
 # =============================================================================
@@ -1113,14 +1141,49 @@ def get_pair_data():
             # REST fallback тикер + стакан
             api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
             client = GateAPIClient(api_key, api_secret, CURRENT_NETWORK_MODE)
-            # упрощенный стакан
-            ob = client._request('GET', '/spot/order_book', params={'currency_pair': currency_pair.upper(), 'limit': 20})
-            ticker = client._request('GET', '/spot/tickers', params={'currency_pair': currency_pair.upper()})
+            try:
+                # упрощенный стакан
+                ob = client._request('GET', '/spot/order_book', params={'currency_pair': currency_pair.upper(), 'limit': 20})
+                ticker = client._request('GET', '/spot/tickers', params={'currency_pair': currency_pair.upper()})
+            except Exception as rest_err:
+                # Если REST API тестовой сети недоступен - генерируем симулированные данные
+                if CURRENT_NETWORK_MODE == 'test':
+                    print(f"[TEST MODE] REST API недоступен, генерация симулированных данных для {currency_pair}: {rest_err}")
+                    base_price = 50000.0  # Базовая цена для симуляции
+                    ob = Config.generate_simulated_orderbook(base_price, 20)
+                    ticker = [{
+                        'currency_pair': currency_pair.upper(),
+                        'last': str(base_price),
+                        'lowest_ask': str(base_price * 1.0001),
+                        'highest_bid': str(base_price * 0.9999),
+                        'change_percentage': '0.5',
+                        'base_volume': '1000',
+                        'quote_volume': '50000000'
+                    }]
+                else:
+                    raise  # В рабочем режиме пробрасываем ошибку
+            
             data = {
                 'ticker': ticker[0] if isinstance(ticker, list) and ticker else {},
-                'orderbook': {'asks': ob.get('asks', []), 'bids': ob.get('bids', [])},
+                'orderbook': {'asks': ob.get('asks', []), 'bids': ob.get('bids', [])} if isinstance(ob, dict) else ob,
                 'trades': []
             }
+        
+        # Дополнительная проверка: если стакан пуст в тестовом режиме - генерируем симуляцию
+        if CURRENT_NETWORK_MODE == 'test' and data:
+            orderbook = data.get('orderbook', {})
+            if not orderbook.get('asks') and not orderbook.get('bids'):
+                print(f"[TEST MODE] Стакан пуст, генерация симулированных данных для {currency_pair}")
+                base_price = 50000.0
+                data['orderbook'] = Config.generate_simulated_orderbook(base_price, 20)
+                if not data.get('ticker') or not data['ticker'].get('last'):
+                    data['ticker'] = {
+                        'currency_pair': currency_pair.upper(),
+                        'last': str(base_price),
+                        'lowest_ask': str(base_price * 1.0001),
+                        'highest_bid': str(base_price * 0.9999)
+                    }
+        
         return jsonify({'success': True, 'pair': currency_pair, 'data': data})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

@@ -33,7 +33,7 @@ class GateIOWebSocket:
         Args:
             api_key: API ключ Gate.io (опционально для публичных данных)
             api_secret: API секрет Gate.io (опционально для публичных данных)
-            ws_url: Полный WS URL (для testnet передаем wss://api-testnet.gateio.ws/ws/v4/)
+            ws_url: Полный WS URL (для testnet передаем wss://api-testnet.gateapi.io/ws/v4/)
         """
         self.api_key = api_key
         self.api_secret = api_secret
@@ -539,7 +539,7 @@ def init_websocket_manager(api_key: str, api_secret: str, network_mode: str = 'w
         Экземпляр PairWebSocketManager
     """
     global ws_manager
-    ws_url = "wss://api.gateio.ws/ws/v4/" if network_mode == 'work' else "wss://api-testnet.gateio.ws/ws/v4/"
+    ws_url = "wss://api.gateio.ws/ws/v4/" if network_mode == 'work' else "wss://fx-api-testnet.gateio.ws/ws/v4/"
     ws_manager = PairWebSocketManager(api_key, api_secret, ws_url)
     return ws_manager
 
