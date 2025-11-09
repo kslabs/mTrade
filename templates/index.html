@@ -414,9 +414,15 @@ async function loadMarketData(){
     const r=await fetch(`/api/pair/data?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
     const d=await r.json();
     if(!d.success){ logDbg('loadMarketData fail '+(d.error||'')); return; }
-    const ob=d.orderbook||d.data?.orderbook;
-    const ticker=d.ticker||d.data?.ticker;
-    if(ob) updateOrderBook(ob); else logDbg('orderbook missing');
+    // Данные всегда в d.data
+    const ob=d.data?.orderbook;
+    const ticker=d.data?.ticker;
+    if(ob && ob.asks && ob.bids) { 
+      updateOrderBook(ob); 
+      logDbg(`orderbook updated: ${ob.asks.length} asks, ${ob.bids.length} bids`);
+    } else {
+      logDbg('orderbook missing or empty');
+    }
     if(ticker){
       const last=parseFloat(ticker.last||ticker.last_price||ticker.close||ticker.price||0);
       const priceStr=formatPrice(last);
