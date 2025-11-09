@@ -229,7 +229,7 @@ function logDbg(m){
 }
 const $=id=>document.getElementById(id);
 let currentNetworkMode='work';
-let currentBaseCurrency='BTC';
+let currentBaseCurrency=null; // Будет установлено после загрузки currencies
 let currentQuoteCurrency='USDT';
 let currenciesList=[];
 let autoTradeActive=false;
@@ -307,19 +307,17 @@ function renderCurrencyTabs(list){
   const arr=Array.isArray(list)?list:[];
   logDbg('renderCurrencyTabs raw len='+(arr.length));
   let norm=arr.map(c=>{if(typeof c==='string')return {code:c.toUpperCase(),symbol:''};return {code:(c.code||'').toUpperCase(),symbol:(c.symbol||'').trim()};}).filter(o=>o.code);
-  // Fallback: если активная валюта отсутствует, добавляем её чтобы была кнопка
-  const codes=new Set(norm.map(o=>o.code));
-  if(currentBaseCurrency && !codes.has(currentBaseCurrency)){
-    logDbg('active base '+currentBaseCurrency+' отсутствует в списке -> добавляю временно');
-    norm.unshift({code:currentBaseCurrency.toUpperCase(),symbol:''});
-  }
   // Если список пуст – загрузить дефолтные
   if(!norm.length){
     logDbg('список пуст – добавляю дефолтные');
     norm=['BTC','ETH','SOL','BNB','XRP','ADA','AVAX','DOT','MATIC','LINK'].map(c=>({code:c,symbol:''}));
-    if(!currentBaseCurrency) currentBaseCurrency='BTC';
   }
-  if(!currentBaseCurrency) currentBaseCurrency=norm[0].code;
+  // Установить активную валюту: если текущая есть в списке - оставляем, иначе - первая из списка
+  const codes=new Set(norm.map(o=>o.code));
+  if(!currentBaseCurrency || !codes.has(currentBaseCurrency)){
+    currentBaseCurrency=norm[0].code;
+    logDbg('установлена активная валюта: '+currentBaseCurrency);
+  }
   norm.forEach(cur=>{
     const el=document.createElement('div');
     el.className='tab-item'+(cur.code===currentBaseCurrency?' active':'');
