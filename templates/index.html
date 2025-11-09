@@ -73,11 +73,180 @@
         .orderbook-spread {display:flex;justify-content:space-between;align-items:center;padding:6px 5px;font-size:11px;font-weight:600;color:#999;border-top:1px solid #3a3a3a;border-bottom:1px solid #3a3a3a;background:#252525}
         #currentPrice {color:#4CAF50;font-size:12px;font-weight:700}
         #spreadValue {color:#FF9800}
-        .network-switch {display:flex;align-items:center;gap:6px;background:#1a1a1a;border:1px solid #3a3a3a;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer}
-        .network-switch.work {border-color:#4CAF50}
-        .network-switch.test {border-color:#2196F3}
-        .network-indicator {width:10px;height:10px;border-radius:50%;background:#4CAF50}
-        .network-switch.test .network-indicator {background:#2196F3}
+        /* Network mode toggle - dual button style */
+        .network-switch {
+            display:inline-flex;
+            align-items:center;
+            gap:2px;
+            background:#1a1a1a;
+            border:1px solid #3a3a3a;
+            border-radius:8px;
+            padding:2px;
+            user-select:none;
+        }
+        .network-switch .mode-option {
+            padding:4px 16px;
+            font-size:11px;
+            font-weight:500;
+            color:#666;
+            background:transparent;
+            border:none;
+            border-radius:6px;
+            transition:all .3s cubic-bezier(.22,1,.36,1);
+            cursor:pointer;
+            position:relative;
+            letter-spacing:0.5px;
+            text-transform:uppercase;
+            line-height:1.2;
+        }
+        .network-switch .mode-option:hover:not(.active) {
+            background:#2a2a2a;
+            color:#999;
+        }
+        /* Активный режим: крупнее, жирнее и ярче */
+        .network-switch .mode-option.active {
+            padding:5px 18px;
+            font-size:14px;
+            font-weight:700;
+            transform:scale(1.08);
+        }
+        /* Work mode - зелёный */
+        .network-switch .mode-option[data-mode="work"].active {
+            background:#4CAF50;
+            color:#fff;
+            box-shadow:0 3px 12px rgba(76,175,80,.6),inset 0 1px 0 rgba(255,255,255,.25);
+        }
+        /* Test mode - синий */
+        .network-switch .mode-option[data-mode="test"].active {
+            background:#2196F3;
+            color:#fff;
+            box-shadow:0 3px 12px rgba(33,150,243,.6),inset 0 1px 0 rgba(255,255,255,.25);
+        }
+        .network-switch.pending {
+            opacity:0.7;
+        }
+        .network-switch.error {
+            border-color:#f44336;
+            animation:pulse-error .6s ease-in-out 2;
+        }
+        @keyframes pulse-error {
+            0%, 100% { border-color:#f44336; }
+            50% { border-color:#ff5252; }
+        }
+        #networkConnStatus {
+            font-size:9px;
+            color:#999;
+            position:absolute;
+            bottom:-14px;
+            left:50%;
+            transform:translateX(-50%);
+            white-space:nowrap;
+        }
+        /* Trading mode toggle - dual button style (Trade/Copy) */
+        .trading-mode-switch {
+            display:inline-flex;
+            align-items:center;
+            gap:2px;
+            background:#1a1a1a;
+            border:1px solid #3a3a3a;
+            border-radius:8px;
+            padding:2px;
+            user-select:none;
+        }
+        .trading-mode-switch .mode-option {
+            padding:4px 16px;
+            font-size:11px;
+            font-weight:500;
+            color:#666;
+            background:transparent;
+            border:none;
+            border-radius:6px;
+            transition:all .3s cubic-bezier(.22,1,.36,1);
+            cursor:pointer;
+            position:relative;
+            letter-spacing:0.5px;
+            text-transform:uppercase;
+            line-height:1.2;
+        }
+        .trading-mode-switch .mode-option:hover:not(.active) {
+            background:#2a2a2a;
+            color:#999;
+        }
+        /* Активный режим: крупнее, жирнее и ярче */
+        .trading-mode-switch .mode-option.active {
+            padding:5px 18px;
+            font-size:14px;
+            font-weight:700;
+            transform:scale(1.08);
+        }
+        /* Normal/Trade mode - зелёный */
+        .trading-mode-switch .mode-option[data-mode="normal"].active {
+            background:#4CAF50;
+            color:#fff;
+            box-shadow:0 3px 12px rgba(76,175,80,.6),inset 0 1px 0 rgba(255,255,255,.25);
+        }
+        /* Copy mode - оранжевый */
+        .trading-mode-switch .mode-option[data-mode="copy"].active {
+            background:#FF9800;
+            color:#fff;
+            box-shadow:0 3px 12px rgba(255,152,0,.6),inset 0 1px 0 rgba(255,255,255,.25);
+        }
+        .trading-mode-switch.pending {
+            opacity:0.7;
+        }
+        /* AutoTrade toggle button */
+        .autotrade-switch {
+            display:inline-flex;
+            align-items:center;
+            gap:2px;
+            background:#1a1a1a;
+            border:1px solid #3a3a3a;
+            border-radius:8px;
+            padding:2px;
+            user-select:none;
+            cursor:pointer;
+            transition:all .3s ease;
+        }
+        .autotrade-switch .mode-option {
+            padding:4px 14px;
+            font-size:11px;
+            font-weight:500;
+            color:#666;
+            background:transparent;
+            border:none;
+            border-radius:6px;
+            transition:all .3s cubic-bezier(.22,1,.36,1);
+            position:relative;
+            letter-spacing:0.5px;
+            text-transform:uppercase;
+            line-height:1.2;
+        }
+        .autotrade-switch .mode-option.active {
+            padding:5px 16px;
+            font-size:13px;
+            font-weight:700;
+            transform:scale(1.08);
+        }
+        /* AutoTrade OFF - красный */
+        .autotrade-switch .mode-option[data-state="off"].active {
+            background:#f44336;
+            color:#fff;
+            box-shadow:0 3px 12px rgba(244,67,54,.6),inset 0 1px 0 rgba(255,255,255,.25);
+        }
+        /* AutoTrade ON - зелёный */
+        .autotrade-switch .mode-option[data-state="on"].active {
+            background:#4CAF50;
+            color:#fff;
+            box-shadow:0 3px 12px rgba(76,175,80,.6),inset 0 1px 0 rgba(255,255,255,.25);
+        }
+        .autotrade-switch .label-text {
+            font-size:10px;
+            color:#999;
+            margin-right:8px;
+            text-transform:uppercase;
+            letter-spacing:0.5px;
+            font-weight:600;
+        }
         .perm-toggle {display:inline-block;width:14px;height:14px;border-radius:50%;margin-left:6px;position:relative;cursor:pointer;box-shadow:0 0 0 1px #555,inset 0 0 4px rgba(0,0,0,.6)}
         .perm-toggle.on {background:#4CAF50}
         .perm-toggle.off {background:#f44336}
@@ -159,10 +328,34 @@
     <div class="header">
         <div class="header-left"><div><h1>🚀 mTrade</h1><p>Gate.io Trading Platform</p></div></div>
         <div class="header-center">
-            <div id="networkSwitcher" class="network-switch" onclick="toggleNetworkMode()" title="Переключить сеть"><div class="network-indicator"></div><span id="networkModeLabel">WORK</span><span id="networkConnStatus" style="font-size:10px;margin-left:4px;color:#999;"></span></div>
-            <span class="mode-label" id="normalLabelHeader">📊 Обычный</span>
-            <div class="toggle-switch" id="modeToggleHeader" onclick="toggleMode()"><div class="toggle-slider"></div></div>
-            <span class="mode-label" id="copyLabelHeader">🔄 Копи</span>
+            <div id="autoTradeSwitcher" class="autotrade-switch" title="Включить/выключить автоторговлю" onclick="toggleAutoTrade()">
+                <span class="label-text">AutoTrade</span>
+                <div class="mode-option" data-state="off">
+                    OFF
+                </div>
+                <div class="mode-option active" data-state="on">
+                    ON
+                </div>
+            </div>
+            <div style="position:relative;display:inline-block;">
+                <div id="networkSwitcher" class="network-switch" title="Переключить режим сети">
+                    <div class="mode-option active" data-mode="work" onclick="switchNetworkMode('work')">
+                        WORK
+                    </div>
+                    <div class="mode-option" data-mode="test" onclick="switchNetworkMode('test')">
+                        TEST
+                    </div>
+                </div>
+                <span id="networkConnStatus"></span>
+            </div>
+            <div id="tradingModeSwitcher" class="trading-mode-switch" title="Переключить режим торговли">
+                <div class="mode-option active" data-mode="normal" onclick="switchTradingMode('normal')">
+                    TRADE
+                </div>
+                <div class="mode-option" data-mode="copy" onclick="switchTradingMode('copy')">
+                    COPY
+                </div>
+            </div>
         </div>
         <div class="header-right">
             <div class="server-status-inline"><div class="status-dot" id="statusDot"></div><span id="serverPID" style="color:#999;font-size:11px;">PID: ---</span></div>
@@ -189,21 +382,7 @@
         </div>
     </div>
 
-    <!-- Модальное окно редактирования баланса USDT -->
-    <div id="editQuoteBalanceModal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.65);z-index:1000" onclick="if(event.target===this)closeEditQuoteBalance()">
-        <div class="modal-inner" style="background:#222;border:1px solid #3a3a3a;border-radius:10px;padding:18px;max-width:400px;width:92%">
-            <h4 style="margin:0 0 12px;font-size:15px;color:#4CAF50;font-weight:600">💰 Редактировать тестовый баланс USDT</h4>
-            <div style="margin-bottom:12px">
-                <label style="display:block;margin-bottom:6px;font-size:12px;color:#ccc">Баланс (USDT):</label>
-                <input type="number" id="quoteBalanceInput" step="0.00000001" style="background:#111;border:1px solid #333;border-radius:4px;padding:8px;color:#eee;font-size:13px;width:100%">
-            </div>
-            <div style="display:flex;gap:8px;margin-top:14px">
-                <button class="cm-btn save" onclick="saveQuoteBalance()">💾 Сохранить</button>
-                <button class="cm-btn cancel" onclick="closeEditQuoteBalance()">✖ Отмена</button>
-            </div>
-            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">Редактирование доступно только в TEST режиме. Баланс сохраняется локально.</div>
-        </div>
-    </div>
+
 
     <div class="grid">
         <div class="card">
@@ -211,7 +390,7 @@
             <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT <span style="font-size:12px;font-weight:400;color:#999;" id="quoteBalanceInline"></span></div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
             <div class="balances-grid">
                 <div class="balance-item"><div class="balance-label">Баланс <span id="baseSymbol">BTC</span></div><div class="balance-value" id="baseBalance">0.00000000</div><div class="balance-usd" id="baseBalanceUSD">≈ $0.00</div></div>
-                <div class="balance-item"><div class="balance-label">Баланс <span id="quoteSymbol">USDT</span> <button id="editQuoteBalanceBtn" style="display:none;margin-left:6px;padding:2px 8px;background:#2196F3;color:#fff;border:none;border-radius:4px;font-size:10px;cursor:pointer;">✏️ Edit</button></div><div class="balance-value" id="quoteBalance">0.00000000</div><div class="balance-usd" style="font-size:10px;color:#888;">Котируемая валюта</div></div>
+                <div class="balance-item"><div class="balance-label">Баланс <span id="quoteSymbol">USDT</span></div><div class="balance-value" id="quoteBalance">0.00000000</div><div class="balance-usd" style="font-size:10px;color:#888;">Котируемая валюта</div></div>
                 <div class="balance-item" id="pairParamsBlock"><div class="balance-label">Параметры пары</div><div style="display:grid;grid-template-columns:auto auto;gap:4px;font-size:10px;color:#ccc;"><div>Min Quote:</div><div id="minQuoteAmount">-</div><div>Min Base:</div><div id="minBaseAmount">-</div><div>Amt Prec:</div><div id="amountPrecision">-</div><div>Price Prec:</div><div id="pricePrecision">-</div></div></div>
             </div>
             <div class="orderbook-container">
@@ -279,13 +458,18 @@ function updateTradeIndicators(d){
   })
 }
 function updateNetworkUI(){
-  const sw=$('networkSwitcher'),lbl=$('networkModeLabel');
-  if(!sw||!lbl) return;
+  const sw=$('networkSwitcher');
+  if(!sw) return;
   sw.classList.remove('work','test');
   sw.classList.add(currentNetworkMode==='test'?'test':'work');
-  lbl.textContent=currentNetworkMode==='test'?'TEST':'WORK';
-  const tb=$('editTestBalanceBtn');
-  if(tb) tb.style.display=currentNetworkMode==='test'?'inline-block':'none'
+  
+  // Обновляем активность кнопок
+  const workBtn = sw.querySelector('[data-mode="work"]');
+  const testBtn = sw.querySelector('[data-mode="test"]');
+  if(workBtn && testBtn){
+    workBtn.classList.toggle('active', currentNetworkMode==='work');
+    testBtn.classList.toggle('active', currentNetworkMode==='test');
+  }
 }
 function setNetworkConnectionState(st){
   const sw=$('networkSwitcher');
@@ -513,7 +697,6 @@ async function loadPairBalances(){
       const quoteBalEl=document.getElementById('quoteBalance');
       const quoteSymEl=document.getElementById('quoteSymbol');
       const inlineEl=document.getElementById('quoteBalanceInline');
-      const editQuoteBtn=document.getElementById('editQuoteBalanceBtn');
       
       const baseAvail=parseFloat(d.balances?.base?.available||'0');
       const baseEq=d.base_equivalent||0;
@@ -524,9 +707,6 @@ async function loadPairBalances(){
       if(quoteBalEl) quoteBalEl.textContent=(isFinite(quoteAvail)?quoteAvail:0).toFixed(8);
       if(quoteSymEl) quoteSymEl.textContent=currentQuoteCurrency;
       if(inlineEl) inlineEl.textContent=`Баланс: ${(isFinite(baseAvail)?baseAvail:0).toFixed(8)} ${currentBaseCurrency} ≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
-      
-      // Показать кнопку редактирования баланса USDT только в тестовом режиме
-      if(editQuoteBtn) editQuoteBtn.style.display = (currentNetworkMode === 'test') ? 'inline-block' : 'none';
     }
   }catch(e){ logDbg('loadPairBalances err '+e) }
 }
@@ -542,11 +722,14 @@ async function loadBreakEvenTable(){
     }
   }catch(e){ logDbg('loadBreakEvenTable err '+e) }
 }
-async function toggleNetworkMode(){
-  const next=currentNetworkMode==='work'?'test':'work';
-  logDbg('toggleNetworkMode -> '+next);
+// Новая функция для переключения режима с явным указанием
+async function switchNetworkMode(targetMode){
+  if(!targetMode || !['work','test'].includes(targetMode)) return;
+  if(currentNetworkMode === targetMode) return; // уже в этом режиме
+  
+  logDbg('switchNetworkMode -> '+targetMode);
   try{
-    const resp=await fetch('/api/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:next})});
+    const resp=await fetch('/api/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:targetMode})});
     const data=await resp.json();
     logDbg('network POST resp '+JSON.stringify(data));
     if(data.success){
@@ -554,26 +737,106 @@ async function toggleNetworkMode(){
       updateNetworkUI();
       setNetworkConnectionState('pending');
       await loadCurrenciesFromServer();
-      await subscribeToPairData(currentBaseCurrency||'BTC',currentQuoteCurrency||'USDT');
+      // Подписываемся на ВСЕ валюты при переключении режима
+      await subscribeToAllCurrencies();
       setTimeout(()=>{
         loadMarketData();
         loadPairBalances();
         loadPairParams(true);
         loadBreakEvenTable();
-      },1100);
+      },1500);
     }else{
       logDbg('network switch fail '+(data.error||''));
       setNetworkConnectionState('error');
     }
   }catch(e){
-    logDbg('toggleNetworkMode exception '+e);
+    logDbg('switchNetworkMode exception '+e);
     setNetworkConnectionState('error');
   }
 }
-function toggleMode(){
-  const t=$('modeToggleHeader');
-  if(t) t.classList.toggle('active');
+
+// Старая функция для совместимости (toggle между work/test)
+async function toggleNetworkMode(){
+  const next=currentNetworkMode==='work'?'test':'work';
+  await switchNetworkMode(next);
 }
+
+// === Trading mode switcher (normal/copy) ===
+let currentTradingMode = 'normal';
+
+async function switchTradingMode(targetMode){
+  if(!targetMode || !['normal','copy'].includes(targetMode)) return;
+  if(currentTradingMode === targetMode) return; // уже в этом режиме
+  
+  logDbg('switchTradingMode -> '+targetMode);
+  try{
+    const resp=await fetch('/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:targetMode})});
+    const data=await resp.json();
+    logDbg('trading mode POST resp '+JSON.stringify(data));
+    if(data.success){
+      currentTradingMode=data.mode;
+      updateTradingModeUI();
+    }else{
+      logDbg('trading mode switch fail '+(data.error||''));
+    }
+  }catch(e){
+    logDbg('switchTradingMode exception '+e);
+  }
+}
+
+function updateTradingModeUI(){
+  const sw=$('tradingModeSwitcher');
+  if(!sw) return;
+  
+  // Обновляем активность кнопок
+  const normalBtn = sw.querySelector('[data-mode="normal"]');
+  const copyBtn = sw.querySelector('[data-mode="copy"]');
+  if(normalBtn && copyBtn){
+    normalBtn.classList.toggle('active', currentTradingMode==='normal');
+    copyBtn.classList.toggle('active', currentTradingMode==='copy');
+  }
+}
+async function loadTradingMode(){
+  try{
+    const r=await fetch('/api/mode');
+    const d=await r.json();
+    if(d.mode){
+      currentTradingMode=d.mode;
+      updateTradingModeUI();
+      logDbg('trading mode='+currentTradingMode);
+    }
+  }catch(e){ logDbg('loadTradingMode err '+e) }
+}
+
+// === AutoTrade switcher ===
+let autoTradeEnabled = true; // По умолчанию включено (ON)
+
+function toggleAutoTrade(){
+  autoTradeEnabled = !autoTradeEnabled;
+  updateAutoTradeUI();
+  logDbg('AutoTrade toggled: ' + (autoTradeEnabled ? 'ON' : 'OFF'));
+  
+  // Здесь позже будет вызов API для старта/остановки автотрейдинга
+  // Пока просто логируем
+  if(autoTradeEnabled){
+    logDbg('AutoTrade: будет запущен (функционал в разработке)');
+  }else{
+    logDbg('AutoTrade: будет остановлен (функционал в разработке)');
+  }
+}
+
+function updateAutoTradeUI(){
+  const sw=$('autoTradeSwitcher');
+  if(!sw) return;
+  
+  const offBtn = sw.querySelector('[data-state="off"]');
+  const onBtn = sw.querySelector('[data-state="on"]');
+  if(offBtn && onBtn){
+    offBtn.classList.toggle('active', !autoTradeEnabled);
+    onBtn.classList.toggle('active', autoTradeEnabled);
+  }
+}
+
 function openCurrencyManager(){buildCurrencyManagerRows();$('currencyManagerModal').style.display='flex';}
 function closeCurrencyManager(){$('currencyManagerModal').style.display='none';}
 function buildCurrencyManagerRows(){const rows=$('currencyManagerRows');if(!rows)return;rows.innerHTML='';const arr=Array.isArray(currenciesList)?currenciesList:[];arr.forEach((c,i)=>{const code=(c.code||c||'').toUpperCase();const symbol=(c.symbol||c.code||c||'');const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='${code}' placeholder='Код'><input type='text' class='cm-symbol' value='${symbol}' placeholder='Символ'><div style='color:#888;font-size:11px;'>${tradingPermissions[code]!==false?'Торговля: ✅':'Торговля: ❌'}</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row)});}
@@ -581,47 +844,57 @@ function addCurrencyRow(){const rows=$('currencyManagerRows');const i=rows.query
 function deleteCurrencyRow(idx){const rows=$('currencyManagerRows');const row=[...rows.querySelectorAll('.cm-row')].find(r=>r.dataset.index==idx);if(row)row.remove();}
 function saveCurrenciesList(){const rows=$('currencyManagerRows');const items=[...rows.querySelectorAll('.cm-row')].map(r=>({code:r.querySelector('.cm-code').value.trim().toUpperCase(),symbol:r.querySelector('.cm-symbol').value.trim()})).filter(o=>o.code);if(!items.length){alert('Нужна минимум 1 валюта');return;}const codes=items.map(i=>i.code);const dup=codes.filter((c,i)=>codes.indexOf(c)!==i);if(dup.length){alert('Дубликаты: '+dup.join(','));return;}fetch('/api/currencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currencies:items})}).then(r=>r.json()).then(d=>{if(d.success){currenciesList=items;renderCurrencyTabs(currenciesList);closeCurrencyManager();logDbg('currencies saved');}else alert('Ошибка: '+(d.error||'fail'))}).catch(e=>alert('Ошибка сохранения: '+e));}
 
-// === Quote balance editor ===
-function openEditQuoteBalance(){
-  const modal=$('editQuoteBalanceModal');
-  const input=$('quoteBalanceInput');
-  const quoteBalEl=$('quoteBalance');
-  if(!modal || !input) return;
-  const currentBal = quoteBalEl ? parseFloat(quoteBalEl.textContent) : 0;
-  input.value = currentBal.toFixed(8);
-  modal.style.display='flex';
-}
-function closeEditQuoteBalance(){
-  const modal=$('editQuoteBalanceModal');
-  if(modal) modal.style.display='none';
-}
-async function saveQuoteBalance(){
-  const input=$('quoteBalanceInput');
-  if(!input) return;
-  const newBalance = parseFloat(input.value);
-  if(isNaN(newBalance) || newBalance < 0){
-    alert('Некорректное значение баланса');
+
+
+// === Subscribe to all currencies ===
+async function subscribeToAllCurrencies(){
+  if(!Array.isArray(currenciesList) || currenciesList.length===0){
+    logDbg('subscribeToAllCurrencies: нет валют для подписки');
     return;
   }
-  try{
-    const r=await fetch('/api/test/balance',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({currency:currentQuoteCurrency,balance:newBalance})
-    });
-    const d=await r.json();
-    if(d.success){
-      logDbg('quote balance saved: '+newBalance);
-      closeEditQuoteBalance();
-      await loadPairBalances(); // Обновить UI
-    }else{
-      alert('Ошибка: '+(d.error||'fail'));
+  logDbg(`subscribeToAllCurrencies: подписываемся на ${currenciesList.length} валют с ${currentQuoteCurrency}`);
+  for(const cur of currenciesList){
+    const code = typeof cur==='string' ? cur : cur.code;
+    if(code){
+      try{
+        await subscribeToPairData(code.toUpperCase(), currentQuoteCurrency);
+        // Небольшая задержка между подписками
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }catch(e){
+        logDbg(`subscribeToAllCurrencies: ошибка для ${code}: ${e}`);
+      }
     }
+  }
+  logDbg('subscribeToAllCurrencies: завершено');
+}
+
+async function initApp(){
+  try{
+    await loadNetworkMode();
+    await loadTradingMode();
+    updateAutoTradeUI(); // Инициализация UI переключателя AutoTrade
+    const sel=document.querySelector('#quoteCurrency');
+    if(sel) currentQuoteCurrency=sel.value.toUpperCase();
+    await loadCurrenciesFromServer();
+    await loadTradingPermissions();
+    // Подписываемся на ВСЕ валюты из списка, а не только на активную
+    await subscribeToAllCurrencies();
+    await Promise.all([
+      loadMarketData(),
+      loadPairBalances(),
+      loadPairParams(true),
+      loadBreakEvenTable(),
+      loadTradingPermissions()
+    ]);
+    setInterval(loadMarketData,5000);
+    setInterval(loadPairBalances,15000);
+    setInterval(loadBreakEvenTable,6000);
+    setInterval(loadPerBaseIndicators,7000);
+    setInterval(loadTradingPermissions,20000);
   }catch(e){
-    alert('Ошибка сохранения: '+e);
+    logDbg('initApp exc '+e);
   }
 }
-async function initApp(){try{await loadNetworkMode();const sel=document.querySelector('#quoteCurrency');if(sel)currentQuoteCurrency=sel.value.toUpperCase();await loadCurrenciesFromServer();await loadTradingPermissions();await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);await Promise.all([loadMarketData(),loadPairBalances(),loadPairParams(true),loadBreakEvenTable(),loadTradingPermissions()]);setInterval(loadMarketData,5000);setInterval(loadPairBalances,15000);setInterval(loadBreakEvenTable,6000);setInterval(loadPerBaseIndicators,7000);setInterval(loadTradingPermissions,20000);}catch(e){logDbg('initApp exc '+e)};
 // === Trading permissions (вкладки) ===
 function loadTradingPermissions(){return fetch('/api/trade/permissions').then(r=>r.json()).then(d=>{if(d.success){tradingPermissions=d.permissions||{};updateTabsPermissionsUI();}else logDbg('perm load fail')}).catch(e=>logDbg('perm exc '+e));}
 function updateTabsPermissionsUI(){const cont=$('currencyTabsContainer');if(!cont)return;[...cont.querySelectorAll('.tab-item')].forEach(el=>{const code=el.dataset.code;let ind=el.querySelector('.perm-indicator');if(!ind){ind=document.createElement('div');ind.className='perm-indicator';el.appendChild(ind);}const enabled=tradingPermissions[code]!==false;ind.classList.toggle('on',enabled);ind.classList.toggle('off',!enabled);ind.title=enabled?'Торговля включена':'Торговля отключена';ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};});}
@@ -713,7 +986,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   startUptimeLoops();
   const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); }
   const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }
-  const qb=$('editQuoteBalanceBtn'); if(qb){ qb.addEventListener('click', (ev)=>{ ev.preventDefault(); openEditQuoteBalance(); }); }
 });
 </script>
 </body>

@@ -537,9 +537,16 @@ def init_websocket_manager(api_key: str, api_secret: str, network_mode: str = 'w
         
     Returns:
         Экземпляр PairWebSocketManager
+        
+    Note:
+        Для рыночных данных (orderbook, tickers) всегда используется основной WebSocket API Gate.io,
+        т.к. тестовая сеть не предоставляет актуальные рыночные данные.
+        Режим network_mode влияет только на торговые операции (балансы, ордера).
     """
     global ws_manager
-    ws_url = "wss://api.gateio.ws/ws/v4/" if network_mode == 'work' else "wss://fx-api-testnet.gateio.ws/ws/v4/"
+    # ВСЕГДА используем основной WebSocket API для рыночных данных
+    ws_url = "wss://api.gateio.ws/ws/v4/"
+    print(f"[WEBSOCKET] Инициализация WebSocket менеджера (network_mode={network_mode}, ws_url={ws_url})")
     ws_manager = PairWebSocketManager(api_key, api_secret, ws_url)
     return ws_manager
 
