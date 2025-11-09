@@ -576,7 +576,58 @@ async function handleServerShutdown(){
   }
 }
 
-document.addEventListener('DOMContentLoaded',()=>{ initApp(); const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); } const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }});
+// === UPTIME (статус сервера) ===
+let __uptimeSeconds = 0;
+let __uptimeLastSync = 0;
+function formatUptime(sec){
+  sec = Math.max(0, Math.floor(sec));
+  const d = Math.floor(sec / 86400); sec -= d*86400;
+  const h = Math.floor(sec / 3600); sec -= h*3600;
+  const m = Math.floor(sec / 60); sec -= m*60;
+  const s = sec;
+  const pad = v=>String(v).padStart(2,'0');
+  return `${pad(d)}д ${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+function renderUptime(){
+  const el = $('uptimeDisplay');
+  if(!el) return;
+  el.innerHTML = `<strong>${formatUptime(__uptimeSeconds)}</strong>`;
+}
+function tickUptime(){
+  if(__uptimeLastSync>0){
+    __uptimeSeconds += 1;
+    renderUptime();
+  }
+}
+async function loadServerStatus(){
+  try{
+    const r = await fetch('/api/server/status');
+    const d = await r.json();
+    if(d && d.uptime!=null){
+      __uptimeSeconds = Math.floor(d.uptime);
+      __uptimeLastSync = Date.now();
+      renderUptime();
+    }
+    if(d && d.pid){
+      const pidEl = $('serverPID');
+      if(pidEl){ pidEl.textContent = `PID: ${d.pid}`; }
+    }
+  }catch(e){ logDbg('loadServerStatus err '+e); }
+}
+// Периодическая синхронизация с сервером
+function startUptimeLoops(){
+  loadServerStatus();
+  setInterval(loadServerStatus, 15000); // каждые 15с серверная синхронизация
+  setInterval(tickUptime, 1000); // локальный тик каждую секунду
+}
+
+// DOMContentLoaded
+document.addEventListener('DOMContentLoaded',()=>{ 
+  initApp(); 
+  startUptimeLoops();
+  const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); }
+  const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }
+});
 </script>
 </body>
 </html>
