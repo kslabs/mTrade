@@ -25,8 +25,18 @@
         .uptime-display {color:#999;font-size:12px;font-family:'Courier New',monospace}
         .server-controls-inline {display:flex;gap:8px}
         .server-btn-small {padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500;transition:.2s}
+        .server-btn-small.restart { /* 2x larger icon and centered */
+            width:36px; height:36px; padding:0;
+            font-size:22px; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+        }
         .server-btn-small.restart {background:#FF9800;color:#fff}
         .server-btn-small.restart:hover {background:#F57C00}
+        .server-btn-small.shutdown { /* 2x larger icon and centered */
+            width:36px; height:36px; padding:0;
+            font-size:22px; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+        }
         .server-btn-small.shutdown {background:#f44336;color:#fff}
         .server-btn-small.shutdown:hover {background:#d32f2f}
         .toggle-switch {position:relative;width:60px;height:30px;background:#1a1a1a;border-radius:15px;cursor:pointer;transition:background .3s;border:2px solid #3a3a3a}
@@ -125,6 +135,11 @@
         .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important}
         /* --- Server controls overrides --- */
         .server-btn-small.restart { /* 2x larger icon and centered */
+            width:36px; height:36px; padding:0;
+            font-size:22px; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+        }
+        .server-btn-small.shutdown { /* 2x larger icon and centered */
             width:36px; height:36px; padding:0;
             font-size:22px; line-height:1;
             display:flex; align-items:center; justify-content:center;
@@ -520,7 +535,7 @@ function buildCurrencyManagerRows(){const rows=$('currencyManagerRows');if(!rows
 function addCurrencyRow(){const rows=$('currencyManagerRows');const i=rows.querySelectorAll('.cm-row').length;const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='' placeholder='Код'><input type='text' class='cm-symbol' value='' placeholder='Символ'><div style='color:#888;font-size:11px;'>Новая</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row);}
 function deleteCurrencyRow(idx){const rows=$('currencyManagerRows');const row=[...rows.querySelectorAll('.cm-row')].find(r=>r.dataset.index==idx);if(row)row.remove();}
 function saveCurrenciesList(){const rows=$('currencyManagerRows');const items=[...rows.querySelectorAll('.cm-row')].map(r=>({code:r.querySelector('.cm-code').value.trim().toUpperCase(),symbol:r.querySelector('.cm-symbol').value.trim()})).filter(o=>o.code);if(!items.length){alert('Нужна минимум 1 валюта');return;}const codes=items.map(i=>i.code);const dup=codes.filter((c,i)=>codes.indexOf(c)!==i);if(dup.length){alert('Дубликаты: '+dup.join(','));return;}fetch('/api/currencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currencies:items})}).then(r=>r.json()).then(d=>{if(d.success){currenciesList=items;renderCurrencyTabs(currenciesList);closeCurrencyManager();logDbg('currencies saved');}else alert('Ошибка: '+(d.error||'fail'))}).catch(e=>alert('Ошибка сохранения: '+e));}
-async function initApp(){try{await loadNetworkMode();const sel=document.querySelector('#quoteCurrency');if(sel)currentQuoteCurrency=sel.value.toUpperCase();await loadCurrenciesFromServer();await loadTradingPermissions();await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);await Promise.all([loadMarketData(),loadPairBalances(),loadPairParams(true),loadBreakEvenTable(),loadTradingPermissions()]);setInterval(loadMarketData,5000);setInterval(loadPairBalances,15000);setInterval(loadBreakEvenTable,6000);setInterval(loadPerBaseIndicators,7000);setInterval(loadTradingPermissions,20000);}catch(e){logDbg('initApp exc '+e)}}
+async function initApp(){try{await loadNetworkMode();const sel=document.querySelector('#quoteCurrency');if(sel)currentQuoteCurrency=sel.value.toUpperCase();await loadCurrenciesFromServer();await loadTradingPermissions();await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);await Promise.all([loadMarketData(),loadPairBalances(),loadPairParams(true),loadBreakEvenTable(),loadTradingPermissions()]);setInterval(loadMarketData,5000);setInterval(loadPairBalances,15000);setInterval(loadBreakEvenTable,6000);setInterval(loadPerBaseIndicators,7000);setInterval(loadTradingPermissions,20000);}catch(e){logDbg('initApp exc '+e)};
 // === Trading permissions (вкладки) ===
 function loadTradingPermissions(){return fetch('/api/trade/permissions').then(r=>r.json()).then(d=>{if(d.success){tradingPermissions=d.permissions||{};updateTabsPermissionsUI();}else logDbg('perm load fail')}).catch(e=>logDbg('perm exc '+e));}
 function updateTabsPermissionsUI(){const cont=$('currencyTabsContainer');if(!cont)return;[...cont.querySelectorAll('.tab-item')].forEach(el=>{const code=el.dataset.code;let ind=el.querySelector('.perm-indicator');if(!ind){ind=document.createElement('div');ind.className='perm-indicator';el.appendChild(ind);}const enabled=tradingPermissions[code]!==false;ind.classList.toggle('on',enabled);ind.classList.toggle('off',!enabled);ind.title=enabled?'Торговля включена':'Торговля отключена';ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};});}
