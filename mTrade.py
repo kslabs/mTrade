@@ -1129,13 +1129,19 @@ def get_pair_data():
     try:
         base_currency = request.args.get('base_currency', 'BTC')
         quote_currency = request.args.get('quote_currency', 'USDT')
+        force_refresh = request.args.get('force', '0') == '1'
         currency_pair = f"{base_currency}_{quote_currency}"
         ws_manager = get_websocket_manager()
         data = None
         if ws_manager:
             data = ws_manager.get_data(currency_pair)
-            if data is None:
+            # Если force=1 или данных нет, создаём новое соединение
+            if data is None or force_refresh:
+                print(f"[PAIR_DATA] Creating/refreshing connection for {currency_pair} (force={force_refresh})")
                 ws_manager.create_connection(currency_pair)
+                # Ждём немного, чтобы получить первые данные
+                import time
+                time.sleep(0.5)
                 data = ws_manager.get_data(currency_pair)
         if not data:
             # REST fallback тикер + стакан
@@ -1288,6 +1294,48 @@ def get_pair_balances():
             "quote_equivalent": quote_equivalent,
             "simulated_quote": simulated
         })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/test/balance', methods=['POST'])
+def set_test_balance():
+    """Установить тестовый баланс для указанной валюты (работает только в test режиме)."""
+    try:
+        if CURRENT_NETWORK_MODE != 'test':
+            return jsonify({"success": False, "error": "Доступно только в TEST режиме"})
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "Нет данных"})
+        
+        currency = data.get('currency', 'USDT').upper()
+        balance = data.get('balance', 0)
+        
+        try:
+            balance = float(balance)
+            if balance < 0:
+                return jsonify({"success": False, "error": "Баланс не может быть отрицательным"})
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Некорректное значение баланса"})
+        
+        # Загрузить текущие балансы
+        test_balances = Config.load_test_balances()
+        
+        # Установить новый баланс
+        test_balances[currency] = balance
+        
+        # Сохранить
+        if Config.save_test_balances(test_balances):
+            return jsonify({
+                "success": True,
+                "currency": currency,
+                "balance": balance,
+                "message": f"Баланс {currency} установлен: {balance:.8f}"
+            })
+        else:
+            return jsonify({"success": False, "error": "Ошибка сохранения"})
+            
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 

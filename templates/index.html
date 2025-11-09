@@ -52,6 +52,14 @@
         .indicator-marker:hover .marker-tooltip {opacity:1;transform:translateY(0)}
         .card {background:#2a2a2a;border-radius:8px;padding:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a}
         .card h3 {color:#4CAF50;margin-bottom:12px;font-size:14px;border-bottom:1px solid #3a3a3a;padding-bottom:8px;font-weight:600}
+        .market-header {display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:8px 10px;background:#1a1a1a;border-radius:6px;border:1px solid #3a3a3a}
+        .pair-name {font-size:14px;font-weight:600;color:#4CAF50}
+        .pair-price {font-size:16px;font-weight:700;color:#4CAF50}
+        .balances-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+        .balance-item {background:#1a1a1a;border:1px solid #3a3a3a;border-radius:6px;padding:10px}
+        .balance-label {font-size:11px;color:#999;margin-bottom:6px;font-weight:500}
+        .balance-value {font-size:15px;font-weight:600;color:#4CAF50;margin-bottom:4px}
+        .balance-usd {font-size:11px;color:#888}
         @keyframes pulse {0%,100%{opacity:1}50%{opacity:.6}}
         .orderbook-container {background:#1a1a1a;border-radius:8px;padding:10px;border:1px solid #3a3a3a}
         .orderbook-header {display:grid;grid-template-columns:1fr .9fr .9fr 1fr;gap:5px;padding:6px 5px;font-size:10px;font-weight:600;color:#666;border-bottom:1px solid #3a3a3a}
@@ -181,12 +189,29 @@
         </div>
     </div>
 
+    <!-- Модальное окно редактирования баланса USDT -->
+    <div id="editQuoteBalanceModal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.65);z-index:1000" onclick="if(event.target===this)closeEditQuoteBalance()">
+        <div class="modal-inner" style="background:#222;border:1px solid #3a3a3a;border-radius:10px;padding:18px;max-width:400px;width:92%">
+            <h4 style="margin:0 0 12px;font-size:15px;color:#4CAF50;font-weight:600">💰 Редактировать тестовый баланс USDT</h4>
+            <div style="margin-bottom:12px">
+                <label style="display:block;margin-bottom:6px;font-size:12px;color:#ccc">Баланс (USDT):</label>
+                <input type="number" id="quoteBalanceInput" step="0.00000001" style="background:#111;border:1px solid #333;border-radius:4px;padding:8px;color:#eee;font-size:13px;width:100%">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:14px">
+                <button class="cm-btn save" onclick="saveQuoteBalance()">💾 Сохранить</button>
+                <button class="cm-btn cancel" onclick="closeEditQuoteBalance()">✖ Отмена</button>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">Редактирование доступно только в TEST режиме. Баланс сохраняется локально.</div>
+        </div>
+    </div>
+
     <div class="grid">
         <div class="card">
             <h3>📈 Рынок и стакан</h3>
             <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT <span style="font-size:12px;font-weight:400;color:#999;" id="quoteBalanceInline"></span></div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
             <div class="balances-grid">
                 <div class="balance-item"><div class="balance-label">Баланс <span id="baseSymbol">BTC</span></div><div class="balance-value" id="baseBalance">0.00000000</div><div class="balance-usd" id="baseBalanceUSD">≈ $0.00</div></div>
+                <div class="balance-item"><div class="balance-label">Баланс <span id="quoteSymbol">USDT</span> <button id="editQuoteBalanceBtn" style="display:none;margin-left:6px;padding:2px 8px;background:#2196F3;color:#fff;border:none;border-radius:4px;font-size:10px;cursor:pointer;">✏️ Edit</button></div><div class="balance-value" id="quoteBalance">0.00000000</div><div class="balance-usd" style="font-size:10px;color:#888;">Котируемая валюта</div></div>
                 <div class="balance-item" id="pairParamsBlock"><div class="balance-label">Параметры пары</div><div style="display:grid;grid-template-columns:auto auto;gap:4px;font-size:10px;color:#ccc;"><div>Min Quote:</div><div id="minQuoteAmount">-</div><div>Min Base:</div><div id="minBaseAmount">-</div><div>Amt Prec:</div><div id="amountPrecision">-</div><div>Price Prec:</div><div id="pricePrecision">-</div></div></div>
             </div>
             <div class="orderbook-container">
@@ -333,38 +358,42 @@ function updatePairNameUI(){
   const pair=`${currentBaseCurrency}_${currentQuoteCurrency}`;
   const nameEl=$('currentPairName');
   const baseSym=$('baseSymbol');
+  const quoteSym=$('quoteSymbol');
   const obQuote=$('obQuoteSymbol');
   if(nameEl){ nameEl.childNodes[0].nodeValue=pair+' '; }
   if(baseSym) baseSym.textContent=currentBaseCurrency;
+  if(quoteSym) quoteSym.textContent=currentQuoteCurrency;
   if(obQuote) obQuote.textContent=currentQuoteCurrency;
 }
-function switchBaseCurrency(code){
+async function switchBaseCurrency(code){
   currentBaseCurrency=code.toUpperCase();
   const cont=$('currencyTabsContainer');
   if(cont){
     [...cont.querySelectorAll('.tab-item')].forEach(n=>n.classList.toggle('active',n.dataset.code===currentBaseCurrency));
   }
   updatePairNameUI();
-  subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
-  setTimeout(()=>{
-    loadMarketData();
-    loadPairBalances();
-    loadPairParams(true);
-    loadBreakEvenTable();
-  },700);
+  logDbg(`switchBaseCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
+  await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
+  // Даём время WebSocket получить данные, затем загружаем их с force=true
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  await loadMarketData(true);  // force refresh
+  await loadPairBalances();
+  await loadPairParams(true);
+  await loadBreakEvenTable();
 }
-function changeQuoteCurrency(){
+async function changeQuoteCurrency(){
   const sel=document.querySelector('#quoteCurrency');
   if(!sel) return;
   currentQuoteCurrency=sel.value.toUpperCase();
   updatePairNameUI();
-  subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
-  setTimeout(()=>{
-    loadMarketData();
-    loadPairBalances();
-    loadPairParams(true);
-    loadBreakEvenTable();
-  },700);
+  logDbg(`changeQuoteCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
+  await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
+  // Даём время WebSocket получить данные, затем загружаем их с force=true
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  await loadMarketData(true);  // force refresh
+  await loadPairBalances();
+  await loadPairParams(true);
+  await loadBreakEvenTable();
 }
 async function loadPairParams(force){
   try{
@@ -409,9 +438,10 @@ async function subscribeToPairData(base,quote){
     setNetworkConnectionState('error');
   }
 }
-async function loadMarketData(){
+async function loadMarketData(forceRefresh=false){
   try{
-    const r=await fetch(`/api/pair/data?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
+    const forceParam = forceRefresh ? '&force=1' : '';
+    const r=await fetch(`/api/pair/data?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}${forceParam}`);
     const d=await r.json();
     if(!d.success){ logDbg('loadMarketData fail '+(d.error||'')); return; }
     // Данные всегда в d.data
@@ -480,12 +510,23 @@ async function loadPairBalances(){
     if(d.success){
       const baseBalEl=document.getElementById('baseBalance');
       const baseUsdEl=document.getElementById('baseBalanceUSD');
+      const quoteBalEl=document.getElementById('quoteBalance');
+      const quoteSymEl=document.getElementById('quoteSymbol');
       const inlineEl=document.getElementById('quoteBalanceInline');
+      const editQuoteBtn=document.getElementById('editQuoteBalanceBtn');
+      
       const baseAvail=parseFloat(d.balances?.base?.available||'0');
       const baseEq=d.base_equivalent||0;
+      const quoteAvail=parseFloat(d.balances?.quote?.available||'0');
+      
       if(baseBalEl) baseBalEl.textContent=(isFinite(baseAvail)?baseAvail:0).toFixed(8);
       if(baseUsdEl) baseUsdEl.textContent=`≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
+      if(quoteBalEl) quoteBalEl.textContent=(isFinite(quoteAvail)?quoteAvail:0).toFixed(8);
+      if(quoteSymEl) quoteSymEl.textContent=currentQuoteCurrency;
       if(inlineEl) inlineEl.textContent=`Баланс: ${(isFinite(baseAvail)?baseAvail:0).toFixed(8)} ${currentBaseCurrency} ≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
+      
+      // Показать кнопку редактирования баланса USDT только в тестовом режиме
+      if(editQuoteBtn) editQuoteBtn.style.display = (currentNetworkMode === 'test') ? 'inline-block' : 'none';
     }
   }catch(e){ logDbg('loadPairBalances err '+e) }
 }
@@ -539,7 +580,48 @@ function buildCurrencyManagerRows(){const rows=$('currencyManagerRows');if(!rows
 function addCurrencyRow(){const rows=$('currencyManagerRows');const i=rows.querySelectorAll('.cm-row').length;const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='' placeholder='Код'><input type='text' class='cm-symbol' value='' placeholder='Символ'><div style='color:#888;font-size:11px;'>Новая</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row);}
 function deleteCurrencyRow(idx){const rows=$('currencyManagerRows');const row=[...rows.querySelectorAll('.cm-row')].find(r=>r.dataset.index==idx);if(row)row.remove();}
 function saveCurrenciesList(){const rows=$('currencyManagerRows');const items=[...rows.querySelectorAll('.cm-row')].map(r=>({code:r.querySelector('.cm-code').value.trim().toUpperCase(),symbol:r.querySelector('.cm-symbol').value.trim()})).filter(o=>o.code);if(!items.length){alert('Нужна минимум 1 валюта');return;}const codes=items.map(i=>i.code);const dup=codes.filter((c,i)=>codes.indexOf(c)!==i);if(dup.length){alert('Дубликаты: '+dup.join(','));return;}fetch('/api/currencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currencies:items})}).then(r=>r.json()).then(d=>{if(d.success){currenciesList=items;renderCurrencyTabs(currenciesList);closeCurrencyManager();logDbg('currencies saved');}else alert('Ошибка: '+(d.error||'fail'))}).catch(e=>alert('Ошибка сохранения: '+e));}
-async function initApp(){try{await loadNetworkMode();const sel=document.querySelector('#quoteCurrency');if(sel)currentQuoteCurrency=sel.value.toUpperCase();await loadCurrenciesFromServer();await loadTradingPermissions();await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);await Promise.all([loadMarketData(),loadPairBalances(),loadPairParams(true),loadBreakEvenTable(),loadTradingPermissions()]);setInterval(loadMarketData,5000);setInterval(loadPairBalances,15000);setInterval(loadBreakEvenTable,6000);setInterval(loadPerBaseIndicators,7000);setInterval(loadTradingPermissions,20000);}catch(e){logDbg('initApp exc '+e)}}
+
+// === Quote balance editor ===
+function openEditQuoteBalance(){
+  const modal=$('editQuoteBalanceModal');
+  const input=$('quoteBalanceInput');
+  const quoteBalEl=$('quoteBalance');
+  if(!modal || !input) return;
+  const currentBal = quoteBalEl ? parseFloat(quoteBalEl.textContent) : 0;
+  input.value = currentBal.toFixed(8);
+  modal.style.display='flex';
+}
+function closeEditQuoteBalance(){
+  const modal=$('editQuoteBalanceModal');
+  if(modal) modal.style.display='none';
+}
+async function saveQuoteBalance(){
+  const input=$('quoteBalanceInput');
+  if(!input) return;
+  const newBalance = parseFloat(input.value);
+  if(isNaN(newBalance) || newBalance < 0){
+    alert('Некорректное значение баланса');
+    return;
+  }
+  try{
+    const r=await fetch('/api/test/balance',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({currency:currentQuoteCurrency,balance:newBalance})
+    });
+    const d=await r.json();
+    if(d.success){
+      logDbg('quote balance saved: '+newBalance);
+      closeEditQuoteBalance();
+      await loadPairBalances(); // Обновить UI
+    }else{
+      alert('Ошибка: '+(d.error||'fail'));
+    }
+  }catch(e){
+    alert('Ошибка сохранения: '+e);
+  }
+}
+async function initApp(){try{await loadNetworkMode();const sel=document.querySelector('#quoteCurrency');if(sel)currentQuoteCurrency=sel.value.toUpperCase();await loadCurrenciesFromServer();await loadTradingPermissions();await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);await Promise.all([loadMarketData(),loadPairBalances(),loadPairParams(true),loadBreakEvenTable(),loadTradingPermissions()]);setInterval(loadMarketData,5000);setInterval(loadPairBalances,15000);setInterval(loadBreakEvenTable,6000);setInterval(loadPerBaseIndicators,7000);setInterval(loadTradingPermissions,20000);}catch(e){logDbg('initApp exc '+e)};
 // === Trading permissions (вкладки) ===
 function loadTradingPermissions(){return fetch('/api/trade/permissions').then(r=>r.json()).then(d=>{if(d.success){tradingPermissions=d.permissions||{};updateTabsPermissionsUI();}else logDbg('perm load fail')}).catch(e=>logDbg('perm exc '+e));}
 function updateTabsPermissionsUI(){const cont=$('currencyTabsContainer');if(!cont)return;[...cont.querySelectorAll('.tab-item')].forEach(el=>{const code=el.dataset.code;let ind=el.querySelector('.perm-indicator');if(!ind){ind=document.createElement('div');ind.className='perm-indicator';el.appendChild(ind);}const enabled=tradingPermissions[code]!==false;ind.classList.toggle('on',enabled);ind.classList.toggle('off',!enabled);ind.title=enabled?'Торговля включена':'Торговля отключена';ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};});}
@@ -631,6 +713,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   startUptimeLoops();
   const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); }
   const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }
+  const qb=$('editQuoteBalanceBtn'); if(qb){ qb.addEventListener('click', (ev)=>{ ev.preventDefault(); openEditQuoteBalance(); }); }
 });
 </script>
 </body>
