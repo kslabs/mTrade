@@ -1,42 +1,86 @@
-# Python
+# === Python ===
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === Virtual Environment ===
 venv/
 ENV/
+env/
+.venv
 
-# Flask
+# === Flask ===
 instance/
 .webassets-cache
 
-# Конфиденциальные данные (НЕ КОММИТИТЬ!)
-accounts.json
-config.json
-*.pid
-mtrade_server.pid
-
-# Конфиденциальные ключи (не коммитить)
-config/secrets.json
-config/secrets_test.json
-config/*.key
-config/*.pem
-
-# Логи
-*.log
-
-# IDE
+# === IDE ===
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
+*~
 .DS_Store
-Thumbs.db
 
-# Временные файлы
+# === Конфигурационные файлы (чувствительные данные) ===
+config.json
+accounts.json
+# Игнорируем любые варианты файлов с секретами
+config/secrets*.json
+!config/secrets.example.json
+# Игнорируем любые варианты файлов аккаунтов, но оставляем пример
+accounts*.json
+!accounts.json.example
+config/*.key
+config/*.pem
+
+# === Логи ===
+*.log
+server.log
+run_output.log
+
+# === PID файлы ===
+*.pid
+mtrade_server.pid
+
+# === Временные файлы ===
 *.tmp
+*.temp
+out_pair.txt
+
+# === Тестовые данные ===
+test_balances.json
+
+# === Состояние приложения ===
+ui_state.json
+network_mode.json
+app_state.json
+
+# === Windows ===
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# === Backup файлы ===
 *.bak
+*.backup

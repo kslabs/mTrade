@@ -23,6 +23,8 @@ from data_limits import DataLimits
 
 # Импорт WebSocket модуля
 from gateio_websocket import init_websocket_manager, get_websocket_manager
+# Импорт State Manager
+from state_manager import get_state_manager
 
 # Конфигурация Flask
 app = Flask(__name__)
@@ -75,7 +77,7 @@ class Config:
     CURRENCIES_FILE = "currencies.json"
     WORK_SECRETS_FILE = os.path.join('config', 'secrets.json')        # рабочая сеть
     TEST_SECRETS_FILE = os.path.join('config', 'secrets_test.json')   # тестовая сеть
-    TEST_API_HOST = "https://fx-api-testnet.gateio.ws"  # Новый домен тестовой сети Gate.io
+    TEST_API_HOST = "https://api-testnet.gateapi.io"  # Правильный домен тестовой сети Gate.io
     NETWORK_CONFIG_FILE = "network_mode.json"
 
     @staticmethod
@@ -293,8 +295,11 @@ class ProcessManager:
 server_start_time = time.time()
 PAIR_INFO_CACHE = {}
 PAIR_INFO_CACHE_TTL = 3600  # 1 час
-CURRENT_NETWORK_MODE = Config.load_network_mode()
-print(f"[NETWORK] Текущий режим сети: {CURRENT_NETWORK_MODE}")
+
+# Загружаем режим сети из state_manager (единственный источник истины)
+state_mgr = get_state_manager()
+CURRENT_NETWORK_MODE = state_mgr.get_network_mode()
+print(f"[NETWORK] Текущий режим сети загружен из state_manager: {CURRENT_NETWORK_MODE}")
 
 # --- Реинициализация сетевого режима (work/test) ---
 _ws_reinit_lock = None
@@ -303,6 +308,21 @@ try:
     _ws_reinit_lock = Lock()
 except Exception:
     pass
+
+# Инициализация дефолтного watchlist для WebSocket (безопасный no-op при ошибке)
+def _init_default_watchlist():
+    try:
+        ws_manager = get_websocket_manager()
+        if not ws_manager:
+            return
+        # Минимальный набор популярных пар, чтобы данные появились сразу
+        for pair in ('BTC_USDT', 'ETH_USDT'):
+            try:
+                ws_manager.create_connection(pair)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def _reinit_network_mode(new_mode: str) -> bool:
     """Переключение режима сети с переинициализацией WebSocket менеджера.
@@ -320,25 +340,43 @@ def _reinit_network_mode(new_mode: str) -> bool:
     if _ws_reinit_lock:
         _ws_reinit_lock.acquire()
     try:
+        print(f"[NETWORK] ========================================")
         print(f"[NETWORK] Переключение режима: {CURRENT_NETWORK_MODE} -> {new_mode}")
+        
         # Сохраняем файл конфигурации режима
         Config.save_network_mode(new_mode)
         CURRENT_NETWORK_MODE = new_mode
+        
+        # Определяем хост API для нового режима
+        api_host = Config.TEST_API_HOST if new_mode == 'test' else Config.API_HOST
+        print(f"[NETWORK] API Host: {api_host}")
+        
         # Закрываем текущие WS соединения
         ws_manager = get_websocket_manager()
         if ws_manager:
             try:
                 ws_manager.close_all()
+                print(f"[NETWORK] WebSocket соединения закрыты")
             except Exception as e:
                 print(f"[NETWORK] Ошибка закрытия WS: {e}")
+        
         # Инициализация нового менеджера
         try:
             ak, sk = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
+            if ak and sk:
+                print(f"[NETWORK] Загружены ключи для режима '{new_mode}':")
+                print(f"[NETWORK]   API Key: {ak}")
+                print(f"[NETWORK]   Файл: {Config.TEST_SECRETS_FILE if new_mode == 'test' else Config.WORK_SECRETS_FILE}")
+            else:
+                print(f"[NETWORK] ⚠️  Не удалось загрузить ключи для режима '{new_mode}'!")
+            
             init_websocket_manager(ak, sk, CURRENT_NETWORK_MODE)
             _init_default_watchlist()
-            print(f"[NETWORK] WS менеджер переинициализирован (mode={CURRENT_NETWORK_MODE}, keys={'yes' if ak and sk else 'no'})")
+            print(f"[NETWORK] ✓ WS менеджер переинициализирован")
         except Exception as e:
-            print(f"[NETWORK] Ошибка инициализации WS менеджера: {e}")
+            print(f"[NETWORK] ❌ Ошибка инициализации WS менеджера: {e}")
+        
+        print(f"[NETWORK] ========================================")
         return True
     finally:
         if _ws_reinit_lock:
@@ -443,8 +481,6 @@ class ProcessManager:
 server_start_time = time.time()
 PAIR_INFO_CACHE = {}
 PAIR_INFO_CACHE_TTL = 3600  # 1 час
-CURRENT_NETWORK_MODE = Config.load_network_mode()
-print(f"[NETWORK] Текущий режим сети: {CURRENT_NETWORK_MODE}")
 
 class GateAPIClient:
     """Клиент для работы с Gate.io API"""
@@ -482,33 +518,46 @@ class GateAPIClient:
         url = f"{self.prefix}{endpoint}"
         query_string = ''
         payload = ''
-        
         if params:
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-        
         if data:
             payload = json.dumps(data)
-        
         headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         }
-        # Подпись добавляем только при наличии ключей (публичные эндпойнты работают без подписи)
         if self.api_key and self.api_secret:
             headers.update(self._generate_sign(method, url, query_string, payload))
-        
         full_url = f"{self.host}{url}"
         if query_string:
             full_url += f"?{query_string}"
-        
-        response = requests.request(
-            method,
-            full_url,
-            headers=headers,
-            data=payload if data else None
-        )
-        
-        return response.json()
+        if endpoint.startswith('/spot/accounts'):
+            print(f"[API DEBUG] Balance request -> mode={self.network_mode}, host={self.host}, url={full_url}")
+        response = requests.request(method, full_url, headers=headers, data=payload if data else None)
+        status = response.status_code
+        text_raw = ''
+        try:
+            text_raw = response.text[:500]
+        except Exception:
+            pass
+        try:
+            js = response.json()
+        except Exception as je:
+            print(f"[API DEBUG] JSON parse error status={status} err={je} raw={text_raw}")
+            js = {'error': 'json_parse_error', 'status': status, 'raw': text_raw}
+        if endpoint.startswith('/spot/accounts'):
+            if status != 200:
+                print(f"[API DEBUG] NON-200 status={status} raw={text_raw}")
+            else:
+                # Сокращённый вывод для списков
+                if isinstance(js, list):
+                    print(f"[API DEBUG] Balance list len={len(js)}")
+                elif isinstance(js, dict):
+                    print(f"[API DEBUG] Balance dict keys={list(js.keys())[:6]}")
+        # Добавляем статус внутрь ответа при ошибке, чтобы фронт мог его увидеть
+        if status != 200 and isinstance(js, dict) and 'status' not in js:
+            js['status'] = status
+        return js
     
     # -------------------------------------------------------------------------
     # SPOT TRADING (Обычный трейдинг)
@@ -750,6 +799,9 @@ class AccountManager:
 # Глобальные объекты
 account_manager = AccountManager()
 trading_engines = {}
+# Добавляем глобальный автотрейдер
+from autotrader import AutoTrader
+auto_trader = None
 
 @app.route('/')
 def index():
@@ -829,23 +881,29 @@ def add_account():
 @app.route('/api/mode', methods=['GET'])
 def get_mode():
     """Получить текущий режим"""
-    if account_manager.active_account and account_manager.active_account in trading_engines:
-        engine = trading_engines[account_manager.active_account]
-        return jsonify({"mode": engine.get_mode()})
-    return jsonify({"mode": Config.DEFAULT_MODE})
+    # Загружаем режим из state_manager (единственный источник истины)
+    mode = state_mgr.get_trading_mode()
+    return jsonify({"success": True, "mode": mode})
 
 @app.route('/api/mode', methods=['POST'])
 def set_mode():
     """Переключить режим торговли"""
-    data = request.json
-    mode = data.get('mode')
-    
-    if account_manager.active_account and account_manager.active_account in trading_engines:
-        engine = trading_engines[account_manager.active_account]
-        if engine.set_mode(mode):
+    try:
+        data = request.json or {}
+        mode = str(data.get('mode', '')).lower()
+        
+        if mode not in ('trade', 'copy'):
+            return jsonify({"success": False, "error": "mode must be trade or copy"}), 400
+        
+        # Сохраняем режим в state_manager
+        if state_mgr.set_trading_mode(mode):
+            print(f"[STATE] Trading mode сохранен: {mode}")
             return jsonify({"success": True, "mode": mode})
-    
-    return jsonify({"success": False, "error": "Нет активного аккаунта"})
+        else:
+            return jsonify({"success": False, "error": "Failed to save trading mode"}), 500
+    except Exception as e:
+        print(f"[ERROR] set_mode: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # =============================================================================
 # CURRENCIES API (Управление валютами)
@@ -936,6 +994,190 @@ def get_orders():
         return jsonify({"success": True, "data": orders})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+# =============================
+# UI STATE ENDPOINTS (синхронизация с фронтендом)
+# =============================
+@app.route('/api/ui/state', methods=['GET'])
+def ui_state_get():
+    try:
+        return jsonify({
+            'success': True,
+            'state': {
+                'auto_trade_enabled': state_mgr.get_auto_trade_enabled(),
+                'enabled_currencies': state_mgr.get_trading_permissions(),
+                'network_mode': CURRENT_NETWORK_MODE,
+                'trading_mode': state_mgr.get_trading_mode(),
+                'active_base_currency': state_mgr.get_active_base_currency(),
+                'active_quote_currency': state_mgr.get_active_quote_currency(),
+                'breakeven_params': state_mgr.get_breakeven_params()
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/ui/state', methods=['POST'])
+def ui_state_save():
+    try:
+        data = request.get_json(silent=True) or {}
+        state = data.get('state', {})
+        # Автоторговля
+        if 'auto_trade_enabled' in state:
+            enabled = bool(state['auto_trade_enabled'])
+            state_mgr.set_auto_trade_enabled(enabled)
+            _ensure_autotrader_running(enabled)
+        # Разрешения по валютам
+        if 'enabled_currencies' in state and isinstance(state['enabled_currencies'], dict):
+            for cur, val in state['enabled_currencies'].items():
+                state_mgr.set_trading_permission(cur, val)
+        # Режим торговли
+        if 'trading_mode' in state:
+            tm = str(state['trading_mode']).lower()
+            if tm in ('trade', 'copy'):
+                state_mgr.set_trading_mode(tm)
+        # Режим сети
+        if 'network_mode' in state:
+            nm = str(state['network_mode']).lower()
+            if nm in ('work','test') and nm != CURRENT_NETWORK_MODE:
+                if _reinit_network_mode(nm):
+                    state_mgr.set_network_mode(nm)
+        # Активные валюты
+        if 'active_base_currency' in state:
+            state_mgr.set_active_base_currency(state['active_base_currency'])
+        if 'active_quote_currency' in state:
+            state_mgr.set_active_quote_currency(state['active_quote_currency'])
+        # Параметры безубыточности (массово)
+        if 'breakeven_params' in state and isinstance(state['breakeven_params'], dict):
+            for cur, params in state['breakeven_params'].items():
+                try:
+                    state_mgr.set_breakeven_params(cur, params)
+                except Exception as e:
+                    print(f"[BREAKEVEN] save error {cur}: {e}")
+        return jsonify({'success': True, 'message': 'UI state saved'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/ui/state/partial', methods=['POST'])
+def ui_state_partial():
+    try:
+        data = request.get_json(silent=True) or {}
+        updated = []
+        if 'auto_trade_enabled' in data:
+            enabled = bool(data['auto_trade_enabled'])
+            state_mgr.set_auto_trade_enabled(enabled)
+            _ensure_autotrader_running(enabled)
+            updated.append(f'auto_trade_enabled={enabled}')
+        if 'active_base_currency' in data:
+            bc = str(data['active_base_currency']).upper()
+            state_mgr.set_active_base_currency(bc)
+            updated.append(f'active_base_currency={bc}')
+        if 'active_quote_currency' in data:
+            qc = str(data['active_quote_currency']).upper()
+            state_mgr.set_active_quote_currency(qc)
+            updated.append(f'active_quote_currency={qc}')
+        if 'network_mode' in data:
+            nm = str(data['network_mode']).lower()
+            if nm in ('work','test') and nm != CURRENT_NETWORK_MODE:
+                if _reinit_network_mode(nm):
+                    state_mgr.set_network_mode(nm)
+                    updated.append(f'network_mode={nm}')
+        if 'trading_mode' in data:
+            tm = str(data['trading_mode']).lower()
+            if tm in ('trade','copy','normal'):
+                norm = 'trade' if tm == 'normal' else tm
+                state_mgr.set_trading_mode(norm)
+                updated.append(f'trading_mode={norm}')
+        if 'breakeven_params' in data and isinstance(data['breakeven_params'], dict) and 'currency' in data['breakeven_params']:
+            cur = str(data['breakeven_params']['currency']).upper()
+            state_mgr.set_breakeven_params(cur, data['breakeven_params'])
+            updated.append(f'breakeven_params[{cur}]')
+        return jsonify({'success': True, 'message': 'partial saved', 'updated': updated})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =============================
+# NETWORK MODE ENDPOINTS (ожидаются фронтендом)
+# =============================
+@app.route('/api/network', methods=['GET'])
+@app.route('/api/network/mode', methods=['GET'])
+def api_get_network_mode():
+    try:
+        ak, sk = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
+        return jsonify({
+            'success': True,
+            'mode': CURRENT_NETWORK_MODE,
+            'api_host': Config.TEST_API_HOST if CURRENT_NETWORK_MODE=='test' else Config.API_HOST,
+            'keys_loaded': bool(ak and sk)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/network', methods=['POST'])
+@app.route('/api/network/mode', methods=['POST'])
+def api_set_network_mode():
+    try:
+        data = request.get_json(silent=True) or {}
+        nm = str(data.get('mode','')).lower()
+        if nm not in ('work','test'):
+            return jsonify({'success': False, 'error': "mode must be 'work' or 'test'"}), 400
+        if nm == CURRENT_NETWORK_MODE:
+            return jsonify({'success': True, 'mode': CURRENT_NETWORK_MODE, 'message': 'already set'})
+        if _reinit_network_mode(nm):
+            state_mgr.set_network_mode(nm)
+            return jsonify({'success': True, 'mode': nm, 'message': 'network mode switched'})
+        return jsonify({'success': False, 'error': 'failed to switch network mode'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =============================
+# AUTOTRADE ENDPOINTS
+# =============================
+
+def _ensure_autotrader_running(enabled: bool):
+    global auto_trader
+    if enabled:
+        if auto_trader is None:
+            def _api_client_provider():
+                if not account_manager.active_account:
+                    return None
+                acc = account_manager.get_account(account_manager.active_account)
+                if not acc:
+                    return None
+                return GateAPIClient(acc['api_key'], acc['api_secret'], CURRENT_NETWORK_MODE)
+            ws_manager = get_websocket_manager()
+            from autotrader import AutoTrader as _AT
+            auto_trader = _AT(_api_client_provider, ws_manager, state_mgr)
+        if not auto_trader.running:
+            auto_trader.start()
+    else:
+        if auto_trader and auto_trader.running:
+            auto_trader.stop()
+
+@app.route('/api/autotrade/start', methods=['POST'])
+def api_autotrade_start():
+    try:
+        state_mgr.set_auto_trade_enabled(True)
+        _ensure_autotrader_running(True)
+        return jsonify({'success': True, 'enabled': True, 'running': auto_trader.running if auto_trader else False})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/autotrade/stop', methods=['POST'])
+def api_autotrade_stop():
+    try:
+        state_mgr.set_auto_trade_enabled(False)
+        _ensure_autotrader_running(False)
+        return jsonify({'success': True, 'enabled': False, 'running': auto_trader.running if auto_trader else False})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/autotrade/status', methods=['GET'])
+def api_autotrade_status():
+    try:
+        enabled = state_mgr.get_auto_trade_enabled()
+        return jsonify({'success': True, 'enabled': enabled, 'running': auto_trader.running if auto_trader else False})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # =============================================================================
@@ -1040,7 +1282,7 @@ def server_shutdown():
         os._exit(0)
     
     Thread(target=shutdown, daemon=True).start()
-    return jsonify({"success": True, "message": "Сервер останавливается..."})
+    return jsonify({"success": True, "message": "Сервер останавлиется..."})
 
 
 # =============================================================================
@@ -1147,50 +1389,85 @@ def unsubscribe_pair():
 
 @app.route('/api/pair/balances', methods=['GET'])
 def get_pair_balances():
-    """Получить балансы для конкретной торговой пары (с поддержкой симуляции в test)."""
+    """Получить балансы для пары.
+    Только реальные приватные данные с Gate.io.
+    Если нет ключей или API не вернул список – показываем нули (UI может отобразить прочерк).
+    Добавлена расширенная диагностика: если ответ не список, возвращаем ошибку для фронтенда.
+    """
     try:
         base_currency = request.args.get('base_currency', 'BTC')
         quote_currency = request.args.get('quote_currency', 'USDT')
-        api_key = None
-        api_secret = None
-        if account_manager.active_account:
-            account = account_manager.get_account(account_manager.active_account)
-            api_key = account['api_key']
-            api_secret = account['api_secret']
-        else:
-            api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-        no_keys = (not api_key or not api_secret)
-        client = None
-        balance_response = []
-        if not no_keys:
-            client = GateAPIClient(api_key, api_secret, CURRENT_NETWORK_MODE)
+        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
+        used_source = f"config/{'secrets_test.json' if CURRENT_NETWORK_MODE=='test' else 'secrets.json'}"
+        if not (api_key and api_secret) and account_manager.active_account:
+            acc = account_manager.get_account(account_manager.active_account)
+            if acc and acc.get('api_key') and acc.get('api_secret'):
+                api_key, api_secret = acc['api_key'], acc['api_secret']
+                used_source = f"accounts:{account_manager.active_account}"
+        raw = None
+        balance_list = []
+        source = 'empty'
+        auth_error = False
+        if api_key and api_secret:
             try:
-                balance_response = client.get_account_balance()
-            except Exception:
-                balance_response = []
+                client = GateAPIClient(api_key, api_secret, CURRENT_NETWORK_MODE)
+                print(f"[BALANCES] mode={CURRENT_NETWORK_MODE}, host={client.host}, keys=YES, src={used_source}")
+                raw = client.get_account_balance()  # может быть list или dict
+                print(f"[BALANCES RAW] type={type(raw).__name__} preview={(str(raw)[:200])}")
+                if isinstance(raw, list):
+                    balance_list = raw
+                    if balance_list:
+                        source = 'private'
+                elif isinstance(raw, dict):  # Ошибка или нестандартный ответ
+                    # Проверяем типичные поля ошибки Gate.io
+                    err_fields = [raw.get('label'), raw.get('message'), raw.get('error'), raw.get('status')]
+                    auth_error = True
+                    return jsonify({
+                        'success': False,
+                        'error': 'Gate.io API error',
+                        'api_error': raw,
+                        'auth_error': auth_error,
+                        'source': 'error',
+                        'mode': CURRENT_NETWORK_MODE,
+                        'used_source': used_source
+                    })
+                else:
+                    # Неизвестный формат
+                    return jsonify({
+                        'success': False,
+                        'error': 'Unknown balance response type',
+                        'api_error_type': str(type(raw)),
+                        'source': 'error',
+                        'mode': CURRENT_NETWORK_MODE,
+                        'used_source': used_source
+                    })
+            except Exception as e:
+                print(f"[BALANCES] API exception: {e}")
+        else:
+            print(f"[BALANCES] mode={CURRENT_NETWORK_MODE}, keys=NO, src={used_source}")
         base_balance = {"currency": base_currency, "available": "0", "locked": "0"}
         quote_balance = {"currency": quote_currency, "available": "0", "locked": "0"}
-        if isinstance(balance_response, list):
-            for item in balance_response:
-                cur = item.get('currency','').upper()
+        if isinstance(balance_list, list):
+            for item in balance_list:
+                cur = str(item.get('currency', '')).upper()
                 if cur == base_currency.upper():
-                    base_balance = {"currency": base_currency, "available": item.get('available','0'), "locked": item.get('locked','0')}
+                    base_balance = {"currency": base_currency, "available": item.get('available', '0'), "locked": item.get('locked', '0')}
                 elif cur == quote_currency.upper():
-                    quote_balance = {"currency": quote_currency, "available": item.get('available','0'), "locked": item.get('locked','0')}
+                    quote_balance = {"currency": quote_currency, "available": item.get('available', '0'), "locked": item.get('locked', '0')}
         ws_manager = get_websocket_manager()
-        current_price = 0
+        current_price = 0.0
         if ws_manager:
             pair_data = ws_manager.get_data(f"{base_currency}_{quote_currency}")
             if pair_data and pair_data.get('ticker') and pair_data['ticker'].get('last'):
                 try:
                     current_price = float(pair_data['ticker']['last'])
                 except Exception:
-                    current_price = 0
+                    pass
         try:
             base_available = float(base_balance['available'])
         except Exception:
             base_available = 0.0
-        base_equivalent = base_available * current_price if current_price > 0 else 0
+        base_equivalent = base_available * current_price if current_price > 0 else 0.0
         try:
             quote_available = float(quote_balance['available'])
         except Exception:
@@ -1204,547 +1481,38 @@ def get_pair_balances():
                 except Exception:
                     pass
         return jsonify({
-            "success": True,
-            "balances": {"base": base_balance, "quote": quote_balance},
-            "price": current_price,
-            "base_equivalent": base_equivalent,
-            "quote_equivalent": quote_equivalent
+            'success': True,
+            'balances': {'base': base_balance, 'quote': quote_balance},
+            'price': current_price,
+            'base_equivalent': base_equivalent,
+            'quote_equivalent': quote_equivalent,
+            'source': source,
+            'auth_error': auth_error,
+            'mode': CURRENT_NETWORK_MODE,
+            'used_source': used_source
         })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-
-@app.route('/api/pair/info', methods=['GET'])
-def get_pair_info():
-    """Получить параметры точности и минимальных квот торговой пары (кеш).
-    Параметры:
-    - force=1 — игнорировать кеш
-    - ttl=<sec> — переопределить TTL
-    - short=1 — установить временной TTL=10
-    - debug=1 — вернуть сырой ответ raw_exact/raw_list
-    """
-    base_currency = request.args.get('base_currency', 'BTC').upper()
-    quote_currency = request.args.get('quote_currency', 'USDT').upper()
-    currency_pair = f"{base_currency}_{quote_currency}".upper()
-    force = str(request.args.get('force', '0')).lower() in ('1','true','yes')
-    ttl_override = request.args.get('ttl')
-    short = str(request.args.get('short','0')).lower() in ('1','true','yes')
-    debug = str(request.args.get('debug','0')).lower() in ('1','true','yes')
-
-    now = time.time()
-    ttl = PAIR_INFO_CACHE_TTL
-    if short:
-        ttl = 10
-    try:
-        if ttl_override is not None:
-            ttl = max(0, int(ttl_override))
-    except Exception:
-        pass
-
-    cached = PAIR_INFO_CACHE.get(currency_pair)
-    if not force and cached and (now - cached['ts'] < ttl):
-        resp = {"success": True, "pair": currency_pair, "data": cached['data'], "cached": True}
-        if debug:
-            resp['debug'] = cached.get('debug')
-        return jsonify(resp)
-
-    # API ключи (необязательны для публичных эндпойнтов)
-    api_key = None
-    api_secret = None
-    if account_manager.active_account:
-        acc = account_manager.get_account(account_manager.active_account)
-        api_key = acc['api_key']
-        api_secret = acc['api_secret']
-    else:
-        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-
-    # Всегда позволяем публичный запрос без ключей
-    client = GateAPIClient(api_key, api_secret, CURRENT_NETWORK_MODE)
-
-    raw_exact = client.get_currency_pair_details_exact(currency_pair)
-    pair_info = {"min_quote_amount": None,"min_base_amount": None,"amount_precision": None,"price_precision": None}
-
-    used_source = 'exact'
-    # Если точный ответ корректный (dict с нужными ключами)
-    if isinstance(raw_exact, dict) and raw_exact.get('id') and str(raw_exact.get('id')).upper() == currency_pair:
-        pair_info = {
-            "min_quote_amount": raw_exact.get('min_quote_amount'),
-            "min_base_amount": raw_exact.get('min_base_amount'),
-            "amount_precision": raw_exact.get('amount_precision'),
-            "price_precision": raw_exact.get('precision')
-        }
-    else:
-        # fallback на список
-        raw_list = client.get_currency_pair_details(currency_pair)
-        used_source = 'list'
-        if isinstance(raw_list, list):
-            for item in raw_list:
-                if str(item.get('id','')).upper() == currency_pair:
-                    pair_info = {
-                        "min_quote_amount": item.get('min_quote_amount'),
-                        "min_base_amount": item.get('min_base_amount'),
-                        "amount_precision": item.get('amount_precision'),
-                        "price_precision": item.get('precision')
-                    }
-                    break
-        elif isinstance(raw_list, dict) and raw_list.get('error'):
-            return jsonify({"success": False, "pair": currency_pair, "data": pair_info, "error": raw_list.get('error')})
-    
-    # Простая валидация: если price_precision отсутствует или выглядит одинаково у многих и =5 (частая жалоба), логируем предупреждение
-    warn = None
-    if pair_info['price_precision'] is None:
-        warn = 'price_precision_not_found'
-    elif pair_info['price_precision'] == 5 and base_currency in ('BTC','WLD'):
-        warn = 'suspect_same_precision_for_BTC_WLD'
-
-    debug_block = {
-        'source': used_source,
-        'raw_exact_keys': list(raw_exact.keys()) if isinstance(raw_exact, dict) else None,
-        'warn': warn
-    }
-
-    PAIR_INFO_CACHE[currency_pair] = {"ts": now, "data": pair_info, "debug": debug_block}
-
-    resp = {"success": True, "pair": currency_pair, "data": pair_info, "cached": False}
-    if debug:
-        resp['debug'] = debug_block
-        resp['raw_exact'] = raw_exact
-    return jsonify(resp)
-
-
-# =============================================================================
-# MULTI-PAIRS WATCHER (Постоянное считывание данных по нескольким парам)
-# =============================================================================
-
-from threading import Thread as _Thread
-
-WATCHED_PAIRS = set()
-MULTI_PAIRS_CACHE = {}  # { pair: { ts: <float>, data: <dict> } }
-
-
-def _add_pairs_to_watchlist(pairs: List[str]):
-    ws = get_websocket_manager()
-    for p in (pairs or []):
-        pair = str(p).upper()
-        WATCHED_PAIRS.add(pair)
-        try:
-            if ws:
-                ws.create_connection(pair)
-        except Exception:
-            pass
-
-
-def _remove_pairs_from_watchlist(pairs: List[str]):
-    ws = get_websocket_manager()
-    for p in (pairs or []):
-        pair = str(p).upper()
-        WATCHED_PAIRS.discard(pair)
-        try:
-            if ws:
-                ws.close_connection(pair)
-        except Exception:
-            pass
-
-
-class _PairsUpdater(_Thread):
-    daemon = True
-
-    def run(self):
-        while True:
-            try:
-                ws = get_websocket_manager()
-                if ws:
-                    for pair in list(WATCHED_PAIRS):
-                        try:
-                            # гарантируем наличие соединения
-                            ws.create_connection(pair)
-                            data = ws.get_data(pair)
-                            if data is not None:
-                                MULTI_PAIRS_CACHE[pair] = {"ts": time.time(), "data": data}
-                        except Exception:
-                            # игнорируем точечные ошибки по конкретной паре
-                            pass
-                time.sleep(1.0)
-            except Exception:
-                # защитный блок, чтобы поток не падал
-                time.sleep(1.0)
-
-
-def _init_default_watchlist():
-    try:
-        bases = Config.load_currencies()
-        default_pairs = []
-        for c in bases:
-            code = (c or {}).get('code')
-            if code:
-                default_pairs.append(f"{str(code).upper()}_USDT")
-        if default_pairs:
-            _add_pairs_to_watchlist(default_pairs)
-    except Exception:
-        pass
-
-
-@app.route('/api/pairs/watchlist', methods=['GET'])
-def api_get_watchlist():
-    return jsonify({"success": True, "pairs": sorted(list(WATCHED_PAIRS))})
-
-
-@app.route('/api/pairs/watch', methods=['POST'])
-def api_watch_pairs():
-    try:
-        payload = request.get_json(silent=True) or {}
-        pairs = payload.get('pairs', [])
-        if not pairs:
-            return jsonify({"success": False, "error": "pairs[] пуст"}), 400
-        _add_pairs_to_watchlist(pairs)
-        return jsonify({"success": True, "added": [p.upper() for p in pairs]})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/api/pairs/unwatch', methods=['POST'])
-def api_unwatch_pairs():
-    try:
-        payload = request.get_json(silent=True) or {}
-        pairs = payload.get('pairs', [])
-        if not pairs:
-            return jsonify({"success": False, "error": "pairs[] пуст"}), 400
-        _remove_pairs_from_watchlist(pairs)
-        return jsonify({"success": True, "removed": [p.upper() for p in pairs]})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/api/pairs/data', methods=['GET'])
-def api_pairs_data():
-    """Вернуть данные по нескольким парам.
-    Параметры:
-    - pairs=BTC_USDT,ETH_USDT (необяз.) — список пар через запятую; иначе все из watchlist
-    - fresh=1 — попытаться взять из WS немедленно
-    """
-    try:
-        pairs_qs = request.args.get('pairs', '').strip()
-        fresh = str(request.args.get('fresh', '0')).lower() in ('1', 'true', 'yes')
-        if pairs_qs:
-            pairs = [p.strip().upper() for p in pairs_qs.split(',') if p.strip()]
-        else:
-            pairs = sorted(list(WATCHED_PAIRS))
-
-        ws = get_websocket_manager()
-        result = {}
-        for pair in pairs:
-            if fresh and ws:
-                try:
-                    ws.create_connection(pair)
-                    data_now = ws.get_data(pair)
-                    if data_now is not None:
-                        MULTI_PAIRS_CACHE[pair] = {"ts": time.time(), "data": data_now}
-                except Exception:
-                    pass
-            cached = MULTI_PAIRS_CACHE.get(pair, {})
-            result[pair] = {
-                "ts": cached.get('ts'),
-                "data": cached.get('data')
-            }
-        return jsonify({"success": True, "pairs": result})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-
-# =============================
-# МУЛЬТИ-БАЗОВЫЙ АВТОТРЕЙДЕР
-# =============================
-
-# Глобальные разрешения торговли по каждой базовой валюте (инициализируем True)
-try:
-    TRADING_PERMISSIONS = { (c or {}).get('code','').upper(): True for c in Config.load_currencies() if (c or {}).get('code') }
-except Exception:
-    TRADING_PERMISSIONS = {}
-
-# Глобальный флаг автозапуска новых циклов (включение автотрейдинга влияет только на старт новых циклов)
-AUTO_TRADE_GLOBAL_ENABLED = True
-
-# Переработанный автотрейдер: управление циклами по каждой базовой валюте
-class AutoTrader:
-    def __init__(self):
-        self.running = False
-        self._thread = None
-        # buys[BASE] = [price1, price2, ...] — текущий цикл (если список пуст — цикл неактивен)
-        self.buys: Dict[str, List[float]] = {}
-        # статистика по базам
-        self.stats = {
-            'total_profit': 0.0,
-            'trades': 0,
-            'successful_trades': 0,
-            'per_base': {},  # base -> {'break_even_table': [...], 'buys': [...], 'cycle_active': bool}
-        }
-
-    def start(self):
-        if self.running:
-            return False
-        self.running = True
-        self._thread = Thread(target=self._run, daemon=True)
-        self._thread.start()
-        return True
-
-    def stop(self):
-        self.running = False
-        return True
-
-    def _get_price(self, base: str, quote: str = 'USDT') -> float:
-        ws = get_websocket_manager()
-        if ws:
-            data = ws.get_data(f"{base}_{quote}")
-            if data and data.get('ticker') and data['ticker'].get('last'):
-                try:
-                    return float(data['ticker']['last'])
-                except Exception:
-                    pass
-        # fallback симуляция
-        return 100.0 + random.uniform(-2, 2)
-
-    def _start_new_cycle(self, base: str, price: float):
-        # стартовая покупка (инициирует цикл)
-        self.buys.setdefault(base, [])
-        if not self.buys[base]:
-            buy_price = round(price * (1 - random.uniform(0.001, 0.01)), 8)
-            self.buys[base].append(buy_price)
-            self.stats['trades'] += 1
-            self.stats['successful_trades'] += 1
-
-    def _maybe_add_buy(self, base: str, price: float):
-        # дополнительные покупки в цикле (усреднение) — разрешены даже если глобальный автотрейдинг выключен, пока цикл активен
-        if self.buys.get(base):
-            if random.random() < 0.20:  # 20% шанс усреднения
-                add_price = round(price * (1 - random.uniform(0.0005, 0.008)), 8)
-                self.buys[base].append(add_price)
-                self.stats['trades'] += 1
-                self.stats['successful_trades'] += 1
-
-    def _maybe_sell_cycle(self, base: str, price: float):
-        # условие выхода: цена >= средняя * (1 + target%)
-        if self.buys.get(base):
-            avg = sum(self.buys[base]) / len(self.buys[base])
-            target = avg * (1 + random.uniform(0.004, 0.012))  # 0.4%..1.2% профит
-            if price >= target:
-                # считаем профит
-                profit = (price - avg) * len(self.buys[base])
-                self.stats['total_profit'] += profit
-                # завершаем цикл
-                self.buys[base] = []
-
-    def _recalc_break_even(self, base: str, price: float):
-        buys = self.buys.get(base, [])
-        be_list = []
-        if not buys:
-            # пустой цикл: показываем пустую таблицу
-            self.stats['per_base'][base] = {
-                'break_even_table': [],
-                'buys': [],
-                'cycle_active': False
-            }
-            return
-        trimmed = buys[-10:]
-        for k in range(1, len(trimmed) + 1):
-            segment = trimmed[-k:]
-            total_cost = sum(segment)
-            total_amount = float(len(segment))
-            required_price = total_cost / total_amount if total_amount else 0
-            if price > 0:
-                delta = round((required_price / price - 1.0) * 100.0, 4)
-            else:
-                delta = None
-            be_list.append(delta)
-        self.stats['per_base'][base] = {
-            'break_even_table': be_list,
-            'buys': buys[:],
-            'cycle_active': True
-        }
-
-    def _run(self):
-        while self.running:
-            try:
-                bases = list(TRADING_PERMISSIONS.keys())
-                for base in bases:
-                    # пропуск если торговля запрещена по базе
-                    if not TRADING_PERMISSIONS.get(base, True):
-                        continue
-                    price = self._get_price(base)
-                    # старт нового цикла только если глобальный автотрейдинг включен и цикл отсутствует
-                    if AUTO_TRADE_GLOBAL_ENABLED and not self.buys.get(base):
-                        self._start_new_cycle(base, price)
-                    # попытка добавить покупку (усреднение) если цикл активен (даже если глобальный выключен)
-                    self._maybe_add_buy(base, price)
-                    # попытка продажи цикла
-                    self._maybe_sell_cycle(base, price)
-                    # перерасчет таблицы BE
-                    self._recalc_break_even(base, price)
-                time.sleep(2.0)
-            except Exception:
-                time.sleep(2.0)
-
-# Глобальный экземпляр
-AUTOTRADER = AutoTrader()
-AUTOTRADER.start()  # запускаем сразу, чтобы таблицы всегда обновлялись
-
-@app.route('/api/autotrade/start', methods=['POST'])
-def api_autotrade_start():
-    global AUTO_TRADE_GLOBAL_ENABLED
-    AUTO_TRADE_GLOBAL_ENABLED = True
-    return jsonify({'success': True, 'message': 'global autotrade cycles start enabled'})
-
-@app.route('/api/autotrade/stop', methods=['POST'])
-def api_autotrade_stop():
-    global AUTO_TRADE_GLOBAL_ENABLED
-    AUTO_TRADE_GLOBAL_ENABLED = False
-    return jsonify({'success': True, 'message': 'global autotrade cycle starts disabled'})
-
-@app.route('/api/trade/permissions', methods=['GET'])
-def api_trade_permissions():
-    return jsonify({'success': True, 'permissions': TRADING_PERMISSIONS})
-
-@app.route('/api/trade/permission', methods=['POST'])
-def api_trade_permission_set():
-    try:
-        data = request.get_json(silent=True) or {}
-        base = str(data.get('base_currency','')).upper()
-        enabled = bool(data.get('enabled', True))
-        if not base:
-            return jsonify({'success': False, 'error': 'base_currency required'}), 400
-        if base not in TRADING_PERMISSIONS:
-            return jsonify({'success': False, 'error': 'unknown base'}), 400
-        TRADING_PERMISSIONS[base] = enabled
-        return jsonify({'success': True, 'base': base, 'enabled': enabled})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/autotrader/stats', methods=['GET'])
-def api_autotrader_stats():
-    base = request.args.get('base_currency')
-    # если указан base, возвращаем только её break_even_table; иначе весь блок
-    try:
-        stats = AUTOTRADER.stats
-        if base:
-            b = base.upper()
-            per = stats.get('per_base', {}).get(b, {'break_even_table': [], 'buys': [], 'cycle_active': False})
-            return jsonify({'success': True, 'base': b, 'break_even_table': per.get('break_even_table', []), 'cycle_active': per.get('cycle_active', False), 'buys': per.get('buys', [])})
-        return jsonify({'success': True, 'global': stats})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# Обновленный эндпоинт индикаторов учитывает per-base данные
-@app.route('/api/trade/indicators', methods=['GET'])
-def api_trade_indicators():
-    base = request.args.get('base_currency', 'BTC').upper()
-    quote = request.args.get('quote_currency', 'USDT').upper()
-    price = AUTOTRADER._get_price(base, quote)
-    per = AUTOTRADER.stats.get('per_base', {}).get(base, {})
-    buys = per.get('buys', [])
-    indicators = {
-        'price': price,
-        'sell': None,
-        'be': None,
-        'last': None,
-        'start': None,
-        'buy': None
-    }
-    if buys:
-        indicators['last'] = buys[-1]
-        indicators['buy'] = buys[0]
-        # BE — берем Stage1 если есть
-        bet = per.get('break_even_table', [])
-        if bet and bet[0] is not None:
-            indicators['be'] = round(price * (1 + bet[0]/100.0), 8)
-        indicators['sell'] = round(price * 1.01, 8)
-        indicators['start'] = round(buys[0], 8)
-    else:
-        # нет активного цикла: задаем ориентиры
-        indicators['sell'] = round(price * 1.01, 8)
-        indicators['buy'] = round(price * 0.99, 8)
-        indicators['last'] = price
-        indicators['start'] = round(price * 0.995, 8)
-        indicators['be'] = round(price * 1.005, 8)
-    return jsonify({'success': True, 'indicators': indicators})
-
-
-@app.route('/api/network', methods=['GET'])
-def api_get_network_mode():
-    """Возвращает текущий сетевой режим (work|test)."""
-    try:
-        return jsonify({'success': True, 'mode': CURRENT_NETWORK_MODE})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/network', methods=['POST'])
-def api_set_network_mode():
-    """Устанавливает сетевой режим (work|test) с переинициализацией WS."""
-    try:
-        data = request.get_json(silent=True) or {}
-        mode = str(data.get('mode','')).lower()
-        if mode not in ('work','test'):
-            return jsonify({'success': False, 'error': 'mode must be work|test'}), 400
-        ok = _reinit_network_mode(mode)
-        if not ok:
-            return jsonify({'success': False, 'error': 'failed to switch mode'}), 500
-        return jsonify({'success': True, 'mode': CURRENT_NETWORK_MODE})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/ws/status', methods=['GET'])
-def api_ws_status():
-    try:
-        ws = get_websocket_manager()
-        if not ws:
-            return jsonify({'success': False, 'error': 'manager_not_initialized'})
-        return jsonify({'success': True, 'status': ws.status()})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/test/balance', methods=['GET','POST'])
+def api_test_balance_removed():
+    return jsonify({'success': False, 'error': 'test balance API отключен. Используются только реальные приватные данные.'}), 410
 
+# =============================================================================
+# ENTRYPOINT (запуск сервера)
+# =============================================================================
 if __name__ == '__main__':
+    # Записываем PID для вспомогательных скриптов (start/restart/stop)
     try:
-        print('[BOOT] Инициализация сервера...')
-        # Записываем PID
-        try:
-            ProcessManager.write_pid()
-        except Exception as e:
-            print(f"[BOOT] Не удалось записать PID: {e}")
-
-        # Настройка очистки при выходе
-        try:
-            ProcessManager.setup_cleanup()
-        except Exception as e:
-            print(f"[BOOT] setup_cleanup error: {e}")
-
-        # Инициализация WebSocket менеджера (лениво допустимо, но пробуем) --- не фатально
-        try:
-            ak, sk = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-            init_websocket_manager(ak, sk, CURRENT_NETWORK_MODE)
-            _init_default_watchlist()
-            print('[BOOT] WebSocket менеджер и watchlist инициализированы')
-        except Exception as e:
-            print(f"[BOOT] WebSocket init warning: {e}")
-
-        # Запуск фонового обновителя пар
-        try:
-            updater = _PairsUpdater()
-            updater.daemon = True
-            updater.start()
-            print('[BOOT] Pairs updater started')
-        except Exception as e:
-            print(f"[BOOT] Не удалось запустить PairsUpdater: {e}")
-
-        # Запуск Flask
-        host = os.environ.get('MTRADE_HOST', '0.0.0.0')
+        ProcessManager.write_pid()
+    except Exception:
+        pass
+    # Параметры запуска (можно переопределить через переменные окружения)
+    host = os.environ.get('MTRADE_HOST', '0.0.0.0')
+    try:
         port = int(os.environ.get('MTRADE_PORT', '5000'))
-        print(f"[BOOT] Запуск Flask на {host}:{port}")
-        # Отключаем автоматический перезапуск (reloader) чтобы не порождать второй процесс
-        app.run(host=host, port=port, threaded=True, use_reloader=False)
-    except Exception as e:
-        print(f"[BOOT] Фатальная ошибка при старте: {e}")
-        try:
-            ProcessManager.remove_pid()
-        except Exception:
-            pass
+    except Exception:
+        port = 5000
+    print(f"[START] Flask сервер запускается: http://{host}:{port} (mode={CURRENT_NETWORK_MODE})")
+    # Явно выключаем debug, включаем threaded для одновременных запросов
+    app.run(host=host, port=port, debug=False, threaded=True)

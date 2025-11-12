@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Block pushing secrets and obvious API key leaks
+set -euo pipefail
+
+blocked_paths_regex='^(config/secrets.*\.json|accounts\.json)$'
+problems=""
+
+# Read refs from stdin: local_ref local_sha remote_ref remote_sha
+input=$(cat -)
+
+# 1) If any secret files are tracked at all — block
+tracked=$(git ls-files | grep -E "$blocked_paths_regex" || true)
+if [ -n "$tracked" ]; then
+  problems+=$'Отслеживаются секретные файлы:\n'

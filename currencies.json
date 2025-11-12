@@ -32,11 +32,11 @@
     "symbol": "⬤"
   },
   {
-    "code": "MATIC",
-    "symbol": "🔷"
-  },
-  {
     "code": "DOGE",
     "symbol": "💠"
+  },
+  {
+    "code": "GT",
+    "symbol": ""
   }
 ]
