@@ -57,6 +57,8 @@ config/*.pem
 *.log
 server.log
 run_output.log
+trade_logs.jsonl
+trade_logs.json
 
 # === PID файлы ===
 *.pid

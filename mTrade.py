@@ -25,6 +25,8 @@ from data_limits import DataLimits
 from gateio_websocket import init_websocket_manager, get_websocket_manager
 # Импорт State Manager
 from state_manager import get_state_manager
+# Импорт Trade Logger
+from trade_logger import get_trade_logger
 
 # Конфигурация Flask
 app = Flask(__name__)
@@ -1857,6 +1859,84 @@ def api_breakeven_table():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
+
+# =============================================================================
+# TRADE LOGS API (Логи торговых операций)
+# =============================================================================
+
+@app.route('/api/trade/logs', methods=['GET'])
+def get_trade_logs():
+    """Получить логи торговых операций"""
+    try:
+        trade_logger = get_trade_logger()
+        
+        # Параметры запроса
+        limit = request.args.get('limit', '100')
+        currency = request.args.get('currency')
+        formatted = request.args.get('formatted', '0') == '1'
+        
+        try:
+            limit = int(limit)
+        except:
+            limit = 100
+        
+        if formatted:
+            # Возвращаем отформатированные строки
+            logs = trade_logger.get_formatted_logs(limit=limit, currency=currency)
+            return jsonify({
+                'success': True,
+                'logs': logs,
+                'count': len(logs)
+            })
+        else:
+            # Возвращаем сырые данные
+            logs = trade_logger.get_logs(limit=limit, currency=currency)
+            return jsonify({
+                'success': True,
+                'logs': logs,
+                'count': len(logs)
+            })
+    except Exception as e:
+        print(f"[TRADE_LOGS] Ошибка получения логов: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trade/logs/stats', methods=['GET'])
+def get_trade_logs_stats():
+    """Получить статистику по логам"""
+    try:
+        trade_logger = get_trade_logger()
+        currency = request.args.get('currency')
+        
+        stats = trade_logger.get_stats(currency=currency)
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+    except Exception as e:
+        print(f"[TRADE_LOGS] Ошибка получения статистики: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trade/logs/clear', methods=['POST'])
+def clear_trade_logs():
+    """Очистить логи"""
+    try:
+        trade_logger = get_trade_logger()
+        data = request.get_json() or {}
+        currency = data.get('currency')
+        
+        trade_logger.clear_logs(currency=currency)
+        
+        return jsonify({
+            'success': True,
+            'message': f"Логи {'для ' + currency if currency else 'все'} очищены"
+        })
+    except Exception as e:
+        print(f"[TRADE_LOGS] Ошибка очистки логов: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 # =============================================================================
 # ENTRYPOINT (запуск сервера)
