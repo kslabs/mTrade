@@ -1498,60 +1498,117 @@ def get_pair_balances():
 def api_test_balance_removed():
     return jsonify({'success': False, 'error': 'test balance API отключен. Используются только реальные приватные данные.'}), 410
 
-@app.route('/api/pair/info', methods=['GET'])
-def api_pair_info():
-    """Вернуть параметры торговой пары (только реальные данные Gate.io) с кэшированием.
-    Параметры:
-      base_currency, quote_currency, force=1 (принудительно обновить)
-    Возвращает: { min_base_amount, min_quote_amount, amount_precision, price_precision }
-    Кэш: PAIR_INFO_CACHE[(mode, pair)] c TTL=PAIR_INFO_CACHE_TTL
+# =============================================================================
+# API: Параметры торговли и таблица безубыточности
+# =============================================================================
+
+@app.route('/api/trade/params', methods=['GET', 'POST'])
+def api_trade_params():
+    """
+    GET: Получить параметры торговли для валюты
+    POST: Сохранить параметры торговли для валюты
+    """
+    state_mgr = get_state_manager()
+    
+    if request.method == 'GET':
+        base_currency = request.args.get('base_currency', '').upper()
+        if not base_currency:
+            return jsonify({'success': False, 'error': 'base_currency required'})
+        
+        params = state_mgr.get_breakeven_params(base_currency)
+        return jsonify({
+            'success': True,
+            'currency': base_currency,
+            'params': params
+        })
+    
+    elif request.method == 'POST':
+        try:
+            data = request.get_json() or {}
+            base_currency = data.get('base_currency', '').upper()
+            if not base_currency:
+                return jsonify({'success': False, 'error': 'base_currency required'})
+            
+            # Извлекаем параметры
+            params = {
+                'steps': int(data.get('steps', 16)),
+                'start_volume': float(data.get('start_volume', 3.0)),
+                'start_price': float(data.get('start_price', 0.0)),
+                'pprof': float(data.get('pprof', 0.6)),
+                'kprof': float(data.get('kprof', 0.02)),
+                'target_r': float(data.get('target_r', 3.65)),
+                'geom_multiplier': float(data.get('geom_multiplier', 2.0)),
+                'rebuy_mode': data.get('rebuy_mode', 'geometric'),
+                'keep': float(data.get('keep', 0.0))
+            }
+            
+            # Сохраняем в state manager
+            state_mgr.set_breakeven_params(base_currency, params)
+            
+            return jsonify({
+                'success': True,
+                'currency': base_currency,
+                'params': params
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/breakeven/table', methods=['GET'])
+def api_breakeven_table():
+    """
+    Получить таблицу безубыточности с параметрами из запроса или сохранёнными
     """
     try:
-        base = request.args.get('base_currency', 'BTC').upper()
-        quote = request.args.get('quote_currency', 'USDT').upper()
-        force = request.args.get('force', '0') == '1'
-        pair = f"{base}_{quote}"
-        cache_key = (CURRENT_NETWORK_MODE, pair)
-        now = time.time()
-        cached = PAIR_INFO_CACHE.get(cache_key)
-        if not force and cached and (now - cached.get('ts', 0) < PAIR_INFO_CACHE_TTL):
-            return jsonify({'success': True, 'pair': pair, 'data': cached['data'], 'cached': True, 'mode': CURRENT_NETWORK_MODE})
-        # Загрузка ключей (приватных — но для /spot/currency_pairs публичные тоже работают; оставляем единообразие)
-        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-        used_source = f"config/{'secrets_test.json' if CURRENT_NETWORK_MODE=='test' else 'secrets.json'}"
-        if not (api_key and api_secret) and account_manager.active_account:
-            acc = account_manager.get_account(account_manager.active_account)
-            if acc and acc.get('api_key') and acc.get('api_secret'):
-                api_key, api_secret = acc['api_key'], acc['api_secret']
-                used_source = f"accounts:{account_manager.active_account}"
-        client = GateAPIClient(api_key or '', api_secret or '', CURRENT_NETWORK_MODE)
-        print(f"[PAIR_INFO] fetch pair={pair} mode={CURRENT_NETWORK_MODE} host={client.host} src={used_source} force={force}")
-        raw = client.get_currency_pair_details_exact(pair)
-        if isinstance(raw, dict):
-            data = {
-                'min_base_amount': raw.get('min_base_amount'),
-                'min_quote_amount': raw.get('min_quote_amount'),
-                'amount_precision': raw.get('amount_precision'),
-                'price_precision': raw.get('precision') or raw.get('price_precision'),
-            }
-            PAIR_INFO_CACHE[cache_key] = {'ts': now, 'data': data}
-            return jsonify({'success': True, 'pair': pair, 'data': data, 'cached': False, 'mode': CURRENT_NETWORK_MODE})
-        # Если вдруг пришёл список (старый метод) — извлекаем первый dict
-        if isinstance(raw, list) and raw:
-            first = raw[0] if isinstance(raw[0], dict) else {}
-            data = {
-                'min_base_amount': first.get('min_base_amount'),
-                'min_quote_amount': first.get('min_quote_amount'),
-                'amount_precision': first.get('amount_precision'),
-                'price_precision': first.get('precision') or first.get('price_precision'),
-            }
-            PAIR_INFO_CACHE[cache_key] = {'ts': now, 'data': data}
-            return jsonify({'success': True, 'pair': pair, 'data': data, 'cached': False, 'mode': CURRENT_NETWORK_MODE})
-        return jsonify({'success': False, 'error': 'Unexpected response format', 'type': str(type(raw)), 'mode': CURRENT_NETWORK_MODE})
+        from breakeven_calculator import calculate_breakeven_table
+        
+        state_mgr = get_state_manager()
+        ws_mgr = get_websocket_manager()
+        
+        base_currency = request.args.get('base_currency', 'BTC').upper()
+        
+        # Получаем параметры из запроса или из сохранённых
+        params = {
+            'steps': int(request.args.get('steps', 0)),
+            'start_volume': float(request.args.get('start_volume', 0)),
+            'start_price': float(request.args.get('start_price', 0)),
+            'pprof': float(request.args.get('pprof', 0)),
+            'kprof': float(request.args.get('kprof', 0)),
+            'target_r': float(request.args.get('target_r', 0)),
+            'geom_multiplier': float(request.args.get('geom_multiplier', 0)),
+            'rebuy_mode': request.args.get('rebuy_mode', ''),
+            'keep': float(request.args.get('keep', 0))
+        }
+        
+        # Если параметры не заданы в запросе, берём сохранённые
+        if params['steps'] == 0:
+            saved_params = state_mgr.get_breakeven_params(base_currency)
+            params.update(saved_params)
+        
+        # Получаем текущую цену для валюты
+        current_price = 0.0
+        try:
+            pair = f"{base_currency}_USDT"
+            ticker_data = ws_mgr.get_ticker(pair)
+            if ticker_data and 'last' in ticker_data:
+                current_price = float(ticker_data['last'])
+        except Exception:
+            pass
+        
+        # Рассчитываем таблицу
+        table = calculate_breakeven_table(params, current_price)
+        
+        return jsonify({
+            'success': True,
+            'currency': base_currency,
+            'current_price': current_price,
+            'params': params,
+            'table': table
+        })
     except Exception as e:
-        print(f"[PAIR_INFO] exception pair={base}_{quote}: {e}")
-        return jsonify({'success': False, 'error': str(e), 'mode': CURRENT_NETWORK_MODE})
-
+        print(f"[BREAKEVEN] Ошибка расчёта таблицы: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
 
 # =============================================================================
 # ENTRYPOINT (запуск сервера)

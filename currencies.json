@@ -1,5 +1,9 @@
 [
   {
+    "code": "BTC",
+    "symbol": "₿"
+  },
+  {
     "code": "WLD",
     "symbol": "🌐"
   },
