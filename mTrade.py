@@ -1600,6 +1600,44 @@ def api_trade_params():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})
 
+
+@app.route('/api/trade/permissions', methods=['GET'])
+def get_trade_permissions():
+    """Получить разрешения торговли для всех валют"""
+    try:
+        state_mgr = get_state_manager()
+        permissions = state_mgr.get_trading_permissions()
+        return jsonify({
+            'success': True,
+            'permissions': permissions
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/trade/permission', methods=['POST'])
+def set_trade_permission():
+    """Установить разрешение торговли для валюты"""
+    try:
+        data = request.get_json() or {}
+        base_currency = data.get('base_currency', '').upper()
+        enabled = data.get('enabled', True)
+        
+        if not base_currency:
+            return jsonify({'success': False, 'error': 'base_currency required'})
+        
+        state_mgr = get_state_manager()
+        state_mgr.set_trading_permission(base_currency, enabled)
+        
+        return jsonify({
+            'success': True,
+            'currency': base_currency,
+            'enabled': enabled
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/breakeven/table', methods=['GET'])
 def api_breakeven_table():
     """
