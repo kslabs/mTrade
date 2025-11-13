@@ -1289,6 +1289,53 @@ def server_shutdown():
 # WEBSOCKET API ENDPOINTS
 # =============================================================================
 
+@app.route('/api/pair/info', methods=['GET'])
+def get_pair_info():
+    """Получить информацию о торговой паре (минимальные объёмы, точность и т.д.)"""
+    try:
+        base_currency = request.args.get('base_currency', 'BTC')
+        quote_currency = request.args.get('quote_currency', 'USDT')
+        force = request.args.get('force', '0') == '1'
+        
+        currency_pair = f"{base_currency}_{quote_currency}"
+        
+        # Получаем API клиент
+        # Для публичных данных (информация о паре) используем 'work' режим
+        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
+        client = GateAPIClient(api_key, api_secret, 'work')
+        
+        # Получаем детали пары
+        pair_details = client.get_currency_pair_details_exact(currency_pair)
+        
+        if isinstance(pair_details, dict) and "error" in pair_details:
+            return jsonify({
+                "success": False,
+                "error": pair_details["error"]
+            })
+        
+        # Извлекаем нужные параметры
+        data = {
+            "min_quote_amount": pair_details.get("min_quote_amount"),
+            "min_base_amount": pair_details.get("min_base_amount"),
+            "amount_precision": pair_details.get("amount_precision"),
+            "price_precision": pair_details.get("precision"),
+            "trade_status": pair_details.get("trade_status"),
+            "currency_pair": currency_pair
+        }
+        
+        return jsonify({
+            "success": True,
+            "data": data
+        })
+        
+    except Exception as e:
+        print(f"[PAIR_INFO] Ошибка: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+
 @app.route('/api/pair/subscribe', methods=['POST'])
 def subscribe_pair():
     """Подписаться на данные торговой пары через WebSocket"""
