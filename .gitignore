@@ -69,6 +69,30 @@ out_pair.txt
 
 # === Тестовые данные ===
 test_balances.json
+# Тестовые файлы с реальными API ключами
+test_api_endpoints.py
+test_direct_api.py
+test_futures_api.py
+test_testnet_balance.py
+test_breakeven.py
+test_autotrader.py
+test_orderbook.py
+test_network_mode_refactor.py
+test_network_switch_interactive.py
+test_new_keys.py
+verify_network_switch.py
+test_breakeven_table.html
+run_all_checks.py
+test_quick_trade.py
+test_square_buttons.html
+
+# Файлы документации с реальными ключами
+GIT_SETUP.md
+NETWORK_SWITCH_ANALYSIS.md
+NETWORK_SWITCH_GUIDE.md
+STATUS_CURRENT.md
+TESTNET_BALANCE_READY.md
+TESTNET_INTEGRATION_COMPLETE.md
 
 # === Состояние приложения ===
 ui_state.json

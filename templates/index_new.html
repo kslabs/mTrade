@@ -78,14 +78,8 @@
             <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
                 <span>📈 Рынок и стакан</span>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <button id="buyMinOrderBtn" class="server-btn-small" style="background:#28a745;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Купить минимальный ордер">
-                        💰
-                    </button>
-                    <button id="sellAllBtn" class="server-btn-small" style="background:#dc3545;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Продать все">
-                        💸
-                    </button>
                     <span style="font-size:11px;color:#888;">Баланс:</span>
-                    <span id="headerQuoteBalance" style="font-size:16px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
+                    <span id="headerQuoteBalance" style="font-size:16px;color:#4a9eff;font-weight:700;" onclick="editQuoteBalance()" title="Клик для редактирования">0.00</span>
                     <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
                         <option value="USDT">USDT</option>
                         <option value="USDC">USDC</option>
@@ -128,51 +122,42 @@
             
             <!-- Блок редактируемых параметров -->
             <div class="trade-params-editor">
-                <!-- Первая строка параметров -->
-                <div class="params-row">
+                <div class="params-grid">
                     <div class="param-field">
-                        <label for="paramSteps" title="Определяет количество строк таблицы, вместе с нулевой строкой по которой делается стартовая покупка торгового цикла, который заканчивается продажей всего, кроме суммы Keep">Шагов:</label>
+                        <label for="paramSteps">Число шагов (вкл. 0):</label>
                         <input type="number" id="paramSteps" step="1" value="16" min="1" max="50" />
                     </div>
                     <div class="param-field">
-                        <label for="paramStartVolume" title="Стартовый объём закупки в котируемой валюте">Старт, $:</label>
+                        <label for="paramStartVolume">Стартовый объём:</label>
                         <input type="number" id="paramStartVolume" step="0.1" value="3" min="0.1" />
                     </div>
                     <div class="param-field">
-                        <label for="paramStartPrice" title="Стартовая цена закупки, которая обновляется каждый раз, как только произошла стартовая покупка">Цена (P0):</label>
+                        <label for="paramStartPrice">Начальная цена (P0):</label>
                         <input type="number" id="paramStartPrice" step="0.00000001" value="0" placeholder="Текущий курс" />
                     </div>
                     <div class="param-field">
-                        <label for="paramPprof" title="Указывает какой профит должен быть на каком шаге цикла">Pprof, %:</label>
+                        <label for="paramPprof">Pprof, %:</label>
                         <input type="number" id="paramPprof" step="0.01" value="0.6" min="0.01" />
                     </div>
                     <div class="param-field">
-                        <label for="paramKprof" title="Указывает сколько надо вычесть из Pprof на шаге цикла">Kprof:</label>
+                        <label for="paramKprof">Kprof:</label>
                         <input type="number" id="paramKprof" step="0.001" value="0.02" min="0" />
                     </div>
-                </div>
-                
-                <!-- Вторая строка параметров -->
-                <div class="params-row">
                     <div class="param-field">
-                        <label for="paramTargetR" title="Устанавливает шаг в процентах к безубыточной цели на последней строчке">БезУб, % (цель R):</label>
+                        <label for="paramTargetR">↑ БезУб, % (цель R):</label>
                         <input type="number" id="paramTargetR" step="0.01" value="3.65" min="0.01" />
                     </div>
                     <div class="param-field">
-                        <label for="paramGeomMultiplier" title="Определяет шаг геометрии объёмов закупок">Множитель геометрии:</label>
+                        <label for="paramGeomMultiplier">Множитель геометрии:</label>
                         <input type="number" id="paramGeomMultiplier" step="0.1" value="2" min="1" />
                     </div>
                     <div class="param-field">
-                        <label for="paramRebuyMode" title="Определяет режимы геометрии: линейный, геометрический, Мартингейла">Режим сумм докупок:</label>
+                        <label for="paramRebuyMode">Режим сумм докупок:</label>
                         <select id="paramRebuyMode">
                             <option value="fixed">Фиксированный</option>
                             <option value="geometric">Геометрический</option>
                             <option value="martingale">Мартингейл</option>
                         </select>
-                    </div>
-                    <div class="param-field">
-                        <label for="paramKeep" title="Постоянная сумма на балансе, которая должна оставаться при продаже. Если не хватает объёма для продажи при окончании цикла, то всё равно заканчивать цикл фиктивной продажей, чтобы начать новый цикл">Keep:</label>
-                        <input type="number" id="paramKeep" step="0.01" value="0" min="0" placeholder="Остаток" />
                     </div>
                 </div>
             </div>
