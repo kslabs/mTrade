@@ -1638,6 +1638,81 @@ def set_trade_permission():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/trade/order', methods=['POST'])
+def create_trade_order():
+    """Создать торговый ордер (покупка/продажа)"""
+    try:
+        # Проверяем активный аккаунт
+        if not account_manager.active_account:
+            return jsonify({'success': False, 'error': 'Нет активного аккаунта'})
+        
+        data = request.get_json() or {}
+        base_currency = data.get('base_currency', '').upper()
+        quote_currency = data.get('quote_currency', '').upper()
+        side = data.get('side', 'buy').lower()  # buy или sell
+        amount = float(data.get('amount', 0))
+        order_type = data.get('order_type', 'market').lower()  # market или limit
+        price = data.get('price')  # для limit ордеров
+        
+        # Валидация
+        if not base_currency or not quote_currency:
+            return jsonify({'success': False, 'error': 'base_currency и quote_currency обязательны'})
+        
+        if side not in ('buy', 'sell'):
+            return jsonify({'success': False, 'error': 'side должен быть buy или sell'})
+        
+        if amount <= 0:
+            return jsonify({'success': False, 'error': 'amount должен быть больше 0'})
+        
+        currency_pair = f"{base_currency}_{quote_currency}"
+        
+        # Получаем API клиент
+        account = account_manager.get_account(account_manager.active_account)
+        client = GateAPIClient(account['api_key'], account['api_secret'], CURRENT_NETWORK_MODE)
+        
+        # Создаём ордер
+        if order_type == 'market':
+            # Для рыночного ордера цена не нужна
+            result = client.create_spot_order(
+                currency_pair=currency_pair,
+                side=side,
+                amount=str(amount),
+                order_type='market'
+            )
+        else:
+            # Для лимитного ордера нужна цена
+            if not price or float(price) <= 0:
+                return jsonify({'success': False, 'error': 'Для limit ордера нужна цена'})
+            
+            result = client.create_spot_order(
+                currency_pair=currency_pair,
+                side=side,
+                amount=str(amount),
+                price=str(price),
+                order_type='limit'
+            )
+        
+        # Проверяем результат
+        if isinstance(result, dict) and 'id' in result:
+            return jsonify({
+                'success': True,
+                'order_id': result.get('id'),
+                'status': result.get('status'),
+                'currency_pair': currency_pair,
+                'side': side,
+                'amount': amount,
+                'order_type': order_type
+            })
+        elif isinstance(result, dict) and 'error' in result:
+            return jsonify({'success': False, 'error': result.get('error')})
+        else:
+            return jsonify({'success': False, 'error': 'Неизвестный формат ответа от API'})
+            
+    except Exception as e:
+        print(f"[TRADE_ORDER] Ошибка создания ордера: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/breakeven/table', methods=['GET'])
 def api_breakeven_table():
     """
