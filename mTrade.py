@@ -1498,6 +1498,61 @@ def get_pair_balances():
 def api_test_balance_removed():
     return jsonify({'success': False, 'error': 'test balance API отключен. Используются только реальные приватные данные.'}), 410
 
+@app.route('/api/pair/info', methods=['GET'])
+def api_pair_info():
+    """Вернуть параметры торговой пары (только реальные данные Gate.io) с кэшированием.
+    Параметры:
+      base_currency, quote_currency, force=1 (принудительно обновить)
+    Возвращает: { min_base_amount, min_quote_amount, amount_precision, price_precision }
+    Кэш: PAIR_INFO_CACHE[(mode, pair)] c TTL=PAIR_INFO_CACHE_TTL
+    """
+    try:
+        base = request.args.get('base_currency', 'BTC').upper()
+        quote = request.args.get('quote_currency', 'USDT').upper()
+        force = request.args.get('force', '0') == '1'
+        pair = f"{base}_{quote}"
+        cache_key = (CURRENT_NETWORK_MODE, pair)
+        now = time.time()
+        cached = PAIR_INFO_CACHE.get(cache_key)
+        if not force and cached and (now - cached.get('ts', 0) < PAIR_INFO_CACHE_TTL):
+            return jsonify({'success': True, 'pair': pair, 'data': cached['data'], 'cached': True, 'mode': CURRENT_NETWORK_MODE})
+        # Загрузка ключей (приватных — но для /spot/currency_pairs публичные тоже работают; оставляем единообразие)
+        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
+        used_source = f"config/{'secrets_test.json' if CURRENT_NETWORK_MODE=='test' else 'secrets.json'}"
+        if not (api_key and api_secret) and account_manager.active_account:
+            acc = account_manager.get_account(account_manager.active_account)
+            if acc and acc.get('api_key') and acc.get('api_secret'):
+                api_key, api_secret = acc['api_key'], acc['api_secret']
+                used_source = f"accounts:{account_manager.active_account}"
+        client = GateAPIClient(api_key or '', api_secret or '', CURRENT_NETWORK_MODE)
+        print(f"[PAIR_INFO] fetch pair={pair} mode={CURRENT_NETWORK_MODE} host={client.host} src={used_source} force={force}")
+        raw = client.get_currency_pair_details_exact(pair)
+        if isinstance(raw, dict):
+            data = {
+                'min_base_amount': raw.get('min_base_amount'),
+                'min_quote_amount': raw.get('min_quote_amount'),
+                'amount_precision': raw.get('amount_precision'),
+                'price_precision': raw.get('precision') or raw.get('price_precision'),
+            }
+            PAIR_INFO_CACHE[cache_key] = {'ts': now, 'data': data}
+            return jsonify({'success': True, 'pair': pair, 'data': data, 'cached': False, 'mode': CURRENT_NETWORK_MODE})
+        # Если вдруг пришёл список (старый метод) — извлекаем первый dict
+        if isinstance(raw, list) and raw:
+            first = raw[0] if isinstance(raw[0], dict) else {}
+            data = {
+                'min_base_amount': first.get('min_base_amount'),
+                'min_quote_amount': first.get('min_quote_amount'),
+                'amount_precision': first.get('amount_precision'),
+                'price_precision': first.get('precision') or first.get('price_precision'),
+            }
+            PAIR_INFO_CACHE[cache_key] = {'ts': now, 'data': data}
+            return jsonify({'success': True, 'pair': pair, 'data': data, 'cached': False, 'mode': CURRENT_NETWORK_MODE})
+        return jsonify({'success': False, 'error': 'Unexpected response format', 'type': str(type(raw)), 'mode': CURRENT_NETWORK_MODE})
+    except Exception as e:
+        print(f"[PAIR_INFO] exception pair={base}_{quote}: {e}")
+        return jsonify({'success': False, 'error': str(e), 'mode': CURRENT_NETWORK_MODE})
+
+
 # =============================================================================
 # ENTRYPOINT (запуск сервера)
 # =============================================================================

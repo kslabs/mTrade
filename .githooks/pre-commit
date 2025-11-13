@@ -13,23 +13,19 @@ if [ -n "$PROHIBITED" ]; then
   exit 1
 fi
 
-# 2) Scan staged content for API key patterns in any staged file
-#    - JSON-style keys GATEIO_API_KEY / GATEIO_API_SECRET with non-placeholder values
-#    - 32+ hex tokens next to words key/secret/ключ (common for Gate.io) in text/markdown/json
+# 2) Scan staged content for actual secret values (not just field names)
 LEAKS=""
 for f in $STAGED_FILES; do
-  # Skip the hook itself and example files
   case "$f" in
     .githooks/*|config/secrets.example.json|accounts.json.example) continue;;
   esac
   content=$(git show ":$f" 2>/dev/null || true)
-  # Check for explicit keys
-  if echo "$content" | grep -Eiq 'GATEIO_API_(KEY|SECRET)'; then
-    # Allow placeholders like YOUR_* or dummy ***
-    if echo "$content" | grep -Eiq 'GATEIO_API_(KEY|SECRET)"\s*:\s*"(YOUR|your|\*\*\*|PLACEHOLDER)'; then
-      : # ok
-    else
-      LEAKS="$LEAKS\n$f: содержит поля GATEIO_API_KEY/SECRET"
+  # JSON-style explicit values like "GATEIO_API_KEY": "abcdef..."
+  if echo "$content" | grep -Eiq '"GATEIO_API_(KEY|SECRET)"\s*:\s*"[^"]+"'; then
+    # extract suspicious assignments excluding placeholders
+    suspicious=$(echo "$content" | grep -Ein '"GATEIO_API_(KEY|SECRET)"\s*:\s*"(?!YOUR|your|PLACEHOLDER|\*\*\*|example|test)[^"]{16,}"' || true)
+    if [ -n "$suspicious" ]; then
+      LEAKS="$LEAKS\n$f: содержит явные значения GATEIO_API_KEY/SECRET"
     fi
   fi
   # Heuristic: 32+ hex near key/secret words (including Russian "ключ")

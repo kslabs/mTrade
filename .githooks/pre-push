@@ -2,13 +2,65 @@
 # Block pushing secrets and obvious API key leaks
 set -euo pipefail
 
-blocked_paths_regex='^(config/secrets.*\.json|accounts\.json)$'
+# Block only real secret files, allow *.example
+blocked_paths_regex='^(config/secrets(?!\.example)\S*\.json|accounts\.json)$'
 problems=""
 
 # Read refs from stdin: local_ref local_sha remote_ref remote_sha
-input=$(cat -)
+input=$(cat || true)
 
-# 1) If any secret files are tracked at all — block
+# 1) If any forbidden secret files are tracked — block
 tracked=$(git ls-files | grep -E "$blocked_paths_regex" || true)
 if [ -n "$tracked" ]; then
   problems+=$'Отслеживаются секретные файлы:\n'
+  problems+="$tracked"$'\n'
+fi
+
+# 2) Inspect ranges being pushed and scan diffs for secrets/leaks
+if [ -n "${input:-}" ]; then
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "${local_sha:-}" ] && continue
+    if [ -z "${remote_sha:-}" ] || [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+      range="$local_sha"
+    else
+      range="$remote_sha..$local_sha"
+    fi
+
+    # Block if forbidden secret files appear in changes
+    changed=$(git diff --name-only --diff-filter=AMR "$range" | grep -E "$blocked_paths_regex" || true)
+    if [ -n "$changed" ]; then
+      problems+=$'В историю попадают секретные файлы:\n'
+      problems+="$changed"$'\n'
+    fi
+
+    # Check each changed file content selectively (skip hooks/docs)
+    files=$(git diff --name-only "$range" || true)
+    for f in $files; do
+      case "$f" in
+        .githooks/*|*.md|*.MD|*.mdx|*.txt|*.rst|*.adoc|*.example|*.sample|LICENSE|README*|CHANGELOG*)
+          continue ;;
+      esac
+      added=$(git diff -U0 "$range" -- "$f" | grep -E '^(\+[^+])' || true)
+      if [ -z "$added" ]; then
+        continue
+      fi
+      if echo "$added" | grep -Eiq 'GATEIO_API_(KEY|SECRET)'; then
+        if ! echo "$added" | grep -Eiq 'GATEIO_API_(KEY|SECRET).*"(YOUR|your|PLACEHOLDER|\*\*\*|example|EXAMPLE|test|TEST|KEY_HERE|SECRET_HERE|ваш|ВАШ|пример|demo|sample|testnet)'; then
+          problems+=$'Обнаружены строки с GATEIO_API_KEY/SECRET в коммитах, которые вы пушите.\n'
+        fi
+      fi
+      if echo "$added" | grep -Eiq '((key|secret|ключ)[^\n]{0,40}[A-Fa-f0-9]{32,})|([A-Fa-f0-9]{32,}[^\n]{0,40}(key|secret|ключ))'; then
+        problems+=$'Обнаружены hex-токены рядом с key/secret/ключ (возможная утечка).\n'
+      fi
+    done
+  done <<< "$input"
+fi
+
+if [ -n "$problems" ]; then
+  echo "[HOOK] ОТМЕНА push: обнаружены потенциальные секреты/запрещённые файлы:" >&2
+  echo "$problems" >&2
+  echo "Подсказка: удалите секреты из истории/рабочего дерева и используйте *.example файлы." >&2
+  exit 1
+fi
+
+exit 0
