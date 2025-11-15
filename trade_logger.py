@@ -1,6 +1,7 @@
 """
 Trade Logger - Логирование торговых операций
 Ведёт журнал всех торговых операций с ограничением размера
+Per-currency логи: каждая валюта имеет свой файл логов
 """
 
 import os
@@ -12,53 +13,100 @@ from typing import Dict, List, Optional
 
 
 class TradeLogger:
-    """Менеджер логов торговых операций"""
+    """Менеджер логов торговых операций (per-currency)"""
     
-    MAX_LOG_ENTRIES = 10000  # Максимум записей в памяти и на диске
-    LOG_FILE = "trade_logs.jsonl"  # JSONL формат (JSON Lines)
+    MAX_LOG_ENTRIES = 10000  # Максимум записей в памяти и на диске для каждой валюты
+    LOG_DIR = "trade_logs"  # Директория для хранения логов
     
     def __init__(self):
-        self.logs = deque(maxlen=self.MAX_LOG_ENTRIES)
+        # Словарь логов по валютам: {currency: deque()}
+        self.logs_by_currency = {}
         self.lock = Lock()
-        self._load_logs()
+        
+        # Создаём директорию для логов если её нет
+        if not os.path.exists(self.LOG_DIR):
+            os.makedirs(self.LOG_DIR)
+            print(f"[TRADE_LOGGER] Создана директория для логов: {self.LOG_DIR}")
+        
+        # Загружаем существующие логи
+        self._load_all_logs()
     
-    def _load_logs(self):
-        """Загрузить логи из файла"""
-        if not os.path.exists(self.LOG_FILE):
+    def _get_log_file_path(self, currency: str) -> str:
+        """Получить путь к файлу логов для валюты"""
+        return os.path.join(self.LOG_DIR, f"{currency.upper()}_logs.jsonl")
+    
+    def _load_logs_for_currency(self, currency: str):
+        """Загрузить логи для конкретной валюты"""
+        currency = currency.upper()
+        log_file = self._get_log_file_path(currency)
+        
+        if not os.path.exists(log_file):
             return
         
         try:
-            with open(self.LOG_FILE, 'r', encoding='utf-8') as f:
+            logs = deque(maxlen=self.MAX_LOG_ENTRIES)
+            with open(log_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line:
                         try:
                             entry = json.loads(line)
-                            self.logs.append(entry)
+                            logs.append(entry)
                         except json.JSONDecodeError:
                             continue
             
-            print(f"[TRADE_LOGGER] Загружено {len(self.logs)} записей из лога")
+            self.logs_by_currency[currency] = logs
+            print(f"[TRADE_LOGGER] Загружено {len(logs)} записей для {currency}")
+        except Exception as e:
+            print(f"[TRADE_LOGGER] Ошибка загрузки логов для {currency}: {e}")
+    
+    def _load_all_logs(self):
+        """Загрузить логи для всех валют из директории"""
+        try:
+            if not os.path.exists(self.LOG_DIR):
+                return
+            
+            # Ищем все файлы логов (*_logs.jsonl)
+            for filename in os.listdir(self.LOG_DIR):
+                if filename.endswith('_logs.jsonl'):
+                    # Извлекаем название валюты из имени файла
+                    currency = filename.replace('_logs.jsonl', '')
+                    self._load_logs_for_currency(currency)
+            
+            total_logs = sum(len(logs) for logs in self.logs_by_currency.values())
+            print(f"[TRADE_LOGGER] Всего загружено {total_logs} записей для {len(self.logs_by_currency)} валют")
         except Exception as e:
             print(f"[TRADE_LOGGER] Ошибка загрузки логов: {e}")
     
-    def _save_log_entry(self, entry: dict):
-        """Сохранить одну запись в файл (append)"""
+    def _ensure_currency_logs(self, currency: str):
+        """Убедиться что для валюты существует контейнер логов"""
+        currency = currency.upper()
+        if currency not in self.logs_by_currency:
+            self.logs_by_currency[currency] = deque(maxlen=self.MAX_LOG_ENTRIES)
+    
+    def _save_log_entry(self, currency: str, entry: dict):
+        """Сохранить одну запись в файл валюты (append)"""
+        currency = currency.upper()
+        log_file = self._get_log_file_path(currency)
+        
         try:
-            with open(self.LOG_FILE, 'a', encoding='utf-8') as f:
+            with open(log_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + '\n')
         except Exception as e:
-            print(f"[TRADE_LOGGER] Ошибка записи в лог: {e}")
+            print(f"[TRADE_LOGGER] Ошибка записи в лог {currency}: {e}")
     
-    def _trim_log_file(self):
-        """Обрезать файл лога до MAX_LOG_ENTRIES записей"""
+    def _trim_log_file(self, currency: str):
+        """Обрезать файл лога валюты до MAX_LOG_ENTRIES записей"""
+        currency = currency.upper()
+        log_file = self._get_log_file_path(currency)
+        
         try:
-            if not os.path.exists(self.LOG_FILE):
+            if not os.path.exists(log_file):
                 return
             
             # Читаем все записи
             entries = []
-            with open(self.LOG_FILE, 'r', encoding='utf-8') as f:
+            with open(log_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line:
@@ -72,17 +120,19 @@ class TradeLogger:
                 entries = entries[-self.MAX_LOG_ENTRIES:]
                 
                 # Перезаписываем файл
-                with open(self.LOG_FILE, 'w', encoding='utf-8') as f:
+                with open(log_file, 'w', encoding='utf-8') as f:
                     for entry in entries:
                         f.write(json.dumps(entry, ensure_ascii=False) + '\n')
                 
-                print(f"[TRADE_LOGGER] Файл лога обрезан до {len(entries)} записей")
+                print(f"[TRADE_LOGGER] Файл лога {currency} обрезан до {len(entries)} записей")
         except Exception as e:
-            print(f"[TRADE_LOGGER] Ошибка обрезки лога: {e}")
+            print(f"[TRADE_LOGGER] Ошибка обрезки лога {currency}: {e}")
     
     def log_buy(self, currency: str, volume: float, price: float, 
                 delta_percent: float, total_drop_percent: float, investment: float):
-        """Логировать операцию покупки"""
+        """Логировать операцию покупки (в файл конкретной валюты)"""
+        currency = currency.upper()
+        
         entry = {
             'timestamp': datetime.now().isoformat(),
             'time': datetime.now().strftime('%H:%M:%S'),
@@ -96,18 +146,26 @@ class TradeLogger:
         }
         
         with self.lock:
-            self.logs.append(entry)
-            self._save_log_entry(entry)
+            # Убедиться что для валюты есть контейнер
+            self._ensure_currency_logs(currency)
             
-            # Периодически обрезаем файл (каждые 100 записей)
-            if len(self.logs) % 100 == 0:
-                self._trim_log_file()
+            # Добавить в память
+            self.logs_by_currency[currency].append(entry)
+            
+            # Сохранить в файл валюты
+            self._save_log_entry(currency, entry)
+            
+            # Периодически обрезаем файл (каждые 100 записей для данной валюты)
+            if len(self.logs_by_currency[currency]) % 100 == 0:
+                self._trim_log_file(currency)
         
-        print(f"[TRADE_LOG] Buy {currency}: V={volume:.4f} P={price:.4f} ↓Δ%={delta_percent:.2f} ↓%={total_drop_percent:.2f} Inv={investment:.4f}")
+        print(f"[TRADE_LOG] {currency} Buy: V={volume:.4f} P={price:.4f} ↓Δ%={delta_percent:.2f} ↓%={total_drop_percent:.2f} Inv={investment:.4f}")
     
     def log_sell(self, currency: str, volume: float, price: float, 
                  delta_percent: float, pnl: float):
-        """Логировать операцию продажи"""
+        """Логировать операцию продажи (в файл конкретной валюты)"""
+        currency = currency.upper()
+        
         entry = {
             'timestamp': datetime.now().isoformat(),
             'time': datetime.now().strftime('%H:%M:%S'),
@@ -120,37 +178,49 @@ class TradeLogger:
         }
         
         with self.lock:
-            self.logs.append(entry)
-            self._save_log_entry(entry)
+            # Убедиться что для валюты есть контейнер
+            self._ensure_currency_logs(currency)
             
-            # Периодически обрезаем файл (каждые 100 записей)
-            if len(self.logs) % 100 == 0:
-                self._trim_log_file()
+            # Добавить в память
+            self.logs_by_currency[currency].append(entry)
+            
+            # Сохранить в файл валюты
+            self._save_log_entry(currency, entry)
+            
+            # Периодически обрезаем файл (каждые 100 записей для данной валюты)
+            if len(self.logs_by_currency[currency]) % 100 == 0:
+                self._trim_log_file(currency)
         
-        print(f"[TRADE_LOG] Sell {currency}: V={volume:.4f} P={price:.4f} ↑Δ%={delta_percent:.2f} PnL={pnl:.4f}")
+        print(f"[TRADE_LOG] {currency} Sell: V={volume:.4f} P={price:.4f} ↑Δ%={delta_percent:.2f} PnL={pnl:.4f}")
     
     def get_logs(self, limit: Optional[int] = None, currency: Optional[str] = None) -> List[dict]:
         """Получить логи
         
         Args:
             limit: Максимальное количество записей (последние N)
-            currency: Фильтр по валюте
+            currency: Валюта (если не указана - все валюты)
         
         Returns:
             Список записей логов
         """
         with self.lock:
-            logs_list = list(self.logs)
-        
-        # Фильтр по валюте
-        if currency:
-            logs_list = [log for log in logs_list if log.get('currency', '').upper() == currency.upper()]
-        
-        # Сортировка по времени (новые первыми)
-        logs_list.reverse()
+            if currency:
+                # Логи только для одной валюты
+                currency = currency.upper()
+                if currency in self.logs_by_currency:
+                    logs_list = list(self.logs_by_currency[currency])
+                else:
+                    logs_list = []
+            else:
+                # Логи для всех валют (объединяем и сортируем по времени)
+                logs_list = []
+                for curr_logs in self.logs_by_currency.values():
+                    logs_list.extend(list(curr_logs))
+                # Сортируем по timestamp
+                logs_list.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         
         # Ограничение количества
-        if limit:
+        if limit and len(logs_list) > limit:
             logs_list = logs_list[:limit]
         
         return logs_list
@@ -197,30 +267,45 @@ class TradeLogger:
         """Очистить логи
         
         Args:
-            currency: Если указана, очистить только логи для этой валюты
+            currency: Если указана, очистить только логи для этой валюты, иначе все валюты
         """
         with self.lock:
             if currency:
-                # Удаляем только логи для указанной валюты
-                self.logs = deque(
-                    (log for log in self.logs if log.get('currency', '').upper() != currency.upper()),
-                    maxlen=self.MAX_LOG_ENTRIES
-                )
+                # Очистить логи для одной валюты
+                currency = currency.upper()
+                if currency in self.logs_by_currency:
+                    self.logs_by_currency[currency].clear()
+                
+                # Удалить файл валюты
+                log_file = self._get_log_file_path(currency)
+                try:
+                    if os.path.exists(log_file):
+                        os.remove(log_file)
+                        print(f"[TRADE_LOGGER] Логи для {currency} очищены")
+                except Exception as e:
+                    print(f"[TRADE_LOGGER] Ошибка удаления файла логов {currency}: {e}")
             else:
-                # Очистить все логи
-                self.logs.clear()
-            
-            # Перезаписываем файл
-            try:
-                with open(self.LOG_FILE, 'w', encoding='utf-8') as f:
-                    for entry in self.logs:
-                        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
-                print(f"[TRADE_LOGGER] Логи очищены (осталось {len(self.logs)} записей)")
-            except Exception as e:
-                print(f"[TRADE_LOGGER] Ошибка очистки логов: {e}")
+                # Очистить все логи всех валют
+                for currency in list(self.logs_by_currency.keys()):
+                    self.logs_by_currency[currency].clear()
+                    
+                    # Удалить файл
+                    log_file = self._get_log_file_path(currency)
+                    try:
+                        if os.path.exists(log_file):
+                            os.remove(log_file)
+                    except Exception as e:
+                        print(f"[TRADE_LOGGER] Ошибка удаления файла логов {currency}: {e}")
+                
+                self.logs_by_currency.clear()
+                print(f"[TRADE_LOGGER] Все логи очищены")
     
     def get_stats(self, currency: Optional[str] = None) -> Dict:
-        """Получить статистику по логам"""
+        """Получить статистику по логам
+        
+        Args:
+            currency: Валюта (если не указана - статистика по всем валютам)
+        """
         logs = self.get_logs(currency=currency)
         
         total_buys = sum(1 for log in logs if log.get('type') == 'buy')
@@ -235,8 +320,14 @@ class TradeLogger:
             'total_sells': total_sells,
             'total_investment': round(total_investment, 4),
             'total_pnl': round(total_pnl, 4),
-            'currency': currency
+            'currency': currency,
+            'currencies_count': len(self.logs_by_currency) if not currency else 1
         }
+    
+    def get_currencies_with_logs(self) -> List[str]:
+        """Получить список валют, для которых есть логи"""
+        with self.lock:
+            return sorted(list(self.logs_by_currency.keys()))
 
 
 # Глобальный экземпляр логгера

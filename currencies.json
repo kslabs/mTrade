@@ -1,11 +1,11 @@
 [
   {
-    "code": "BTC",
-    "symbol": "₿"
-  },
-  {
     "code": "WLD",
     "symbol": "🌐"
+  },
+  {
+    "code": "BTC",
+    "symbol": "₿"
   },
   {
     "code": "ETH",
@@ -17,7 +17,7 @@
   },
   {
     "code": "BNB",
-    "symbol": "🔶"
+    "symbol": "◆"
   },
   {
     "code": "XRP",
@@ -29,7 +29,7 @@
   },
   {
     "code": "AVAX",
-    "symbol": "🔺"
+    "symbol": "▲"
   },
   {
     "code": "DOT",
@@ -37,10 +37,42 @@
   },
   {
     "code": "DOGE",
-    "symbol": "💠"
+    "symbol": "Ɖ"
   },
   {
-    "code": "GT",
-    "symbol": ""
+    "code": "LTC",
+    "symbol": "Ł"
+  },
+  {
+    "code": "LINK",
+    "symbol": "🔗"
+  },
+  {
+    "code": "UNI",
+    "symbol": "🦄"
+  },
+  {
+    "code": "ATOM",
+    "symbol": "⚛"
+  },
+  {
+    "code": "TON",
+    "symbol": "💎"
+  },
+  {
+    "code": "TRX",
+    "symbol": "⊤"
+  },
+  {
+    "code": "NEAR",
+    "symbol": "Ⓝ"
+  },
+  {
+    "code": "APT",
+    "symbol": "🅰"
+  },
+  {
+    "code": "SUI",
+    "symbol": "〰"
   }
 ]

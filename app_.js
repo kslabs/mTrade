@@ -1,4 +1,4 @@
-﻿window.__diagLogs=[];
+window.__diagLogs=[];
 function logDbg(m){
   try{
     __diagLogs.push(Date.now()+': '+m);
@@ -6,73 +6,6 @@ function logDbg(m){
   }catch(_){/* noop */}
   console.log('[DBG]',m);
 }
-
-// === Copyable Message Modal ===
-function showMessageModal(title, content) {
-  const modal = document.getElementById('messageModal');
-  const modalTitle = document.getElementById('messageModalTitle');
-  const modalContent = document.getElementById('messageModalContent');
-  
-  if (!modal || !modalTitle || !modalContent) {
-    // Fallback to alert if modal not found
-    alert(title + '\n\n' + content);
-    return;
-  }
-  
-  modalTitle.textContent = title;
-  modalContent.textContent = content;
-  modal.style.display = 'flex';
-}
-
-function closeMessageModal() {
-  const modal = document.getElementById('messageModal');
-  if (modal) {
-    modal.style.display = 'none';
-  }
-}
-
-function copyMessageModalContent() {
-  const modalContent = document.getElementById('messageModalContent');
-  if (!modalContent) return;
-  
-  const text = modalContent.textContent;
-  
-  // Try modern clipboard API first
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = event.target;
-      const originalText = btn.textContent;
-      btn.textContent = '✓ Скопировано!';
-      setTimeout(() => { btn.textContent = originalText; }, 1500);
-    }).catch(err => {
-      console.error('Clipboard API failed:', err);
-      fallbackCopyText(text);
-    });
-  } else {
-    fallbackCopyText(text);
-  }
-}
-
-function fallbackCopyText(text) {
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand('copy');
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.textContent = '✓ Скопировано!';
-    setTimeout(() => { btn.textContent = originalText; }, 1500);
-  } catch (err) {
-    console.error('Fallback copy failed:', err);
-    alert('Не удалось скопировать текст');
-  }
-  document.body.removeChild(textarea);
-}
-
 const $=id=>document.getElementById(id);
 let currentNetworkMode='work';
 let currentBaseCurrency=null; // Будет установлено после загрузки currencies
@@ -387,11 +320,9 @@ async function loadTestBalance(){ return null; }
 // Обновление отображения баланса в заголовке
 function updateHeaderQuoteBalance(balance){
   const balanceEl=$('headerQuoteBalance');
-  console.log('[BALANCE] updateHeaderQuoteBalance called, balance=', balance, 'element=', balanceEl);
   if(balanceEl){
     const bal=parseFloat(balance)||0;
     balanceEl.textContent=bal.toFixed(2);
-    console.log('[BALANCE] headerQuoteBalance updated to:', bal.toFixed(2));
     
     // В тестовом режиме делаем баланс кликабельным
     if(currentNetworkMode==='test'){
@@ -401,8 +332,6 @@ function updateHeaderQuoteBalance(balance){
       balanceEl.style.cursor='default';
       balanceEl.title='Баланс котируемой валюты из API';
     }
-  } else {
-    console.error('[BALANCE] ❌ Element headerQuoteBalance NOT FOUND in DOM!');
   }
 }
 
@@ -489,20 +418,26 @@ async function loadPairBalances(){
       const quoteBalEl=document.getElementById('quoteBalance');
       const quoteSymEl=document.getElementById('quoteSymbol');
       const inlineEl=document.getElementById('quoteBalanceInline');
-      
+      const source=d.source||'empty';
       let baseAvail = parseFloat(d.balances?.base?.available||'0');
       let quoteAvail = parseFloat(d.balances?.quote?.available||'0');
       const baseEq=d.base_equivalent||0;
-      
-      // Обновляем элементы балансов
+      // Если данных нет (source=empty) — показываем прочерки
+      if(source==='empty'){
+        if(baseBalEl) baseBalEl.textContent = '-'; else {}
+        if(baseUsdEl) baseUsdEl.textContent = '≈ $-';
+        if(quoteBalEl) quoteBalEl.textContent = '-';
+        if(quoteSymEl) quoteSymEl.textContent=currentQuoteCurrency;
+        if(inlineEl) inlineEl.textContent=`Баланс: - ${currentBaseCurrency} ≈ $-`;
+        updateHeaderQuoteBalance('-');
+        return;
+      }
       if(baseBalEl) baseBalEl.textContent=(isFinite(baseAvail)?baseAvail:0).toFixed(8);
       if(baseUsdEl) baseUsdEl.textContent=`≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
       if(quoteBalEl) quoteBalEl.textContent=(isFinite(quoteAvail)?quoteAvail:0).toFixed(8);
       if(quoteSymEl) quoteSymEl.textContent=currentQuoteCurrency;
       if(inlineEl) inlineEl.textContent=`Баланс: ${(isFinite(baseAvail)?baseAvail:0).toFixed(8)} ${currentBaseCurrency} ≈ $${(isFinite(baseEq)?baseEq:0).toFixed(2)}`;
       updateHeaderQuoteBalance(quoteAvail);
-      
-      logDbg(`loadPairBalances: base=${baseAvail} ${currentBaseCurrency}, quote=${quoteAvail} ${currentQuoteCurrency}`);
     }
   }catch(e){ logDbg('loadPairBalances err '+e) }
 }
@@ -589,8 +524,7 @@ async function loadBreakEvenTable(){
       kprof: parseFloat($('paramKprof')?.value) || 0.02,
       target_r: parseFloat($('paramTargetR')?.value) || 3.65,
       geom_multiplier: parseFloat($('paramGeomMultiplier')?.value) || 2,
-      rebuy_mode: $('paramRebuyMode')?.value || 'geometric',
-      orderbook_level: parseInt($('paramOrderbookLevel')?.value) || 1
+      rebuy_mode: $('paramRebuyMode')?.value || 'geometric'
     };
     
     // Формируем URL с параметрами из формы
@@ -603,8 +537,7 @@ async function loadBreakEvenTable(){
       kprof: currentParams.kprof,
       target_r: currentParams.target_r,
       geom_multiplier: currentParams.geom_multiplier,
-      rebuy_mode: currentParams.rebuy_mode,
-      orderbook_level: currentParams.orderbook_level
+      rebuy_mode: currentParams.rebuy_mode
     });
     
     const url = `/api/breakeven/table?${params.toString()}`;
@@ -673,7 +606,6 @@ async function loadTradeParams(){
       $('paramGeomMultiplier').value = d.params.geom_multiplier || 2;
       $('paramRebuyMode').value = d.params.rebuy_mode || 'geometric';
       $('paramKeep').value = d.params.keep || 0;
-      $('paramOrderbookLevel').value = d.params.orderbook_level || 1;
       console.log('[PARAMS] ✅ Параметры загружены для', d.currency || 'LEGACY');
     } else {
       console.warn('[PARAMS] ⚠️ Не удалось загрузить параметры');
@@ -700,8 +632,7 @@ async function saveTradeParams(){
       target_r: parseFloat($('paramTargetR').value) || 3.65,
       geom_multiplier: parseFloat($('paramGeomMultiplier').value) || 2,
       rebuy_mode: $('paramRebuyMode').value || 'geometric',
-      keep: parseFloat($('paramKeep').value) || 0,
-      orderbook_level: parseInt($('paramOrderbookLevel').value) || 1
+      keep: parseFloat($('paramKeep').value) || 0
     };
     
     console.log('[PARAMS] Параметры для сохранения:', params);
@@ -999,7 +930,6 @@ async function loadUIState() {
           if (params.geom_multiplier !== undefined) $('paramGeomMultiplier').value = params.geom_multiplier;
           if (params.rebuy_mode !== undefined) $('paramRebuyMode').value = params.rebuy_mode;
           if (params.keep !== undefined) $('paramKeep').value = params.keep;
-          if (params.orderbook_level !== undefined) $('paramOrderbookLevel').value = params.orderbook_level;
           logDbg('UI State: параметры безубыточности восстановлены для ' + currentBaseCurrency);
         }
       }
@@ -1112,17 +1042,22 @@ async function syncCurrenciesFromGateIO() {
     const result = await response.json();
     
     if (result.success) {
+      // Показываем результат
       alert(`✅ Синхронизация завершена!\n\n` +
             `Добавлено валют: ${result.added}\n` +
             `Обновлено валют: ${result.updated}\n` +
             `Всего валют: ${result.total}\n\n` +
             `Время: ${new Date(result.timestamp).toLocaleString('ru-RU')}`);
-      await loadCurrenciesFromServer();
+      
+      // Перезагружаем список валют
+      await loadCurrenciesList();
       buildCurrencyManagerRows();
       updateSyncInfo();
+      
     } else {
       alert(`❌ Ошибка синхронизации:\n\n${result.error}`);
     }
+    
   } catch (e) {
     alert(`❌ Ошибка синхронизации:\n\n${e.message}`);
   } finally {
@@ -1167,419 +1102,3 @@ window.openCurrencyManager = function() {
   }
   updateSyncInfo();
 };
-
-// === Subscribe to all currencies (как было в рабочей версии) ===
-async function subscribeToAllCurrencies(){
-  if(!Array.isArray(currenciesList) || currenciesList.length===0){
-    logDbg('subscribeToAllCurrencies: нет валют для подписки');
-    return;
-  }
-  logDbg(`subscribeToAllCurrencies: подписываемся на ${currenciesList.length} валют с ${currentQuoteCurrency}`);
-  for(const cur of currenciesList){
-    const code = typeof cur==='string' ? cur : cur.code;
-    if(code){
-      try{
-        await subscribeToPairData(code.toUpperCase(), currentQuoteCurrency);
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }catch(e){
-        logDbg(`subscribeToAllCurrencies: ошибка для ${code}: ${e}`);
-      }
-    }
-  }
-  logDbg('subscribeToAllCurrencies: завершено');
-}
-
-// === Quick Trade / Server controls / Uptime и инициализация UI ===
-
-// Обработчики для кнопок "Купить мин. ордер", "Продать все", "Перезагрузить сервер", "Остановить сервер"
-const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); }
-const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }
-const spb=$('saveParamsBtn'); if(spb){ spb.addEventListener('click', (ev)=>{ ev.preventDefault(); saveTradeParams(); }); }
-
-const buyBtn=$('buyMinOrderBtn'); if(buyBtn){ buyBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); handleBuyMinOrder(); }); }
-const sellBtn=$('sellAllBtn'); if(sellBtn){ sellBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); handleSellAll(); }); }
-
-// Обработчики для полей параметров (автообновление таблицы безубыточности)
-let paramsUpdateTimeout = null;
-const paramsInputIds = ['paramSteps', 'paramStartVolume', 'paramStartPrice', 'paramPprof', 'paramKprof', 'paramTargetR', 'paramGeomMultiplier', 'paramRebuyMode', 'paramKeep', 'paramOrderbookLevel'];
-
-paramsInputIds.forEach(id => {
-  const input = $(id);
-  if(input) {
-    input.addEventListener('input', () => {
-      console.log('[PARAMS] Параметр изменен:', id);
-      if(paramsUpdateTimeout) clearTimeout(paramsUpdateTimeout);
-      const statusEl = $('paramsSaveStatus');
-      if(statusEl) {
-        statusEl.textContent = '⏳ Обновление...';
-        statusEl.className = 'params-save-status';
-      }
-      paramsUpdateTimeout = setTimeout(async () => {
-        console.log('[PARAMS] Обновление таблицы после изменения параметров');
-        try {
-          await loadBreakEvenTable();
-          if(statusEl) {
-            statusEl.textContent = '✓ Обновлено';
-            setTimeout(() => { statusEl.textContent = ''; }, 2000);
-          }
-        } catch(e) {
-          console.error('[PARAMS] Ошибка обновления таблицы:', e);
-          if(statusEl) statusEl.textContent = '✗ Ошибка';
-        }
-      }, 500);
-    });
-  }
-});
-
-console.log('[INIT] Обработчики параметров установлены');
-
-// DOMContentLoaded – единая точка старта UI
-async function initApp(){
-  try{
-    console.log('[INIT] Начало инициализации приложения');
-
-    // 1. Загружаем состояние UI (режим сети, автотрейд, разрешения, активная пара, breakeven)
-    await loadUIState();
-    console.log('[INIT] UI State загружен');
-
-    // 2. Актуальный режим сети и режим торговли с сервера
-    await loadNetworkMode();
-    await loadTradingMode();
-
-    // 3. Инициализация переключателя AutoTrade по текущему состоянию
-    updateAutoTradeUI();
-
-    // 4. Синхронизируем текущую котируемую валюту из селектора (если есть)
-    const sel=document.querySelector('#quoteCurrencySelect') || document.querySelector('#quoteCurrency');
-    if(sel) currentQuoteCurrency=sel.value.toUpperCase();
-
-    // 5. Загружаем список валют и строим вкладки
-    await loadCurrenciesFromServer();
-    console.log('[INIT] Валюты загружены, текущая:', currentBaseCurrency);
-
-    // 6. Загружаем разрешения торговли и обновляем индикаторы на вкладках
-    await loadTradingPermissions();
-
-    // 7. Подписываемся на все валюты (для прогрева WS), а затем на активную пару
-    await subscribeToAllCurrencies();
-
-    // 8. Загружаем данные для текущей пары (рынок, баланс, параметры, таблица)
-    await Promise.all([
-      loadMarketData(true),
-      loadPairBalances(),
-      loadPairParams(true),
-      loadBreakEvenTable(),
-      loadTradeParams(),
-      loadPerBaseIndicators()
-    ]);
-    await loadPairBalances(); // Повторный вызов для гарантии отрисовки баланса
-
-    console.log('[INIT] Инициализация завершена, запуск интервалов обновления');
-    setInterval(()=>{ loadMarketData(); },5000);
-    setInterval(()=>{ loadPairBalances(); },15000);
-    setInterval(()=>{ loadBreakEvenTable(); },6000);
-    setInterval(()=>{ loadPerBaseIndicators(); },7000);
-    setInterval(()=>{ loadTradingPermissions(); },20000);
-  }catch(e){
-    console.error('[INIT] Ошибка инициализации:', e);
-    logDbg('initApp exc '+e);
-  }
-}
-
-document.addEventListener('DOMContentLoaded',()=>{
-  initApp();
-  startUptimeLoops();
-  loadTradeParams();
-});
-
-// === UPTIME (статус сервера) ===
-let __uptimeSeconds = 0;
-let __uptimeLastSync = 0;
-function formatUptime(sec){
-  sec = Math.max(0, Math.floor(sec));
-  const d = Math.floor(sec / 86400); sec -= d*86400;
-  const h = Math.floor(sec / 3600); sec -= h*3600;
-  const m = Math.floor(sec / 60); sec -= m*60;
-  const s = sec;
-  const pad = v=>String(v).padStart(2,'0');
-  return `${pad(d)}д ${pad(h)}:${pad(m)}:${pad(s)}`;
-}
-function renderUptime(){
-  const el = $('uptimeDisplay');
-  if(!el) return;
-  el.innerHTML = `<strong>${formatUptime(__uptimeSeconds)}</strong>`;
-}
-function tickUptime(){
-  if(__uptimeLastSync>0){
-    __uptimeSeconds += 1;
-    renderUptime();
-  }
-}
-async function loadServerStatus(){
-  try{
-    const r = await fetch('/api/server/status');
-    const d = await r.json();
-    if(d && d.uptime!=null){
-      __uptimeSeconds = Math.floor(d.uptime);
-      __uptimeLastSync = Date.now();
-      renderUptime();
-    }
-    if(d && d.pid){
-      const pidEl = $('serverPID');
-      if(pidEl){ pidEl.textContent = `PID: ${d.pid}`; }
-    }
-  }catch(e){ logDbg('loadServerStatus err '+e); }
-}
-function startUptimeLoops(){
-  loadServerStatus();
-  setInterval(loadServerStatus, 15000);
-  setInterval(tickUptime, 1000);
-}
-
-// === Trading permissions (вкладки) ===
-async function loadTradingPermissions(){
-  try{
-    const r = await fetch('/api/trade/permissions');
-    const d = await r.json();
-    if(d.success){
-      tradingPermissions = d.permissions || {};
-      updateTabsPermissionsUI();
-    }else{
-      logDbg('perm load fail');
-    }
-  }catch(e){ logDbg('perm exc '+e); }
-}
-function updateTabsPermissionsUI(){
-  const cont=$('currencyTabsContainer');
-  if(!cont) return;
-  [...cont.querySelectorAll('.tab-item')].forEach(el=>{
-    const code=el.dataset.code;
-    let ind=el.querySelector('.perm-indicator');
-    if(!ind){
-      ind=document.createElement('div');
-      ind.className='perm-indicator';
-      el.appendChild(ind);
-    }
-    const enabled=tradingPermissions[code]!==false;
-    ind.classList.toggle('on',enabled);
-    ind.classList.toggle('off',!enabled);
-    ind.title=enabled?'Торговля включена':'Торговля отключена';
-    ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};
-  });
-}
-function toggleTradingPermission(code,current){
-  const next=!current;
-  fetch('/api/trade/permission',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({base_currency:code,enabled:next})
-  }).then(r=>r.json()).then(d=>{
-    if(d.success){
-      tradingPermissions[code]=next;
-      updateTabsPermissionsUI();
-      logDbg('perm '+code+' -> '+next);
-    }else{
-      logDbg('perm set fail '+(d.error||''));
-    }
-  }).catch(e=>logDbg('perm set exc '+e));
-}
-
-// === Server controls ===
-async function handleServerRestart(){
-  const btn=$('restartServerBtn');
-  if(!btn) return;
-  const prev=btn.textContent;
-  try{
-    btn.disabled=true; btn.textContent='⏳';
-    const r=await fetch('/api/server/restart',{method:'POST'});
-    let msg='Сервер перезапускается...';
-    try{ const d=await r.json(); if(d && d.message) msg=d.message; }catch(_){/* ignore */}
-    alert(msg);
-    setTimeout(()=>{ try{ location.reload(); }catch(_){/* noop */} }, 5000);
-  }catch(e){
-    alert('Ошибка перезапуска: '+e);
-  }finally{
-    btn.textContent=prev; btn.disabled=false;
-  }
-}
-async function handleServerShutdown(){
-  const btn=$('shutdownServerBtn');
-  if(!btn) return;
-  if(!confirm('Остановить сервер?')) return;
-  try{
-    btn.disabled=true;
-    const r=await fetch('/api/server/shutdown',{method:'POST'});
-    let msg='Сервер останавливается...';
-    try{ const d=await r.json(); if(d && d.message) msg=d.message; }catch(_){/* ignore */}
-    alert(msg);
-  }catch(e){
-    alert('Ошибка остановки: '+e);
-  }finally{
-    btn.disabled=false;
-  }
-}
-
-// === Quick Trade (Быстрая торговля) ===
-async function handleBuyMinOrder(){
-  const btn=$('buyMinOrderBtn');
-  if(!btn) return;
-  
-  if(!currentBaseCurrency || !currentQuoteCurrency){
-    showMessageModal('❌ Ошибка', 'Не выбрана валютная пара');
-    return;
-  }
-  
-  if(!confirm(`Купить минимальный ордер ${currentBaseCurrency}?`)) return;
-  
-  const prev=btn.textContent;
-  try{
-    btn.disabled=true; 
-    btn.textContent='⏳ Покупка...';
-    
-    const r=await fetch('/api/trade/buy-min',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        base_currency:currentBaseCurrency,
-        quote_currency:currentQuoteCurrency
-      })
-    });
-    
-    const d=await r.json();
-    
-    if(d.success){
-      const details = d.details || {};
-      const message = `Пара: ${details.pair || currentBaseCurrency + '/' + currentQuoteCurrency}\n` +
-                      `Сторона: ПОКУПКА\n` +
-                      `Тип ордера: ${details.order_type || 'unknown'}\n` +
-                      `\nСтакан (best ask): ${details.best_ask || d.price}\n` +
-                      `Цена исполнения: ${d.execution_price || d.price}\n` +
-                      `Количество: ${d.amount} ${currentBaseCurrency}\n` +
-                      `Сумма: ${d.total} ${currentQuoteCurrency}\n` +
-                      `\nРежим: ${details.network_mode || 'unknown'}\n` +
-                      `Order ID: ${d.order_id || 'unknown'}`;
-      showMessageModal('✅ Успешно куплено!', message);
-      
-      // Обновляем данные после покупки
-      await loadPairBalances();
-      await loadMarketData(true);
-    }else{
-      // Формируем детальное сообщение об ошибке с диагностикой
-      const details = d.details || {};
-      let errorMessage = `❌ ${d.error || 'Неизвестная ошибка'}\n\n`;
-      
-      // Добавляем доступную диагностическую информацию
-      if (details.pair) errorMessage += `Пара: ${details.pair}\n`;
-      if (details.error_stage) errorMessage += `Этап ошибки: ${details.error_stage}\n`;
-      if (details.balance_usdt !== undefined) errorMessage += `Баланс ${currentQuoteCurrency}: ${details.balance_usdt}\n`;
-      if (details.start_volume !== undefined) errorMessage += `Требуется: ${details.start_volume} ${currentQuoteCurrency}\n`;
-      if (details.best_ask) errorMessage += `\nСтакан (best ask): ${details.best_ask}\n`;
-      if (details.best_bid) errorMessage += `Стакан (best bid): ${details.best_bid}\n`;
-      if (details.amount !== undefined) errorMessage += `Количество: ${details.amount} ${currentBaseCurrency}\n`;
-      if (details.execution_price) errorMessage += `Цена исполнения: ${details.execution_price}\n`;
-      if (details.orderbook_snapshot && details.orderbook_snapshot.asks) {
-        errorMessage += `\nСтакан (asks, топ-3):\n`;
-        details.orderbook_snapshot.asks.slice(0, 3).forEach(([p, a]) => {
-          errorMessage += `  ${p} × ${a}\n`;
-        });
-      }
-      if (details.network_mode) errorMessage += `\nРежим: ${details.network_mode}\n`;
-      if (details.api_error) {
-        errorMessage += `\nОшибка API:\n`;
-        errorMessage += `  Label: ${details.api_error.label}\n`;
-        errorMessage += `  Message: ${details.api_error.message}\n`;
-      }
-      
-      showMessageModal('❌ Ошибка покупки', errorMessage);
-    }
-  }catch(e){
-    showMessageModal('❌ Ошибка покупки', e.message || String(e));
-  }finally{
-    btn.textContent=prev; 
-    btn.disabled=false;
-  }
-}
-
-async function handleSellAll(){
-  const btn=$('sellAllBtn');
-  if(!btn) return;
-  
-  if(!currentBaseCurrency || !currentQuoteCurrency){
-    showMessageModal('❌ Ошибка', 'Не выбрана валютная пара');
-    return;
-  }
-  
-  if(!confirm(`⚠️ ВНИМАНИЕ!\n\nПродать ВСЕ ${currentBaseCurrency}?`)) return;
-  
-  const prev=btn.textContent;
-  try{
-    btn.disabled=true; 
-    btn.textContent='⏳ Продажа...';
-    
-    const r=await fetch('/api/trade/sell-all',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        base_currency:currentBaseCurrency,
-        quote_currency:currentQuoteCurrency
-      })
-    });
-    
-    const d=await r.json();
-    
-    if(d.success){
-      const details = d.details || {};
-      const message = `Пара: ${details.pair || currentBaseCurrency + '/' + currentQuoteCurrency}\n` +
-                      `Сторона: ПРОДАЖА\n` +
-                      `Тип ордера: ${details.order_type || 'unknown'}\n` +
-                      `${details.cancelled_orders > 0 ? `Отменено ордеров: ${details.cancelled_orders}\n` : ''}` +
-                      `\nСтакан (best bid): ${details.best_bid || d.price}\n` +
-                      `Цена исполнения: ${d.execution_price || d.price}\n` +
-                      `Количество: ${d.amount} ${currentBaseCurrency}\n` +
-                      `Получено: ${d.total} ${currentQuoteCurrency}\n` +
-                      `\nРежим: ${details.network_mode || 'unknown'}\n` +
-                      `Order ID: ${d.order_id || 'unknown'}`;
-      showMessageModal('✅ Успешно продано!', message);
-      
-      // Обновляем данные после продажи
-      await loadPairBalances();
-      await loadMarketData(true);
-    }else{
-      // Формируем детальное сообщение об ошибке с диагностикой
-      const details = d.details || {};
-      let errorMessage = `❌ ${d.error || 'Неизвестная ошибка'}\n\n`;
-      
-      // Добавляем доступную диагностическую информацию
-      if (details.pair) errorMessage += `Пара: ${details.pair}\n`;
-      if (details.error_stage) errorMessage += `Этап ошибки: ${details.error_stage}\n`;
-      if (details.balance !== undefined) errorMessage += `Баланс ${currentBaseCurrency}: ${details.balance}\n`;
-      if (details.best_bid) errorMessage += `\nСтакан (best bid): ${details.best_bid}\n`;
-      if (details.best_ask) errorMessage += `Стакан (best ask): ${details.best_ask}\n`;
-      if (details.amount !== undefined) errorMessage += `Количество: ${details.amount} ${currentBaseCurrency}\n`;
-      if (details.execution_price) errorMessage += `Цена исполнения: ${details.execution_price}\n`;
-      if (details.total !== undefined) errorMessage += `Сумма: ${details.total} ${currentQuoteCurrency}\n`;
-      if (details.cancelled_orders > 0) errorMessage += `Отменено ордеров: ${details.cancelled_orders}\n`;
-      if (details.orderbook_snapshot && details.orderbook_snapshot.bids) {
-        errorMessage += `\nСтакан (bids, топ-3):\n`;
-        details.orderbook_snapshot.bids.slice(0, 3).forEach(([p, a]) => {
-          errorMessage += `  ${p} × ${a}\n`;
-        });
-      }
-      if (details.network_mode) errorMessage += `\nРежим: ${details.network_mode}\n`;
-      if (details.api_error) {
-        errorMessage += `\nОшибка API:\n`;
-        errorMessage += `  Label: ${details.api_error.label}\n`;
-        errorMessage += `  Message: ${details.api_error.message}\n`;
-      }
-      
-      showMessageModal('❌ Ошибка продажи', errorMessage);
-    }
-  }catch(e){
-    showMessageModal('❌ Ошибка продажи', e.message || String(e));
-  }finally{
-    btn.textContent=prev; 
-    btn.disabled=false;
-  }
-}
-
-// === Дублирующие функции удалены (используются версии в начале файла) ===

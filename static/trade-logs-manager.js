@@ -25,7 +25,7 @@ class TradeLogsManager {
      * Создать кнопку-переключатель между таблицей и логами
      */
     createToggleButton() {
-        const breakevenHeader = document.querySelector('.breakeven-table h2');
+        const breakevenHeader = document.querySelector('.breakeven-table h3');
         if (!breakevenHeader) {
             console.warn('[TradeLogsManager] Заголовок таблицы безубыточности не найден');
             return;
@@ -62,14 +62,18 @@ class TradeLogsManager {
         logsContainer.style.display = 'none';
         logsContainer.innerHTML = `
             <div class="logs-header">
-                <div class="logs-stats">
-                    <span id="logs-count">Загрузка...</span>
-                    <button id="btn-refresh-logs" class="btn-refresh" title="Обновить логи">
-                        🔄
-                    </button>
-                    <button id="btn-clear-logs" class="btn-clear" title="Очистить логи">
-                        🗑️
-                    </button>
+                <div class="logs-toolbar">
+                    <button id="btn-refresh-logs" class="btn-action" title="Обновить">🔄</button>
+                    <button id="btn-clear-logs" class="btn-action" title="Очистить">🗑️</button>
+                    <span class="logs-divider">|</span>
+                    <span id="logs-count" class="logs-info">0 записей</span>
+                </div>
+                <div class="logs-statistics" id="logs-statistics">
+                    <span class="stat-item">PnL: <span id="stat-pnl">0.000</span></span>
+                    <span class="stat-item">Equity: <span id="stat-equity">0.00</span></span>
+                    <span class="stat-item">Start: <span id="stat-start">0.00</span></span>
+                    <span class="stat-item">ΔEq: <span id="stat-delta-eq">+0.000 (+0.00%)</span></span>
+                    <span class="stat-item">Dur: <span id="stat-duration">0d 0h 0m 0s</span></span>
                 </div>
             </div>
             <div class="logs-content" id="logs-content">
@@ -128,22 +132,28 @@ class TradeLogsManager {
         const btnLogs = document.getElementById('btn-view-logs');
         const breakevenTable = document.querySelector('.breakeven-table-content');
         const logsContainer = document.getElementById('trade-logs-container');
+        const paramsEditor = document.querySelector('.trade-params-editor');
+        const saveBtn = document.getElementById('saveParamsBtn');
 
         if (view === 'breakeven') {
-            // Показать таблицу, скрыть логи
+            // Показать таблицу и параметры, скрыть логи
             if (btnBreakeven) btnBreakeven.classList.add('active');
             if (btnLogs) btnLogs.classList.remove('active');
             if (breakevenTable) breakevenTable.style.display = 'block';
             if (logsContainer) logsContainer.style.display = 'none';
+            if (paramsEditor) paramsEditor.style.display = 'block';
+            if (saveBtn) saveBtn.style.display = 'inline-block';
 
             // Остановить авто-обновление логов
             this.stopAutoRefresh();
         } else {
-            // Показать логи, скрыть таблицу
+            // Показать логи, скрыть таблицу и параметры
             if (btnBreakeven) btnBreakeven.classList.remove('active');
             if (btnLogs) btnLogs.classList.add('active');
             if (breakevenTable) breakevenTable.style.display = 'none';
             if (logsContainer) logsContainer.style.display = 'block';
+            if (paramsEditor) paramsEditor.style.display = 'none';
+            if (saveBtn) saveBtn.style.display = 'none';
 
             // Загрузить и запустить авто-обновление логов
             this.loadLogs();
@@ -203,15 +213,42 @@ class TradeLogsManager {
      * Обновить отображение статистики
      */
     updateStats(stats) {
+        // Обновляем счётчик записей
         const countElement = document.getElementById('logs-count');
-        if (!countElement) return;
+        if (countElement) {
+            countElement.textContent = `${stats.total_entries} записей`;
+        }
 
-        const text = `Записей: ${stats.total_entries} | ` +
-                    `Покупок: ${stats.total_buys} | ` +
-                    `Продаж: ${stats.total_sells} | ` +
-                    `PnL: ${stats.total_pnl.toFixed(4)}`;
+        // Обновляем статистику (пока моки, позже будем брать из API)
+        const pnlEl = document.getElementById('stat-pnl');
+        const equityEl = document.getElementById('stat-equity');
+        const startEl = document.getElementById('stat-start');
+        const deltaEqEl = document.getElementById('stat-delta-eq');
+        const durationEl = document.getElementById('stat-duration');
 
-        countElement.textContent = text;
+        if (pnlEl) {
+            const pnl = stats.total_pnl || 0;
+            pnlEl.textContent = pnl.toFixed(3);
+            pnlEl.style.color = pnl >= 0 ? '#2ecc71' : '#e74c3c';
+        }
+
+        if (equityEl) {
+            // Пока показываем 0, позже добавим реальные данные
+            equityEl.textContent = '0.00';
+        }
+
+        if (startEl) {
+            startEl.textContent = '0.00';
+        }
+
+        if (deltaEqEl) {
+            deltaEqEl.textContent = '+0.000 (+0.00%)';
+        }
+
+        if (durationEl) {
+            // Пока показываем 0, позже добавим реальный расчёт
+            durationEl.textContent = '0d 0h 0m 0s';
+        }
     }
 
     /**
@@ -343,9 +380,9 @@ class TradeLogsManager {
             .view-toggle-btn {
                 background: none;
                 border: none;
-                color: #666;
-                font-size: 18px;
-                font-weight: 600;
+                color: #aaa;
+                font-size: 16px;
+                font-weight: 500;
                 cursor: pointer;
                 padding: 4px 12px;
                 transition: all 0.2s;
@@ -353,19 +390,19 @@ class TradeLogsManager {
             }
 
             .view-toggle-btn:hover {
-                color: #333;
-                background: rgba(52, 152, 219, 0.1);
+                color: #fff;
+                background: rgba(52, 152, 219, 0.15);
             }
 
             .view-toggle-btn.active {
                 color: #3498db;
-                background: rgba(52, 152, 219, 0.15);
+                background: rgba(52, 152, 219, 0.2);
             }
 
             .view-toggle-separator {
-                color: #ccc;
-                font-size: 18px;
-                font-weight: 600;
+                color: #666;
+                font-size: 16px;
+                font-weight: 500;
             }
         `;
         document.head.appendChild(style);
@@ -388,40 +425,80 @@ class TradeLogsManager {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 10px 15px;
-                background: #f8f9fa;
+                padding: 8px 15px;
+                background: #1a1a1a;
                 border-radius: 8px 8px 0 0;
-                border: 1px solid #dee2e6;
+                border-bottom: 1px solid #3a3a3a;
+                gap: 15px;
             }
 
-            .logs-stats {
+            .logs-toolbar {
                 display: flex;
                 align-items: center;
-                gap: 10px;
-                font-size: 14px;
-                color: #666;
+                gap: 8px;
+                font-size: 12px;
+                color: #aaa;
             }
 
-            .btn-refresh, .btn-clear {
+            .logs-statistics {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-size: 11px;
+                color: #aaa;
+                flex-wrap: wrap;
+            }
+
+            .stat-item {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                white-space: nowrap;
+            }
+
+            .stat-item span {
+                color: #4a9eff;
+                font-weight: 600;
+            }
+
+            .logs-divider {
+                color: #555;
+                margin: 0 4px;
+            }
+
+            .logs-info {
+                color: #aaa;
+                font-size: 11px;
+            }
+
+            .btn-action {
                 background: none;
                 border: none;
-                font-size: 18px;
+                font-size: 16px;
                 cursor: pointer;
-                padding: 4px 8px;
-                transition: transform 0.2s;
+                padding: 4px;
+                transition: all 0.2s;
+                color: #aaa;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 4px;
             }
 
-            .btn-refresh:hover, .btn-clear:hover {
-                transform: scale(1.2);
+            .btn-action:hover {
+                background: rgba(74, 158, 255, 0.2);
+                color: #fff;
+                transform: scale(1.1);
             }
 
             .logs-content {
-                max-height: 500px;
+                min-height: 600px;
+                max-height: 800px;
                 overflow-y: auto;
                 padding: 15px;
-                background: white;
-                border: 1px solid #dee2e6;
-                border-top: none;
+                background: #1a1a1a;
                 border-radius: 0 0 8px 8px;
                 font-family: 'Consolas', 'Monaco', monospace;
                 font-size: 13px;
@@ -437,15 +514,16 @@ class TradeLogsManager {
                 padding: 6px 10px;
                 border-radius: 4px;
                 line-height: 1.5;
+                color: #ddd;
             }
 
             .log-buy {
-                background: rgba(231, 76, 60, 0.05);
+                background: rgba(231, 76, 60, 0.1);
                 border-left: 3px solid #e74c3c;
             }
 
             .log-sell {
-                background: rgba(46, 204, 113, 0.05);
+                background: rgba(46, 204, 113, 0.1);
                 border-left: 3px solid #2ecc71;
             }
 
@@ -466,17 +544,17 @@ class TradeLogsManager {
             }
 
             .logs-content::-webkit-scrollbar-track {
-                background: #f1f1f1;
+                background: #2a2a2a;
                 border-radius: 4px;
             }
 
             .logs-content::-webkit-scrollbar-thumb {
-                background: #888;
+                background: #555;
                 border-radius: 4px;
             }
 
             .logs-content::-webkit-scrollbar-thumb:hover {
-                background: #555;
+                background: #777;
             }
         `;
         document.head.appendChild(style);

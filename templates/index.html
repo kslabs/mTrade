@@ -1,7 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
-    <!-- VERSION: 2025-11-10-21:00 - REFACTORED (CSS/JS SEPARATED) {{ cache_buster }} -->
+    <!-- VERSION: 2025-11-10-21:00 - REFACT                    <button id="resetCycleBtn" class="server-btn-small" style="background:#ff9800;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс цикла">&#x23EE;</button>
+                    <button id="resetSessionBtn" class="server-btn-small" style="background:#9c27b0;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс сессии (скоро)">&#x1F501;</button>CSS/JS SEPARATED) {{ cache_buster }} -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -60,14 +61,25 @@
     <!-- Модальное окно управления валютами -->
     <div id="currencyManagerModal" onclick="if(event.target===this)closeCurrencyManager()">
         <div class="modal-inner">
-            <h4>⚙️ Управление базовыми валютами</h4>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h4 style="margin:0;">⚙️ Управление базовыми валютами</h4>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="cm-btn" onclick="syncCurrenciesFromGateIO()" style="background:#17a2b8;padding:6px 12px;">
+                        🔄 Синхронизация с Gate.io
+                    </button>
+                    <div id="syncInfo" style="font-size:11px;color:#888;"></div>
+                </div>
+            </div>
             <div id="currencyManagerRows"></div>
             <div class="cm-actions">
                 <button class="cm-btn add" onclick="addCurrencyRow()">➕ Добавить</button>
                 <button class="cm-btn save" onclick="saveCurrenciesList()">💾 Сохранить</button>
                 <button class="cm-btn cancel" onclick="closeCurrencyManager()">✖ Отмена</button>
             </div>
-            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">Данные сохраняются на сервере (currencies.json). Минимум 1 валюта, коды уникальны.</div>
+            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">
+                Данные сохраняются на сервере (currencies.json). Минимум 1 валюта, коды уникальны.<br>
+                <strong>Синхронизация с Gate.io:</strong> загружает официальный список валют с их символами.
+            </div>
         </div>
     </div>
 
@@ -78,12 +90,12 @@
             <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
                 <span>📈 Рынок и стакан</span>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <button id="buyMinOrderBtn" class="server-btn-small" style="background:#28a745;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Купить минимальный ордер">
+                    <button id="buyMinOrderBtn" class="server-btn-small" style="background:#28a745;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Купить минимальный ордер">&#x1F6D2;</button>
+                    <button id="sellAllBtn" class="server-btn-small" style="background:#dc3545;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Продать всё">
                         💰
                     </button>
-                    <button id="sellAllBtn" class="server-btn-small" style="background:#dc3545;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Продать все">
-                        💸
-                    </button>
+                    <button id="resetCycleBtn" class="server-btn-small" style="background:#ff9800;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс цикла">&#x23EE;</button>
+                    <button id="resetSessionBtn" class="server-btn-small" style="background:#9c27b0;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс сессии (скоро)">&#x1F501;</button>
                     <span style="font-size:11px;color:#888;">Баланс:</span>
                     <span id="headerQuoteBalance" style="font-size:16px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
                     <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
@@ -117,7 +129,7 @@
                 <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label">Price:</div><div class="value" id="indPrice">-</div></div><div class="row"><div class="label">Sell:</div><div class="value" id="indSell">-</div></div><div class="row"><div class="label">BE:</div><div class="value" id="indBE">-</div></div><div class="row"><div class="label">Last:</div><div class="value" id="indLast">-</div></div><div class="row"><div class="label">Start:</div><div class="value" id="indStart">-</div></div><div class="row"><div class="label">Buy:</div><div class="value" id="indBuy">-</div></div></div>
             </div>
         </div>
-        <div class="card">
+        <div class="card breakeven-table">
             <div class="params-header">
                 <h3>📊 Таблица безубыточности</h3>
                 <div class="params-header-actions">
@@ -174,12 +186,17 @@
                         <label for="paramKeep" title="Постоянная сумма на балансе, которая должна оставаться при продаже. Если не хватает объёма для продажи при окончании цикла, то всё равно заканчивать цикл фиктивной продажей, чтобы начать новый цикл">Keep:</label>
                         <input type="number" id="paramKeep" step="0.01" value="0" min="0" placeholder="Остаток" />
                     </div>
+                    <div class="param-field">
+                        <label for="paramOrderbookLevel" title="Определяет уровень стакана для быстрых сделок (1 = лучшая цена, 2 = второй уровень и т.д.)">Стакан:</label>
+                        <input type="number" id="paramOrderbookLevel" step="1" value="1" min="1" max="10" />
+                    </div>
                 </div>
             </div>
             
-            <div id="breakEvenNote" style="font-size:11px;color:#999;margin-bottom:8px;">Таблица безубыточности для текущих параметров</div>
-            <div style="overflow-x:auto;">
-                <table id="breakEvenTable" style="width:100%;border-collapse:collapse;font-size:11px;">
+            <div class="breakeven-table-content">
+                <div id="breakEvenNote" style="font-size:11px;color:#999;margin-bottom:8px;">Таблица безубыточности для текущих параметров</div>
+                <div style="overflow-x:auto;">
+                    <table id="breakEvenTable" style="width:100%;border-collapse:collapse;font-size:11px;">
                     <thead>
                         <tr style="background:#1a1a1a;color:#ccc;text-align:right;border-bottom:1px solid #3a3a3a;">
                             <th style="padding:6px 8px;text-align:center;">#</th>
@@ -196,7 +213,25 @@
                         <tr><td colspan="8" style="padding:12px;text-align:center;color:#999;">Загрузка данных...</td></tr>
                     </tbody>
                 </table>
+                </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for copyable messages -->
+<div id="messageModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#1e1e1e;border:1px solid #444;border-radius:8px;max-width:600px;width:90%;padding:20px;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 id="messageModalTitle" style="margin:0;color:#fff;font-size:18px;">Сообщение</h3>
+            <button onclick="closeMessageModal()" style="background:transparent;border:none;color:#aaa;font-size:24px;cursor:pointer;padding:0;line-height:1;">&times;</button>
+        </div>
+        <div style="background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:12px;margin-bottom:16px;max-height:300px;overflow-y:auto;">
+            <pre id="messageModalContent" style="margin:0;color:#e0e0e0;font-size:14px;white-space:pre-wrap;word-wrap:break-word;font-family:monospace;"></pre>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button onclick="copyMessageModalContent()" style="background:#4caf50;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px;">📋 Копировать</button>
+            <button onclick="closeMessageModal()" style="background:#666;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px;">Закрыть</button>
         </div>
     </div>
 </div>

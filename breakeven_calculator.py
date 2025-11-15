@@ -15,6 +15,7 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     - target_r: ↑ БезУб, % (цель R)
     - geom_multiplier: Множитель геометрии
     - rebuy_mode: Режим сумм докупок (fixed, geometric, martingale)
+    - orderbook_level: Уровень стакана для торговли (1 = лучшая цена, 2 = вторая, и т.д.)
     
     Возвращает список строк таблицы с полями:
     - step: номер шага (0, 1, 2, ...)
@@ -35,6 +36,7 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     target_r = params.get('target_r', 3.65)
     geom_multiplier = params.get('geom_multiplier', 2.0)
     rebuy_mode = params.get('rebuy_mode', 'geometric')
+    orderbook_level = params.get('orderbook_level', 1)  # Уровень стакана (по умолчанию 1)
     
     # Если start_price = 0, используем current_price
     if start_price == 0 or start_price is None:
