@@ -94,6 +94,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
         # 6. Ц.БезУб,$ - цена безубыточности (с учетом комиссий)
         # Рассчитываем общее количество купленных монет
         total_coins = 0
+        step_cumulative = 0.0  # Накопленная сумма для расчёта курсов покупки
+        
         for s in range(step + 1):
             if s == 0:
                 step_purchase = start_volume
@@ -107,9 +109,14 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
                 else:
                     step_purchase = start_volume * (geom_multiplier ** s)
             
-            # Используем новую формулу для расчёта процента снижения: (# × Rk) + R
-            step_decrease_pct = -((s * rk) + target_r) if s > 0 else 0.0
-            step_rate = start_price * (1 + step_decrease_pct / 100.0)
+            # Используем накопленную сумму процентов для расчёта курса покупки
+            # Формула шага: -((# × Rk) + R)
+            step_decrease = -((s * rk) + target_r) if s > 0 else 0.0
+            if s > 0:
+                step_cumulative += step_decrease
+            
+            # Курс покупки на шаге s рассчитывается от накопленной суммы
+            step_rate = start_price * (1 + step_cumulative / 100.0)
             if step_rate > 0:
                 total_coins += step_purchase / step_rate
         
