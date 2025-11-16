@@ -167,8 +167,12 @@
                 <!-- Вторая строка параметров -->
                 <div class="params-row">
                     <div class="param-field">
-                        <label for="paramTargetR" title="Устанавливает шаг в процентах к безубыточной цели на последней строчке">БезУб, % (цель R):</label>
-                        <input type="number" id="paramTargetR" step="0.01" value="3.65" min="0.01" />
+                        <label for="paramTargetR" title="Шаг изменения процента закупки (используется в формуле: (# × Rk) + R)">R:</label>
+                        <input type="number" id="paramTargetR" step="0.001" value="3.650" min="0" />
+                    </div>
+                    <div class="param-field">
+                        <label for="paramRk" title="Коэффициент изменения шага процента закупки (используется в формуле: (# × Rk) + R)">Rk:</label>
+                        <input type="number" id="paramRk" step="0.001" value="0.000" min="0" />
                     </div>
                     <div class="param-field">
                         <label for="paramGeomMultiplier" title="Определяет шаг геометрии объёмов закупок">Множитель геометрии:</label>
@@ -188,7 +192,7 @@
                     </div>
                     <div class="param-field">
                         <label for="paramOrderbookLevel" title="Определяет уровень стакана для быстрых сделок (1 = лучшая цена, 2 = второй уровень и т.д.)">Стакан:</label>
-                        <input type="number" id="paramOrderbookLevel" step="1" value="1" min="1" max="10" />
+                        <input type="number" id="paramOrderbookLevel" step="0.1" value="1" min="0" />
                     </div>
                 </div>
             </div>
@@ -200,6 +204,7 @@
                     <thead>
                         <tr style="background:#1a1a1a;color:#ccc;text-align:right;border-bottom:1px solid #3a3a3a;">
                             <th style="padding:6px 8px;text-align:center;">#</th>
+                            <th style="padding:6px 8px;text-align:center;" title="Уровень стакана для покупки: (# * Стакан) + 1">Ст.</th>
                             <th style="padding:6px 8px;">↓, %</th>
                             <th style="padding:6px 8px;">Курс</th>
                             <th style="padding:6px 8px;">Покупка, $</th>
@@ -210,7 +215,7 @@
                         </tr>
                     </thead>
                     <tbody id="breakEvenBody">
-                        <tr><td colspan="8" style="padding:12px;text-align:center;color:#999;">Загрузка данных...</td></tr>
+                        <tr><td colspan="9" style="padding:12px;text-align:center;color:#999;">Загрузка данных...</td></tr>
                     </tbody>
                 </table>
                 </div>

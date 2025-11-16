@@ -1071,6 +1071,11 @@ def get_breakeven_table():
                 params['target_r'] = float(request.args.get('target_r'))
             except (ValueError, TypeError):
                 pass
+        if 'rk' in request.args:
+            try:
+                params['rk'] = float(request.args.get('rk'))
+            except (ValueError, TypeError):
+                pass
         if 'geom_multiplier' in request.args:
             try:
                 params['geom_multiplier'] = float(request.args.get('geom_multiplier'))

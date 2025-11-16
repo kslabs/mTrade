@@ -78,6 +78,7 @@ let currentNetworkMode='work';
 let currentBaseCurrency=null; // Будет установлено после загрузки currencies
 let currentQuoteCurrency='USDT';
 let currenciesList=[];
+let currentPairPricePrecision=8; // Точность цены для текущей пары (по умолчанию 8)
 let autoTradeActive=false;
 let autoTradeEnabled = true; // По умолчанию включено (ON), будет загружено из state
 let tradingPermissions = {}; // статус разрешений торговли
@@ -309,6 +310,12 @@ async function loadPairParams(force){
       if($('minBaseAmount')) $('minBaseAmount').textContent=info.min_base_amount!=null?String(info.min_base_amount):'-';
       if($('amountPrecision')) $('amountPrecision').textContent=info.amount_precision!=null?String(info.amount_precision):'-';
       if($('pricePrecision')) $('pricePrecision').textContent=info.price_precision!=null?String(info.price_precision):'-';
+      
+      // Сохраняем точность цены для использования в таблице безубыточности
+      if(info.price_precision!=null){
+        currentPairPricePrecision = parseInt(info.price_precision);
+        console.log(`[PAIR_PARAMS] Price Precision для ${currentBaseCurrency}_${currentQuoteCurrency}: ${currentPairPricePrecision}`);
+      }
     }
   }catch(e){ logDbg('loadPairParams exc '+e) }
 }
@@ -509,6 +516,7 @@ async function loadPairBalances(){
 function renderBreakEvenTable(tableData){
   console.log('[BREAKEVEN] === НАЧАЛО ОТРИСОВКИ ТАБЛИЦЫ ===');
   console.log('[BREAKEVEN] Получено строк:', tableData ? tableData.length : 'null');
+  console.log(`[BREAKEVEN] Точность цены (Price Precision): ${currentPairPricePrecision}, будет использовано: ${currentPairPricePrecision + 1}`);
   
   const body=$('breakEvenBody');
   console.log('[BREAKEVEN] Элемент #breakEvenBody:', body ? 'найден ✅' : 'НЕ НАЙДЕН ❌');
@@ -524,25 +532,36 @@ function renderBreakEvenTable(tableData){
   
   if(!Array.isArray(tableData)||tableData.length===0){
     console.warn('[BREAKEVEN] ⚠️ Нет данных для отображения');
-    body.innerHTML=`<tr><td colspan="8" style='padding:12px;text-align:center;color:#999;'>Нет данных</td></tr>`;
+    body.innerHTML=`<tr><td colspan="9" style='padding:12px;text-align:center;color:#999;'>Нет данных</td></tr>`;
     console.log('[BREAKEVEN] === КОНЕЦ ОТРИСОВКИ (нет данных) ===');
     return;
   }
   
   console.log('[BREAKEVEN] 🎨 Отрисовка таблицы, строк:', tableData.length);
   
+  // Получаем текущее значение параметра "Стакан"
+  const orderbookLevel = parseFloat($('paramOrderbookLevel')?.value) || 1;
+  console.log(`[BREAKEVEN] Параметр Стакан: ${orderbookLevel}`);
+  
   tableData.forEach((row,idx)=>{
     const tr=document.createElement('tr');
     tr.style.background = idx===0 ? '#1f2f1f' : (idx%2===0?'#1a1a1a':'transparent');
     tr.style.borderBottom = '1px solid #2a2a2a';
     
+    // Динамическая точность для курсов: Price Precision + 1
+    const pricePrecisionPlus1 = currentPairPricePrecision + 1;
+    
     // Форматируем значения
     const stepNum = row.step !== undefined ? row.step : idx;
-    const decrease = row.decrease_pct !== undefined ? row.decrease_pct.toFixed(2) : '—';
-    const rate = row.rate !== undefined ? row.rate.toFixed(8) : '—';
+    
+    // Расчёт уровня стакана для покупки: (# * Стакан) + 1, округляем до целого
+    const orderbookLevelForStep = Math.round((stepNum * orderbookLevel) + 1);
+    
+    const decrease = row.decrease_pct !== undefined ? row.decrease_pct.toFixed(3) : '—';
+    const rate = row.rate !== undefined ? row.rate.toFixed(pricePrecisionPlus1) : '—';
     const purchase = row.purchase_usd !== undefined ? row.purchase_usd.toFixed(2) : '—';
     const totalInv = row.total_invested !== undefined ? row.total_invested.toFixed(2) : '—';
-    const breakEvenPrice = row.breakeven_price !== undefined ? row.breakeven_price.toFixed(8) : '—';
+    const breakEvenPrice = row.breakeven_price !== undefined ? row.breakeven_price.toFixed(pricePrecisionPlus1) : '—';
     const breakEvenPct = row.breakeven_pct !== undefined ? row.breakeven_pct.toFixed(2) : '—';
     const targetDelta = row.target_delta_pct !== undefined ? row.target_delta_pct.toFixed(2) : '—';
     
@@ -553,6 +572,7 @@ function renderBreakEvenTable(tableData){
     
     tr.innerHTML = `
       <td style='padding:6px 8px;text-align:center;color:#e0e0e0;font-weight:600;'>${stepNum}</td>
+      <td style='padding:6px 8px;text-align:center;color:#9C27B0;font-weight:600;' title='Уровень стакана: (${stepNum} × ${orderbookLevel}) + 1 = ${orderbookLevelForStep}'>${orderbookLevelForStep}</td>
       <td style='padding:6px 8px;text-align:right;color:${decreaseColor};'>${decrease}</td>
       <td style='padding:6px 8px;text-align:right;color:#e0e0e0;font-family:monospace;'>${rate}</td>
       <td style='padding:6px 8px;text-align:right;color:#4CAF50;'>${purchase}</td>
@@ -588,9 +608,10 @@ async function loadBreakEvenTable(){
       pprof: parseFloat($('paramPprof')?.value) || 0.6,
       kprof: parseFloat($('paramKprof')?.value) || 0.02,
       target_r: parseFloat($('paramTargetR')?.value) || 3.65,
+      rk: parseFloat($('paramRk')?.value) || 0.0,
       geom_multiplier: parseFloat($('paramGeomMultiplier')?.value) || 2,
       rebuy_mode: $('paramRebuyMode')?.value || 'geometric',
-      orderbook_level: parseInt($('paramOrderbookLevel')?.value) || 1
+      orderbook_level: parseFloat($('paramOrderbookLevel')?.value) || 1
     };
     
     // Формируем URL с параметрами из формы
@@ -602,6 +623,7 @@ async function loadBreakEvenTable(){
       pprof: currentParams.pprof,
       kprof: currentParams.kprof,
       target_r: currentParams.target_r,
+      rk: currentParams.rk,
       geom_multiplier: currentParams.geom_multiplier,
       rebuy_mode: currentParams.rebuy_mode,
       orderbook_level: currentParams.orderbook_level
@@ -670,6 +692,7 @@ async function loadTradeParams(){
       $('paramPprof').value = d.params.pprof || 0.6;
       $('paramKprof').value = d.params.kprof || 0.02;
       $('paramTargetR').value = d.params.target_r || 3.65;
+      $('paramRk').value = d.params.rk || 0.0;
       $('paramGeomMultiplier').value = d.params.geom_multiplier || 2;
       $('paramRebuyMode').value = d.params.rebuy_mode || 'geometric';
       $('paramKeep').value = d.params.keep || 0;
@@ -698,10 +721,11 @@ async function saveTradeParams(){
       pprof: parseFloat($('paramPprof').value) || 0.6,
       kprof: parseFloat($('paramKprof').value) || 0.02,
       target_r: parseFloat($('paramTargetR').value) || 3.65,
+      rk: parseFloat($('paramRk').value) || 0.0,
       geom_multiplier: parseFloat($('paramGeomMultiplier').value) || 2,
       rebuy_mode: $('paramRebuyMode').value || 'geometric',
       keep: parseFloat($('paramKeep').value) || 0,
-      orderbook_level: parseInt($('paramOrderbookLevel').value) || 1
+      orderbook_level: parseFloat($('paramOrderbookLevel').value) || 1
     };
     
     console.log('[PARAMS] Параметры для сохранения:', params);
@@ -996,6 +1020,7 @@ async function loadUIState() {
           if (params.pprof !== undefined) $('paramPprof').value = params.pprof;
           if (params.kprof !== undefined) $('paramKprof').value = params.kprof;
           if (params.target_r !== undefined) $('paramTargetR').value = params.target_r;
+          if (params.rk !== undefined) $('paramRk').value = params.rk;
           if (params.geom_multiplier !== undefined) $('paramGeomMultiplier').value = params.geom_multiplier;
           if (params.rebuy_mode !== undefined) $('paramRebuyMode').value = params.rebuy_mode;
           if (params.keep !== undefined) $('paramKeep').value = params.keep;
