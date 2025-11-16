@@ -155,9 +155,11 @@ class StateManager:
             'pprof': 0.6,
             'kprof': 0.02,
             'target_r': 3.65,
+            'rk': 0.0,  # Коэффициент изменения шага процента закупки
             'geom_multiplier': 2.0,
             'rebuy_mode': 'geometric',
-            'orderbook_level': 1  # По умолчанию используем 1-й уровень стакана (лучшая цена)
+            'keep': 0.0,  # Постоянная сумма на балансе
+            'orderbook_level': 1.0  # По умолчанию используем 1-й уровень стакана (лучшая цена)
         }
     
     def init_currency_permissions(self, currencies: list) -> bool:

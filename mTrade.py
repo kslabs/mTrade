@@ -969,8 +969,8 @@ def save_trade_params():
         params = state_manager.get_breakeven_params(base_currency)
         for k, caster in (
             ('steps', int), ('start_volume', float), ('start_price', float),
-            ('pprof', float), ('kprof', float), ('target_r', float),
-            ('geom_multiplier', float), ('rebuy_mode', str), ('orderbook_level', int)
+            ('pprof', float), ('kprof', float), ('target_r', float), ('rk', float),
+            ('geom_multiplier', float), ('rebuy_mode', str), ('keep', float), ('orderbook_level', float)
         ):
             if k in data and data[k] is not None:
                 try:
