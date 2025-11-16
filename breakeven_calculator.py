@@ -17,11 +17,12 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     - geom_multiplier: Множитель геометрии
     - rebuy_mode: Режим сумм докупок (fixed, geometric, martingale)
     
-    Формула расчёта процента снижения: decrease_pct = -((# × Rk) + R)
+    Формула расчёта процента снижения на шаге: decrease_step_pct = -((# × Rk) + R)
     
     Возвращает список строк таблицы с полями:
     - step: номер шага (0, 1, 2, ...)
-    - decrease_pct: ↓, % (процент снижения, рассчитывается по формуле выше)
+    - decrease_step_pct: ↓Δ,% (процент снижения на шаге, рассчитывается по формуле выше)
+    - cumulative_decrease_pct: ↓, % (накопленная сумма процентов снижения)
     - rate: Курс
     - purchase_usd: Покупка, $
     - total_invested: Инв.Сумм,$
@@ -45,17 +46,22 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
         start_price = current_price if current_price > 0 else 1.0
     
     table_data = []
+    cumulative_decrease = 0.0  # Накопленная сумма процентов снижения
     
     for step in range(steps + 1):
         # 1. # - номер шага
         step_num = step
         
-        # 2. ↓, % - процент снижения курса на каждом шаге
-        # Формула: (# × Rk) + R
-        decrease_pct = -((step * rk) + target_r) if step > 0 else 0.0
+        # 2. ↓Δ,% - процент снижения курса на каждом шаге
+        # Формула: -((# × Rk) + R)
+        decrease_step_pct = -((step * rk) + target_r) if step > 0 else 0.0
+        
+        # 2.1. ↓, % - накопленная сумма процентов снижения
+        if step > 0:
+            cumulative_decrease += decrease_step_pct
         
         # 3. Курс - расчетный курс относительно стартового
-        rate = start_price * (1 + decrease_pct / 100.0)
+        rate = start_price * (1 + cumulative_decrease / 100.0)
         
         # 4. Покупка, $ - сумма покупки на этом шаге
         if step == 0:
@@ -125,7 +131,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
         
         table_data.append({
             'step': step_num,
-            'decrease_pct': decrease_pct,
+            'decrease_step_pct': decrease_step_pct,
+            'cumulative_decrease_pct': cumulative_decrease,
             'rate': rate,
             'purchase_usd': purchase_usd,
             'total_invested': total_invested,

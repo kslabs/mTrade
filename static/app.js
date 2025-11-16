@@ -557,7 +557,11 @@ function renderBreakEvenTable(tableData){
     // Расчёт уровня стакана для покупки: (# * Стакан) + 1, округляем до целого
     const orderbookLevelForStep = Math.round((stepNum * orderbookLevel) + 1);
     
-    const decrease = row.decrease_pct !== undefined ? row.decrease_pct.toFixed(3) : '—';
+    // ↓, % - накопленная сумма процентов снижения
+    const cumulativeDecrease = row.cumulative_decrease_pct !== undefined ? row.cumulative_decrease_pct.toFixed(3) : '—';
+    // ↓Δ,% - шаг процента снижения
+    const decreaseStep = row.decrease_step_pct !== undefined ? row.decrease_step_pct.toFixed(3) : '—';
+    
     const rate = row.rate !== undefined ? row.rate.toFixed(pricePrecisionPlus1) : '—';
     const purchase = row.purchase_usd !== undefined ? row.purchase_usd.toFixed(2) : '—';
     const totalInv = row.total_invested !== undefined ? row.total_invested.toFixed(2) : '—';
@@ -566,14 +570,16 @@ function renderBreakEvenTable(tableData){
     const targetDelta = row.target_delta_pct !== undefined ? row.target_delta_pct.toFixed(2) : '—';
     
     // Цвета для процентов
-    const decreaseColor = row.decrease_pct < 0 ? '#f44336' : '#999';
+    const cumulativeColor = row.cumulative_decrease_pct < 0 ? '#f44336' : '#999';
+    const decreaseColor = row.decrease_step_pct < 0 ? '#ff6b6b' : '#999';
     const breakEvenColor = row.breakeven_pct > 0 ? '#4CAF50' : '#999';
     const targetColor = row.target_delta_pct > 0 ? '#4CAF50' : (row.target_delta_pct < 0 ? '#f44336' : '#999');
     
     tr.innerHTML = `
       <td style='padding:6px 8px;text-align:center;color:#e0e0e0;font-weight:600;'>${stepNum}</td>
       <td style='padding:6px 8px;text-align:center;color:#9C27B0;font-weight:600;' title='Уровень стакана: (${stepNum} × ${orderbookLevel}) + 1 = ${orderbookLevelForStep}'>${orderbookLevelForStep}</td>
-      <td style='padding:6px 8px;text-align:right;color:${decreaseColor};'>${decrease}</td>
+      <td style='padding:6px 8px;text-align:right;color:${cumulativeColor};font-weight:600;' title='Накопленная сумма процентов снижения'>${cumulativeDecrease}</td>
+      <td style='padding:6px 8px;text-align:right;color:${decreaseColor};' title='Шаг процента: -((${stepNum} × Rk) + R)'>${decreaseStep}</td>
       <td style='padding:6px 8px;text-align:right;color:#e0e0e0;font-family:monospace;'>${rate}</td>
       <td style='padding:6px 8px;text-align:right;color:#4CAF50;'>${purchase}</td>
       <td style='padding:6px 8px;text-align:right;color:#2196F3;font-weight:600;'>${totalInv}</td>
