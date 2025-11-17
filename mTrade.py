@@ -335,6 +335,118 @@ def save_currencies():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/currencies/sync', methods=['POST'])
+def sync_currencies_from_gateio():
+    """Синхронизация валют с Gate.io (загрузка официального списка)"""
+    try:
+        print("\n[CURRENCY_SYNC] Начало синхронизации с Gate.io...")
+        
+        # Загрузка текущего списка
+        current_currencies = Config.load_currencies()
+        current_dict = {c['code']: c for c in current_currencies}
+        
+        # Запрос к Gate.io API для получения списка валют
+        url = "https://api.gateio.ws/api/v4/spot/currencies"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify({
+                "success": False,
+                "error": f"Ошибка API Gate.io: {response.status_code}"
+            }), 500
+        
+        gate_currencies = response.json()
+        
+        added_count = 0
+        updated_count = 0
+        
+        # Обработка данных из Gate.io
+        for gc in gate_currencies:
+            code = gc.get('currency', '').upper()
+            if not code:
+                continue
+            
+            # Пропускаем тестовые и специальные валюты
+            if code.startswith('TEST') or len(code) > 10:
+                continue
+            
+            # Получаем название валюты
+            name = gc.get('name', code)
+            
+            if code in current_dict:
+                # Обновляем существующую валюту (только если нет символа)
+                if not current_dict[code].get('symbol'):
+                    current_dict[code]['symbol'] = ''
+                    updated_count += 1
+            else:
+                # Добавляем новую валюту
+                current_dict[code] = {
+                    'code': code,
+                    'symbol': '',
+                    'name': name
+                }
+                added_count += 1
+        
+        # Сортируем по коду и сохраняем
+        sorted_currencies = sorted(current_dict.values(), key=lambda x: x['code'])
+        
+        if Config.save_currencies(sorted_currencies):
+            print(f"[CURRENCY_SYNC] Успешно: добавлено {added_count}, обновлено {updated_count}")
+            
+            # Сохраняем информацию о синхронизации
+            sync_info = {
+                'timestamp': datetime.now().isoformat(),
+                'added': added_count,
+                'updated': updated_count,
+                'total': len(sorted_currencies)
+            }
+            
+            sync_info_file = os.path.join(os.path.dirname(__file__), 'currency_sync_info.json')
+            with open(sync_info_file, 'w', encoding='utf-8') as f:
+                json.dump(sync_info, f, ensure_ascii=False, indent=2)
+            
+            return jsonify({
+                "success": True,
+                "added": added_count,
+                "updated": updated_count,
+                "total": len(sorted_currencies),
+                "timestamp": sync_info['timestamp']
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Не удалось сохранить валюты"
+            }), 500
+            
+    except requests.exceptions.RequestException as e:
+        print(f"[CURRENCY_SYNC] Ошибка сети: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Ошибка подключения к Gate.io: {str(e)}"
+        }), 500
+    except Exception as e:
+        print(f"[CURRENCY_SYNC] Ошибка: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/currencies/sync-info', methods=['GET'])
+def get_currency_sync_info():
+    """Получить информацию о последней синхронизации"""
+    try:
+        sync_info_file = os.path.join(os.path.dirname(__file__), 'currency_sync_info.json')
+        
+        if os.path.exists(sync_info_file):
+            with open(sync_info_file, 'r', encoding='utf-8') as f:
+                info = json.load(f)
+            return jsonify({"success": True, "info": info})
+        else:
+            return jsonify({"success": True, "info": None})
+            
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/balance', methods=['GET'])
 def get_balance():
     """Получить баланс"""
