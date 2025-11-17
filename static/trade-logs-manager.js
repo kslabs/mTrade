@@ -381,7 +381,7 @@ class TradeLogsManager {
                 background: none;
                 border: none;
                 color: #aaa;
-                font-size: 16px;
+                font-size: 12px;
                 font-weight: 500;
                 cursor: pointer;
                 padding: 4px 12px;
@@ -401,7 +401,7 @@ class TradeLogsManager {
 
             .view-toggle-separator {
                 color: #666;
-                font-size: 16px;
+                font-size: 12px;
                 font-weight: 500;
             }
         `;

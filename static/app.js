@@ -1419,17 +1419,16 @@ function toggleTradingPermission(code,current){
 async function handleServerRestart(){
   const btn=$('restartServerBtn');
   if(!btn) return;
+  // Спрашиваем подтверждение перед отправкой запроса
+  if(!confirm('Перезагрузить сервер?')) return;
   const prev=btn.textContent;
   try{
     btn.disabled=true; btn.textContent='⏳';
     const r=await fetch('/api/server/restart',{method:'POST'});
-    let msg='Сервер перезапускается...';
-    try{ const d=await r.json(); if(d && d.message) msg=d.message; }catch(_){/* ignore */}
-    alert(msg);
+    // Не показываем alert, просто ждём и перезагружаем страницу
     setTimeout(()=>{ try{ location.reload(); }catch(_){/* noop */} }, 5000);
   }catch(e){
     alert('Ошибка перезапуска: '+e);
-  }finally{
     btn.textContent=prev; btn.disabled=false;
   }
 }
@@ -1612,5 +1611,3 @@ async function handleSellAll(){
     btn.disabled=false;
   }
 }
-
-// === Дублирующие функции удалены (используются версии в начале файла) ===
