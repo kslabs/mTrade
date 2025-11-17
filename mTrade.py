@@ -337,68 +337,126 @@ def save_currencies():
 
 @app.route('/api/currencies/sync', methods=['POST'])
 def sync_currencies_from_gateio():
-    """Синхронизация валют с Gate.io (загрузка официального списка)"""
+    """Синхронизация символов валют с Gate.io (НЕ меняет названия, только проверяет символы)"""
     try:
-        print("\n[CURRENCY_SYNC] Начало синхронизации с Gate.io...")
+        print("\n[CURRENCY_SYNC] Начало синхронизации символов с Gate.io...")
         
         # Загрузка текущего списка
         current_currencies = Config.load_currencies()
         current_dict = {c['code']: c for c in current_currencies}
         
-        # Запрос к Gate.io API для получения списка валют
-        url = "https://api.gateio.ws/api/v4/spot/currencies"
-        response = requests.get(url, timeout=10)
+        # Получаем котируемую валюту из параметров запроса (по умолчанию USDT)
+        quote_currency = request.json.get('quote_currency', 'USDT') if request.json else 'USDT'
         
-        if response.status_code != 200:
+        # 1. Проверяем торговые пары (какие валюты торгуются с котируемой)
+        pairs_url = f"https://api.gateio.ws/api/v4/spot/currency_pairs"
+        pairs_response = requests.get(pairs_url, timeout=10)
+        
+        if pairs_response.status_code != 200:
             return jsonify({
                 "success": False,
-                "error": f"Ошибка API Gate.io: {response.status_code}"
+                "error": f"Ошибка API Gate.io (пары): {pairs_response.status_code}"
             }), 500
         
-        gate_currencies = response.json()
+        # Получаем список валют, которые торгуются с котируемой валютой
+        all_pairs = pairs_response.json()
+        tradeable_bases = set()
+        for pair in all_pairs:
+            pair_id = pair.get('id', '')
+            if pair_id.endswith(f'_{quote_currency}') and pair.get('trade_status') == 'tradable':
+                base = pair_id.replace(f'_{quote_currency}', '')
+                tradeable_bases.add(base)
+        
+        print(f"[CURRENCY_SYNC] Найдено {len(tradeable_bases)} валют, торгующихся с {quote_currency}")
+        
+        # 2. Получаем информацию о валютах (включая символы)
+        currencies_url = "https://api.gateio.ws/api/v4/spot/currencies"
+        currencies_response = requests.get(currencies_url, timeout=10)
+        
+        if currencies_response.status_code != 200:
+            return jsonify({
+                "success": False,
+                "error": f"Ошибка API Gate.io (валюты): {currencies_response.status_code}"
+            }), 500
+        
+        gate_currencies = currencies_response.json()
+        
+        # Создаём словарь валют Gate.io по коду
+        gate_dict = {}
+        for gc in gate_currencies:
+            code = gc.get('currency', '').upper()
+            if code:
+                gate_dict[code] = gc
         
         added_count = 0
         updated_count = 0
+        skipped_count = 0
         
-        # Обработка данных из Gate.io
-        for gc in gate_currencies:
-            code = gc.get('currency', '').upper()
-            if not code:
+        # Обрабатываем только существующие валюты пользователя
+        for code, curr in current_dict.items():
+            # Проверяем, торгуется ли валюта с котируемой
+            if code not in tradeable_bases:
+                print(f"[CURRENCY_SYNC] {code} не торгуется с {quote_currency}, пропускаем")
+                skipped_count += 1
                 continue
             
-            # Пропускаем тестовые и специальные валюты
-            if code.startswith('TEST') or len(code) > 10:
+            # Проверяем, есть ли информация о валюте в Gate.io
+            if code not in gate_dict:
+                print(f"[CURRENCY_SYNC] {code} не найдена в API Gate.io, пропускаем")
+                skipped_count += 1
                 continue
             
-            # Получаем название валюты
-            name = gc.get('name', code)
+            gate_curr = gate_dict[code]
             
-            if code in current_dict:
-                # Обновляем существующую валюту (только если нет символа)
-                if not current_dict[code].get('symbol'):
-                    current_dict[code]['symbol'] = ''
+            # Получаем символ из Gate.io (если есть)
+            # На Gate.io нет прямого поля с emoji, но есть поле chain (может содержать символ)
+            # Для криптовалют обычно используются стандартные Unicode-символы
+            
+            # Словарь популярных символов криптовалют (можно расширить)
+            crypto_symbols = {
+                'BTC': '₿',
+                'ETH': 'Ξ',
+                'USDT': '₮',
+                'USDC': '$',
+                'BNB': 'Ⓑ',
+                'XRP': 'Ʀ',
+                'ADA': '₳',
+                'DOGE': 'Ð',
+                'DOT': '●',
+                'MATIC': 'Ⓜ',
+                'SOL': '◎',
+                'AVAX': '▲',
+                'LINK': '◬',
+                'UNI': '🦄',
+                'ATOM': '⚛',
+                'LTC': 'Ł',
+                'ETC': 'Ξ',
+                'XLM': '*',
+                'ALGO': '△',
+                'VET': 'Ⓥ'
+            }
+            
+            # Если у валюты нет символа или он пустой - добавляем
+            if not curr.get('symbol') or curr['symbol'].strip() == '':
+                if code in crypto_symbols:
+                    current_dict[code]['symbol'] = crypto_symbols[code]
                     updated_count += 1
-            else:
-                # Добавляем новую валюту
-                current_dict[code] = {
-                    'code': code,
-                    'symbol': '',
-                    'name': name
-                }
-                added_count += 1
+                    print(f"[CURRENCY_SYNC] {code}: добавлен символ '{crypto_symbols[code]}'")
         
-        # Сортируем по коду и сохраняем
-        sorted_currencies = sorted(current_dict.values(), key=lambda x: x['code'])
+        # Сохраняем обновлённый список (порядок сохраняется)
+        updated_currencies = [current_dict[c['code']] for c in current_currencies if c['code'] in current_dict]
         
-        if Config.save_currencies(sorted_currencies):
-            print(f"[CURRENCY_SYNC] Успешно: добавлено {added_count}, обновлено {updated_count}")
+        if Config.save_currencies(updated_currencies):
+            print(f"[CURRENCY_SYNC] Успешно: обновлено {updated_count}, пропущено {skipped_count}")
             
             # Сохраняем информацию о синхронизации
             sync_info = {
                 'timestamp': datetime.now().isoformat(),
-                'added': added_count,
+                'quote_currency': quote_currency,
                 'updated': updated_count,
-                'total': len(sorted_currencies)
+                'skipped': skipped_count,
+                'total': len(updated_currencies),
+                'tradeable_count': len(tradeable_bases)
             }
             
             sync_info_file = os.path.join(os.path.dirname(__file__), 'currency_sync_info.json')
@@ -407,9 +465,11 @@ def sync_currencies_from_gateio():
             
             return jsonify({
                 "success": True,
-                "added": added_count,
                 "updated": updated_count,
-                "total": len(sorted_currencies),
+                "skipped": skipped_count,
+                "total": len(updated_currencies),
+                "quote_currency": quote_currency,
+                "tradeable_count": len(tradeable_bases),
                 "timestamp": sync_info['timestamp']
             })
         else:
@@ -426,6 +486,8 @@ def sync_currencies_from_gateio():
         }), 500
     except Exception as e:
         print(f"[CURRENCY_SYNC] Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": str(e)

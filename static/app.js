@@ -1135,19 +1135,26 @@ async function syncCurrenciesFromGateIO() {
   syncBtn.innerHTML = '⏳ Синхронизация...';
   
   try {
+    // Отправляем текущую котируемую валюту для проверки торговых пар
     const response = await fetch('/api/currencies/sync', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'}
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        quote_currency: currentQuoteCurrency || 'USDT'
+      })
     });
     
     const result = await response.json();
     
     if (result.success) {
-      alert(`✅ Синхронизация завершена!\n\n` +
-            `Добавлено валют: ${result.added}\n` +
-            `Обновлено валют: ${result.updated}\n` +
+      alert(`✅ Синхронизация символов завершена!\n\n` +
+            `Котируемая валюта: ${result.quote_currency}\n` +
+            `Обновлено символов: ${result.updated}\n` +
+            `Пропущено валют: ${result.skipped}\n` +
+            `Торгуемых пар: ${result.tradeable_count}\n` +
             `Всего валют: ${result.total}\n\n` +
-            `Время: ${new Date(result.timestamp).toLocaleString('ru-RU')}`);
+            `Время: ${new Date(result.timestamp).toLocaleString('ru-RU')}\n\n` +
+            `Примечание: Названия валют НЕ изменялись, обновлены только символы для валют, торгующихся с ${result.quote_currency}`);
       await loadCurrenciesFromServer();
       buildCurrencyManagerRows();
       updateSyncInfo();
