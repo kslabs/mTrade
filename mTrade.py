@@ -328,6 +328,8 @@ def save_currencies():
         
         # Сохранение
         if Config.save_currencies(currencies):
+            # Инициализируем разрешения для новых валют (по умолчанию включены)
+            state_manager.init_currency_permissions(currencies)
             return jsonify({"success": True, "message": "Валюты сохранены"})
         else:
             return jsonify({"success": False, "error": "Ошибка сохранения"}), 500
@@ -337,7 +339,7 @@ def save_currencies():
 
 @app.route('/api/currencies/sync', methods=['POST'])
 def sync_currencies_from_gateio():
-    """Синхронизация символов валют с Gate.io (НЕ меняет названия, только проверяет символы)"""
+    """Синхронизация символов валют с Gate.io (НЕ меняет названия, корректирует символы)"""
     try:
         print("\n[CURRENCY_SYNC] Начало синхронизации символов с Gate.io...")
         
@@ -408,10 +410,6 @@ def sync_currencies_from_gateio():
             
             gate_curr = gate_dict[code]
             
-            # Получаем символ из Gate.io (если есть)
-            # На Gate.io нет прямого поля с emoji, но есть поле chain (может содержать символ)
-            # Для криптовалют обычно используются стандартные Unicode-символы
-            
             # Словарь популярных символов криптовалют (можно расширить)
             crypto_symbols = {
                 'BTC': '₿',
@@ -436,12 +434,17 @@ def sync_currencies_from_gateio():
                 'VET': 'Ⓥ'
             }
             
-            # Если у валюты нет символа или он пустой - добавляем
-            if not curr.get('symbol') or curr['symbol'].strip() == '':
-                if code in crypto_symbols:
-                    current_dict[code]['symbol'] = crypto_symbols[code]
-                    updated_count += 1
-                    print(f"[CURRENCY_SYNC] {code}: добавлен символ '{crypto_symbols[code]}'")
+            expected_symbol = crypto_symbols.get(code)
+            current_symbol = (curr.get('symbol') or '').strip()
+            
+            # Если символ пустой ИЛИ не совпадает с ожидаемым — обновим на стандартный
+            if expected_symbol and current_symbol != expected_symbol:
+                action = "добавлен" if current_symbol == '' else "обновлён"
+                current_dict[code]['symbol'] = expected_symbol
+                updated_count += 1
+                print(f"[CURRENCY_SYNC] {code}: {action} символ '{expected_symbol}'")
+            else:
+                skipped_count += 1
         
         # Сохраняем обновлённый список (порядок сохраняется)
         updated_currencies = [current_dict[c['code']] for c in current_currencies if c['code'] in current_dict]
@@ -458,6 +461,10 @@ def sync_currencies_from_gateio():
                 'total': len(updated_currencies),
                 'tradeable_count': len(tradeable_bases)
             }
+            # Для совместимости со старым UI (updateSyncInfo ожидает эти ключи)
+            sync_info['last_update'] = sync_info['timestamp']
+            sync_info['total_currencies'] = sync_info['total']
+            sync_info['custom_symbols'] = sync_info['updated']
             
             sync_info_file = os.path.join(os.path.dirname(__file__), 'currency_sync_info.json')
             with open(sync_info_file, 'w', encoding='utf-8') as f:
@@ -502,6 +509,14 @@ def get_currency_sync_info():
         if os.path.exists(sync_info_file):
             with open(sync_info_file, 'r', encoding='utf-8') as f:
                 info = json.load(f)
+            # Бэккомпат для фронтенда: добавим отсутствующие ключи
+            if isinstance(info, dict):
+                if 'timestamp' in info and 'last_update' not in info:
+                    info['last_update'] = info['timestamp']
+                if 'total' in info and 'total_currencies' not in info:
+                    info['total_currencies'] = info['total']
+                if 'updated' in info and 'custom_symbols' not in info:
+                    info['custom_symbols'] = info['updated']
             return jsonify({"success": True, "info": info})
         else:
             return jsonify({"success": True, "info": None})
@@ -1441,20 +1456,92 @@ def get_autotrader_stats():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/autotrader/reset_cycle', methods=['POST'])
+def reset_autotrader_cycle():
+    """Сбросить цикл автотрейдера для конкретной валюты"""
+    try:
+        data = request.get_json() or {}
+        base_currency = data.get('base_currency', '').upper()
+        
+        if not base_currency:
+            return jsonify({"success": False, "error": "Не указана валюта"}), 400
+        
+        if not AUTO_TRADER:
+            return jsonify({"success": False, "error": "Автотрейдер не инициализирован"}), 500
+        
+        # Сбрасываем цикл для указанной валюты
+        if base_currency in AUTO_TRADER.cycles:
+            old_cycle = AUTO_TRADER.cycles[base_currency].copy()
+            AUTO_TRADER.cycles[base_currency] = {
+                'active': False,
+                'active_step': -1,
+                'table': old_cycle.get('table', []),  # сохраняем таблицу
+                'last_buy_price': 0.0,
+                'start_price': 0.0,
+                'total_invested_usd': 0.0,
+                'base_volume': 0.0
+            }
+            # ВАЖНО: Сохраняем обновлённое состояние (это удалит цикл из файла)
+            AUTO_TRADER._save_cycles_state()
+            
+            print(f"[API] ✅ Цикл {base_currency} сброшен вручную (было: step={old_cycle.get('active_step')}, "
+                  f"invested={old_cycle.get('total_invested_usd', 0):.2f})")
+            print(f"[API] 🔄 Автотрейдер начнёт новый цикл при следующей итерации (если торговля включена)")
+            
+            return jsonify({
+                "success": True,
+                "message": f"Цикл {base_currency} успешно сброшен. Автотрейдер начнёт новый цикл автоматически.",
+                "old_state": {
+                    "active": old_cycle.get('active'),
+                    "step": old_cycle.get('active_step'),
+                    "invested": old_cycle.get('total_invested_usd')
+                }
+            })
+        else:
+            # Создаём пустой цикл, если его не было
+            AUTO_TRADER.cycles[base_currency] = {
+                'active': False,
+                'active_step': -1,
+                'table': [],
+                'last_buy_price': 0.0,
+                'start_price': 0.0,
+                'total_invested_usd': 0.0,
+                'base_volume': 0.0
+            }
+            AUTO_TRADER._save_cycles_state()
+            print(f"[API] ℹ️ Цикл {base_currency} не был активен, создана пустая структура")
+            return jsonify({
+                "success": True,
+                "message": f"Цикл {base_currency} готов к запуску. Автотрейдер начнёт новый цикл автоматически."
+            })
+            
+    except Exception as e:
+        print(f"[API] Ошибка сброса цикла: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/trade/indicators', methods=['GET'])
 def get_trade_indicators():
-    """Получить торговые индикаторы для конкретной пары"""
+    """Получить торговые индикаторы + уровни автотрейдера для пары.
+    Дополнено: возвращает структуру autotrade_levels с:
+    - active_cycle, active_step, total_steps
+    - next_rebuy_step и параметры следующей покупки (↓Δ,% / cumulative / purchase_usd)
+    - current_growth_pct (рост от P0) и target_sell_delta_pct
+    - breakeven_price, breakeven_pct текущего активного шага
+    - start_price, last_buy_price, invested_usd, base_volume
+    - progress_to_sell (0..1)
+    Опция include_table=1 добавляет сокращённую таблицу (step, rate, purchase_usd, breakeven_price, target_delta_pct).
+    """
     try:
         base_currency = request.args.get('base_currency', 'BTC').upper()
         quote_currency = request.args.get('quote_currency', 'USDT').upper()
-        currency_pair = f"{base_currency}_{quote_currency}"
-        
-        # Получаем данные из WebSocket
+        include_table = str(request.args.get('include_table', '0')).lower() in ('1','true','yes')
+        currency_pair = f"{base_currency}_{quote_currency}".upper()
+
+        # Данные из WebSocket
         ws_manager = get_websocket_manager()
-        pair_data = None
-        if ws_manager:
-            pair_data = ws_manager.get_data(currency_pair)
-        
+        pair_data = ws_manager.get_data(currency_pair) if ws_manager else None
+
         indicators = {
             "pair": currency_pair,
             "price": 0.0,
@@ -1466,34 +1553,172 @@ def get_trade_indicators():
             "ask": 0.0,
             "spread": 0.0
         }
-        
         if pair_data and pair_data.get('ticker'):
             ticker = pair_data['ticker']
             try:
-                indicators['price'] = float(ticker.get('last', 0))
-                indicators['change_24h'] = float(ticker.get('change_percentage', 0))
-                indicators['volume_24h'] = float(ticker.get('quote_volume', 0))
-                indicators['high_24h'] = float(ticker.get('high_24h', 0))
-                indicators['low_24h'] = float(ticker.get('low_24h', 0))
-                
-                # Spread из orderbook
-                if pair_data.get('orderbook'):
-                    ob = pair_data['orderbook']
-                    if ob.get('asks') and ob.get('bids'):
-                        try:
-                            ask = float(ob['asks'][0][0])
-                            bid = float(ob['bids'][0][0])
-                            indicators['ask'] = ask
-                            indicators['bid'] = bid
-                            indicators['spread'] = ((ask - bid) / bid * 100) if bid > 0 else 0
-                        except (IndexError, ValueError, TypeError):
-                            pass
+                indicators['price'] = float(ticker.get('last', 0) or 0)
+                indicators['change_24h'] = float(ticker.get('change_percentage', 0) or 0)
+                indicators['volume_24h'] = float(ticker.get('quote_volume', 0) or 0)
+                indicators['high_24h'] = float(ticker.get('high_24h', 0) or 0)
+                indicators['low_24h'] = float(ticker.get('low_24h', 0) or 0)
             except (ValueError, TypeError):
                 pass
+            # Spread
+            try:
+                if pair_data.get('orderbook') and pair_data['orderbook'].get('asks') and pair_data['orderbook'].get('bids'):
+                    ask = float(pair_data['orderbook']['asks'][0][0])
+                    bid = float(pair_data['orderbook']['bids'][0][0])
+                    indicators['ask'] = ask
+                    indicators['bid'] = bid
+                    indicators['spread'] = ((ask - bid) / bid * 100.0) if bid > 0 else 0.0
+            except Exception:
+                pass
+
+        # Уровни автотрейдера
+        autotrade_levels = {
+            'active_cycle': False,
+            'active_step': None,
+            'total_steps': None,
+            'next_rebuy_step': None,
+            'next_rebuy_decrease_step_pct': None,
+            'next_rebuy_cumulative_drop_pct': None,
+            'next_rebuy_purchase_usd': None,
+            'target_sell_delta_pct': None,
+            'breakeven_price': None,
+            'breakeven_pct': None,
+            'start_price': None,
+            'last_buy_price': None,
+            'invested_usd': None,
+            'base_volume': None,
+            'current_growth_pct': None,
+            'progress_to_sell': None,
+            'table': None,
+            # Дополнительные уровни цен для индикатора
+            'current_price': None,
+            'sell_price': None,
+            'next_buy_price': None
+        }
+        # Всегда устанавливаем текущую цену
+        price = indicators['price']
+        autotrade_levels['current_price'] = price
         
-        return jsonify({"success": True, "indicators": indicators})
+        # Получаем таблицу: либо из цикла, либо рассчитываем новую
+        cycle = None
+        table = None
+        
+        if AUTO_TRADER and hasattr(AUTO_TRADER, 'cycles'):
+            cycle = AUTO_TRADER.cycles.get(base_currency)
+            if cycle and cycle.get('table'):
+                table = cycle['table']
+        
+        # Если таблицы нет в цикле - рассчитываем из параметров
+        if not table:
+            params = state_manager.get_breakeven_params(base_currency)
+            if params and price:
+                try:
+                    from breakeven_calculator import calculate_breakeven_table
+                    table = calculate_breakeven_table(params, price)
+                except Exception as e:
+                    print(f"[INDICATORS] Ошибка расчёта таблицы для {base_currency}: {e}")
+        
+        # Обрабатываем данные таблицы (независимо от активного цикла)
+        if table and len(table) > 0:
+            active_step = cycle.get('active_step', -1) if cycle else -1
+            autotrade_levels['active_cycle'] = bool(cycle and cycle.get('active'))
+            autotrade_levels['active_step'] = active_step if active_step >= 0 else None
+            autotrade_levels['total_steps'] = (len(table) - 1) if len(table) > 0 else None
+            
+            # Данные из активного цикла (если есть)
+            if cycle:
+                autotrade_levels['start_price'] = cycle.get('start_price') or None
+                autotrade_levels['last_buy_price'] = cycle.get('last_buy_price') or None
+                autotrade_levels['invested_usd'] = cycle.get('total_invested_usd') or None
+                autotrade_levels['base_volume'] = cycle.get('base_volume') or None
+            else:
+                # Если цикла нет - используем первую строку таблицы как стартовую
+                autotrade_levels['start_price'] = table[0].get('rate') if table else None
+            # Расчёт роста от стартовой цены
+            start_price = autotrade_levels['start_price']
+            if start_price and price:
+                try:
+                    autotrade_levels['current_growth_pct'] = (price - start_price) / start_price * 100.0
+                except Exception:
+                    autotrade_levels['current_growth_pct'] = None
+            
+            # Определяем текущий шаг: активный из цикла или 0 (стартовый)
+            current_step = active_step if active_step >= 0 else 0
+            
+            # Данные текущего шага (всегда показываем, даже если цикл неактивен)
+            if current_step < len(table):
+                row = table[current_step]
+                autotrade_levels['breakeven_price'] = row.get('breakeven_price')
+                autotrade_levels['breakeven_pct'] = row.get('breakeven_pct')
+                autotrade_levels['target_sell_delta_pct'] = row.get('target_delta_pct')
+                
+                # Отладка: логируем BE для диагностики
+                if row.get('breakeven_price'):
+                    print(f"[DEBUG] autotrade_levels для {currency_pair}: step={current_step}, BE={row.get('breakeven_price'):.8f}, active={autotrade_levels['active_cycle']}")
+                else:
+                    print(f"[DEBUG] autotrade_levels для {currency_pair}: step={current_step}, BE=None (нет данных в таблице), active={autotrade_levels['active_cycle']}")
+                
+                # Расчёт цены продажи от цены безубыточности
+                breakeven = row.get('breakeven_price')
+                if breakeven and row.get('target_delta_pct'):
+                    try:
+                        target_pct = row['target_delta_pct']
+                        autotrade_levels['sell_price'] = breakeven * (1 + target_pct / 100.0)
+                    except Exception:
+                        pass
+                
+                # Прогресс до продажи
+                if autotrade_levels['current_growth_pct'] is not None and row.get('target_delta_pct'):
+                    tgt = row['target_delta_pct']
+                    cg = autotrade_levels['current_growth_pct']
+                    autotrade_levels['progress_to_sell'] = max(0.0, min(1.0, cg / tgt)) if tgt > 0 else None
+            # Следующий шаг покупки (для активного цикла - следующий, для неактивного - текущий стартовый)
+            next_step = current_step + 1 if autotrade_levels['active_cycle'] else current_step
+            
+            if next_step < len(table):
+                nrow = table[next_step]
+                autotrade_levels['next_rebuy_step'] = next_step
+                autotrade_levels['next_rebuy_decrease_step_pct'] = abs(nrow.get('decrease_step_pct', 0))
+                autotrade_levels['next_rebuy_cumulative_drop_pct'] = nrow.get('cumulative_decrease_pct')
+                autotrade_levels['next_rebuy_purchase_usd'] = nrow.get('purchase_usd')
+                
+                # Расчёт цены следующей покупки
+                # Для неактивного цикла - используем rate из таблицы
+                # Для активного - рассчитываем от последней покупки
+                if autotrade_levels['active_cycle'] and cycle and cycle.get('last_buy_price') and nrow.get('decrease_step_pct'):
+                    try:
+                        last_buy = cycle['last_buy_price']
+                        decrease_pct = abs(nrow['decrease_step_pct'])
+                        autotrade_levels['next_buy_price'] = last_buy * (1 - decrease_pct / 100.0)
+                    except Exception:
+                        pass
+                else:
+                    # Для неактивного цикла - показываем rate из таблицы
+                    autotrade_levels['next_buy_price'] = nrow.get('rate')
+                    # Последняя покупка = стартовая для неактивного
+                    if not autotrade_levels['last_buy_price'] and start_price:
+                        autotrade_levels['last_buy_price'] = start_price
+            # Ограниченный вывод таблицы
+            if include_table:
+                trimmed = []
+                for r in table:
+                    trimmed.append({
+                        'step': r.get('step'),
+                        'rate': r.get('rate'),
+                        'purchase_usd': r.get('purchase_usd'),
+                        'breakeven_price': r.get('breakeven_price'),
+                        'target_delta_pct': r.get('target_delta_pct'),
+                        'decrease_step_pct': r.get('decrease_step_pct'),
+                        'cumulative_decrease_pct': r.get('cumulative_decrease_pct')
+                    })
+                autotrade_levels['table'] = trimmed
+
+        return jsonify({"success": True, "indicators": indicators, "autotrade_levels": autotrade_levels})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)})
 
 
 @app.route('/api/ui/state', methods=['GET'])
@@ -1807,6 +2032,8 @@ def quick_buy_min():
         
         # Получаем параметры пары
         diagnostic_info['error_stage'] = 'get_pair_info'
+
+
         pair_info = api_client.get_currency_pair_details_exact(pair)
         if not pair_info or 'error' in pair_info:
             diagnostic_info['error_stage'] = 'pair_not_found'
@@ -2289,6 +2516,27 @@ if __name__ == '__main__':
     # Записываем PID
     ProcessManager.write_pid()
     ProcessManager.setup_cleanup()
+    
+    # Инициализация разрешений торговли для всех валют
+    print("[INIT] Инициализация разрешений торговли...")
+    try:
+        currencies = Config.load_currencies()
+        state_manager.init_currency_permissions(currencies)
+        perms = state_manager.get_trading_permissions()
+        enabled_count = sum(1 for v in perms.values() if v)
+        print(f"[INIT] Разрешения торговли: {enabled_count}/{len(perms)} валют включено")
+    except Exception as e:
+        print(f"[WARNING] Ошибка инициализации разрешений: {e}")
+    
+    # Установка активного аккаунта (если есть доступные)
+    print("[INIT] Проверка доступных аккаунтов...")
+    available_accounts = account_manager.list_accounts()
+    if available_accounts:
+        first_account = available_accounts[0]
+        account_manager.set_active_account(first_account)
+        print(f"[INIT] Активный аккаунт установлен: {first_account}")
+    else:
+        print("[WARNING] Нет доступных аккаунтов, автотрейдер будет работать в режиме симуляции")
     
     # Инициализация WebSocket менеджера
     print("[INIT] Инициализация WebSocket менеджера...")
