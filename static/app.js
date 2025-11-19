@@ -7,6 +7,10 @@ function logDbg(m){
   console.log('[DBG]',m);
 }
 
+// Глобальные переменные для уровней покупки/продажи (для подсветки в стакане)
+let globalBuyPrice = null;
+let globalSellPrice = null;
+
 // === Copyable Message Modal ===
 function showMessageModal(title, content) {
   const modal = document.getElementById('messageModal');
@@ -115,24 +119,244 @@ const UIStateManager = {
   }
 };
 
-function formatPrice(v){
+function formatPrice(v, precision){
   const n=parseFloat(v);
   if(isNaN(n)) return '-';
+  if(n === 0) return '0';
+  
+  // Используем указанную точность или автоматическую
+  if(precision !== undefined && precision >= 0){
+    return n.toFixed(precision);
+  }
+  
   if(n<0.0001 && n>0) return n.toExponential(4);
   if(n>=1000) return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8});
   return n.toFixed(8).replace(/\.0+$/,'').replace(/0+$/,'')
 }
+
+// Глобальная переменная для хранения точности текущей пары
+let currentPricePrecision = 5;
 function updateTradeIndicators(d){
   d=d||{};
   const priceEl=$('indPrice');
-  if(priceEl&&d.price) priceEl.textContent=formatPrice(d.price);
-  ['sell','be','last','start','buy'].forEach(k=>{
-    const el=$('ind'+k.charAt(0).toUpperCase()+k.slice(1));
-    if(el&&d[k]!==undefined){
-      const v=d[k];
-      el.textContent=(v===null||v===undefined)?'-':formatPrice(v)
+  if(priceEl&&d.price) priceEl.textContent=formatPrice(d.price, currentPricePrecision);
+  
+  // Получаем данные из autotrade_levels
+  const levels = d.autotrade_levels || {};
+  
+  // Обновляем значения в футере индикатора с единой точностью
+  const updates = {
+    'sell': levels.sell_price,
+    'be': levels.breakeven_price,
+    'last': levels.current_price,
+    'start': levels.start_price,
+    'buy': levels.next_buy_price
+  };
+  
+  for(const [key, value] of Object.entries(updates)){
+    // Для BE используем 'indBE' (обе буквы заглавные), для остальных - первая заглавная
+    const elementId = key === 'be' ? 'indBE' : 'ind' + key.charAt(0).toUpperCase() + key.slice(1);
+    const el = $(elementId);
+    if(key === 'be') console.log('[BE_UPDATE] elementId:', elementId, 'el:', el, 'value:', value);
+    if(el){
+      if(value === null || value === undefined || value === 0){
+        el.textContent = '-';
+      } else {
+        el.textContent = formatPrice(value, currentPricePrecision);
+      }
+      if(key === 'be') console.log('[BE_UPDATE] el.textContent:', el.textContent);
     }
-  })
+  }
+  
+  // Обновляем autotrade_levels если есть
+  if(d.autotrade_levels){
+    updateAutoTradeLevels(d.autotrade_levels);
+  }
+}
+
+function updateAutoTradeLevels(levels){
+  if(!levels) return;
+  
+  // Сохраняем уровни покупки/продажи для подсветки в стакане
+  globalBuyPrice = levels.next_buy_price;
+  globalSellPrice = levels.sell_price;
+  
+  // Обновляем индикаторы текущего цикла
+  const activeEl = $('autotradeCycleActive');
+  if(activeEl){
+    activeEl.textContent = levels.active_cycle ? 'Активен' : 'Неактивен';
+    activeEl.className = 'value ' + (levels.active_cycle ? 'active' : 'inactive');
+  }
+  
+  // Обновляем текущий шаг
+  const stepEl = $('autotradeCurrentStep');
+  if(stepEl){
+    if(levels.active_step !== null && levels.total_steps !== null){
+      stepEl.textContent = `${levels.active_step} / ${levels.total_steps}`;
+    } else {
+      stepEl.textContent = '-';
+    }
+  }
+  
+  // Обновляем все уровни цен
+  const priceFields = {
+    'autotradePriceCurrent': levels.current_price,
+    'autotradePriceStart': levels.start_price,
+    'autotradePriceBreakeven': levels.breakeven_price,
+    'autotradePriceLastBuy': levels.last_buy_price,
+    'autotradePriceSell': levels.sell_price,
+    'autotradePriceNextBuy': levels.next_buy_price
+  };
+  
+  for(const [id, value] of Object.entries(priceFields)){
+    const el = $(id);
+    if(el){
+      el.textContent = (value === null || value === undefined) ? '-' : formatPrice(value);
+    }
+  }
+  
+  // Обновляем процент роста
+  const growthEl = $('autotradeGrowthPct');
+  if(growthEl){
+    if(levels.current_growth_pct !== null && levels.current_growth_pct !== undefined){
+      const pct = levels.current_growth_pct;
+      growthEl.textContent = pct.toFixed(2) + '%';
+      growthEl.className = 'value ' + (pct >= 0 ? 'positive' : 'negative');
+    } else {
+      growthEl.textContent = '-';
+      growthEl.className = 'value';
+    }
+  }
+  
+  // Обновляем инвестировано
+  const investedEl = $('autotradeInvested');
+  if(investedEl){
+    investedEl.textContent = levels.invested_usd !== null ? levels.invested_usd.toFixed(2) + ' USDT' : '-';
+  }
+  
+  // Обновляем объём базовой валюты
+  const volumeEl = $('autotradeBaseVolume');
+  if(volumeEl){
+    volumeEl.textContent = levels.base_volume !== null ? levels.base_volume.toFixed(8) : '-';
+  }
+  
+  // Обновляем визуальную шкалу с маркерами
+  updateVisualIndicatorScale(levels);
+}
+
+function updateVisualIndicatorScale(levels){
+  console.log('[SCALE] updateVisualIndicatorScale вызван с levels:', levels);
+  if(!levels) {
+    console.warn('[SCALE] levels не переданы!');
+    return;
+  }
+  
+  // Получаем все маркеры
+  const markers = {
+    sell: $('markerSell'),
+    be: $('markerBE'),
+    price: $('markerPrice'),
+    last: $('markerLast'),
+    start: $('markerStart'),
+    buy: $('markerBuy')
+  };
+  
+  console.log('[SCALE] Маркеры:', {
+    sell: markers.sell ? 'найден' : 'НЕ НАЙДЕН',
+    be: markers.be ? 'найден' : 'НЕ НАЙДЕН',
+    price: markers.price ? 'найден' : 'НЕ НАЙДЕН',
+    last: markers.last ? 'найден' : 'НЕ НАЙДЕН',
+    start: markers.start ? 'найден' : 'НЕ НАЙДЕН',
+    buy: markers.buy ? 'найден' : 'НЕ НАЙДЕН'
+  });
+  
+  // Проверяем, что все маркеры существуют
+  const allMarkersExist = Object.values(markers).every(m => m !== null);
+  if(!allMarkersExist) {
+    console.error('[SCALE] Не все маркеры найдены в DOM!');
+    return;
+  }
+  
+  // Собираем все цены для определения диапазона
+  const prices = {
+    current: levels.current_price,
+    sell: levels.sell_price,
+    be: levels.breakeven_price,
+    last: levels.last_buy_price,
+    start: levels.start_price,
+    buy: levels.next_buy_price
+  };
+  
+  console.log('[SCALE] Цены для индикатора:', prices);
+  
+  // Фильтруем валидные цены
+  const validPrices = Object.values(prices).filter(p => p !== null && p !== undefined && !isNaN(p) && p > 0);
+  
+  if(validPrices.length === 0){
+    // Нет валидных цен - скрываем все маркеры
+    Object.values(markers).forEach(marker => {
+      marker.style.bottom = '50%';
+      marker.style.opacity = '0.3';
+    });
+    return;
+  }
+  
+  // Определяем диапазон цен с небольшим запасом (±5%)
+  const minPrice = Math.min(...validPrices);
+  const maxPrice = Math.max(...validPrices);
+  const range = maxPrice - minPrice;
+  const padding = range * 0.1; // 10% padding сверху и снизу
+  const displayMin = minPrice - padding;
+  const displayMax = maxPrice + padding;
+  const displayRange = displayMax - displayMin;
+  
+  // Функция для вычисления позиции маркера (0-100%)
+  function calculatePosition(price){
+    if(!price || price <= 0) return null;
+    const normalized = (price - displayMin) / displayRange;
+    return Math.max(0, Math.min(100, normalized * 100)); // Ограничиваем 0-100%
+  }
+  
+  // Обновляем позиции маркеров
+  const positions = {
+    sell: calculatePosition(prices.sell),
+    be: calculatePosition(prices.be),
+    price: calculatePosition(prices.current),
+    last: calculatePosition(prices.last),
+    start: calculatePosition(prices.start),
+    buy: calculatePosition(prices.buy)
+  };
+  
+  // Применяем позиции и обновляем тултипы
+  for(const [key, marker] of Object.entries(markers)){
+    const pos = positions[key];
+    const price = prices[key === 'price' ? 'current' : key];
+    
+    if(pos !== null && price){
+      marker.style.bottom = pos + '%';
+      marker.style.opacity = '1';
+      
+      // Обновляем тултип
+      const tooltip = marker.querySelector('.marker-tooltip');
+      if(tooltip){
+        const label = key.charAt(0).toUpperCase() + key.slice(1);
+        tooltip.textContent = `${label}: ${formatPrice(price)}`;
+      }
+    } else {
+      marker.style.bottom = '50%';
+      marker.style.opacity = '0.3';
+      
+      const tooltip = marker.querySelector('.marker-tooltip');
+      if(tooltip){
+        tooltip.textContent = `${key}: -`;
+      }
+    }
+  }
+  
+  // Добавляем анимацию при обновлении
+  Object.values(markers).forEach(marker => {
+    marker.style.transition = 'bottom 0.3s ease-out, opacity 0.3s ease-out';
+  });
 }
 function updateNetworkUI(){
   const sw=$('networkSwitcher');
@@ -366,7 +590,16 @@ async function loadMarketData(forceRefresh=false){
     }
     if(ticker){
       const last=parseFloat(ticker.last||ticker.last_price||ticker.close||ticker.price||0);
-      const priceStr=formatPrice(last);
+      
+      // Определяем точность автоматически из цены
+      if(last > 0){
+        if(last >= 10) currentPricePrecision = 2;
+        else if(last >= 1) currentPricePrecision = 3;
+        else if(last >= 0.1) currentPricePrecision = 4;
+        else currentPricePrecision = 5;
+      }
+      
+      const priceStr=formatPrice(last, currentPricePrecision);
       const cp=$('currentPrice'); if(cp) cp.textContent=priceStr;
       // Цена в заголовке "Рынок и стакан" с точностью 2 знака после запятой
       const pp=$('currentPairPrice'); 
@@ -375,7 +608,9 @@ async function loadMarketData(forceRefresh=false){
       const bid=parseFloat(ticker.highest_bid||ticker.bid||0);
       const spread=(isFinite(sell)&&isFinite(bid)&&sell>0)?((sell-bid)/sell*100):null;
       const sv=$('spreadValue'); if(sv) sv.textContent=spread==null?'-':spread.toFixed(3)+'%';
-      updateTradeIndicators({price:last});
+      // Обновляем только цену, не трогая autotrade_levels
+      const priceEl=$('indPrice');
+      if(priceEl) priceEl.textContent=formatPrice(last, currentPricePrecision);
     }
     loadPerBaseIndicators();
   }catch(e){ logDbg('loadMarketData exc '+e) }
@@ -455,6 +690,12 @@ function updateOrderBook(ob){
       const p=r[0], a=r[1], t=p*a;
       const div=document.createElement('div');
       div.className='orderbook-row';
+      
+      // Проверяем, является ли эта строка уровнем продажи
+      if(globalSellPrice && Math.abs(p - globalSellPrice) / globalSellPrice < 0.001){
+        div.classList.add('orderbook-sell-level');
+      }
+      
       div.innerHTML=`<div class='price'>${formatPrice(p)}</div><div class='amount'>${a.toFixed(6)}</div><div class='total'>${t.toFixed(6)}</div><div class='cumulative'>${(asksCum[idx]||0).toFixed(4)}</div>`;
       if(asksEl) asksEl.appendChild(div);
     });
@@ -464,6 +705,12 @@ function updateOrderBook(ob){
       const p=r[0], a=r[1], t=p*a; cumB+=a;
       const div=document.createElement('div');
       div.className='orderbook-row';
+      
+      // Проверяем, является ли эта строка уровнем покупки
+      if(globalBuyPrice && Math.abs(p - globalBuyPrice) / globalBuyPrice < 0.001){
+        div.classList.add('orderbook-buy-level');
+      }
+      
       div.innerHTML=`<div class='price'>${formatPrice(p)}</div><div class='amount'>${a.toFixed(6)}</div><div class='total'>${t.toFixed(6)}</div><div class='cumulative'>${cumB.toFixed(4)}</div>`;
       if(bidsEl) bidsEl.appendChild(div);
     });
@@ -482,7 +729,14 @@ async function loadPerBaseIndicators(){
   try{
     const r=await fetch(`/api/trade/indicators?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
     const d=await r.json();
-    if(d.success&&d.indicators){ updateTradeIndicators(d.indicators); }
+    console.log('[INDICATORS] Ответ сервера:', d);
+    console.log('[INDICATORS] autotrade_levels:', d.autotrade_levels);
+    if(d.success&&d.indicators){ 
+      // Передаём autotrade_levels вместе с indicators
+      d.indicators.autotrade_levels = d.autotrade_levels;
+      console.log('[INDICATORS] Передаём в updateTradeIndicators:', d.indicators);
+      updateTradeIndicators(d.indicators); 
+    }
   }catch(e){ logDbg('loadPerBaseIndicators err '+e) }
 }
 async function loadPairBalances(){
@@ -514,34 +768,22 @@ async function loadPairBalances(){
   }catch(e){ logDbg('loadPairBalances err '+e) }
 }
 function renderBreakEvenTable(tableData){
-  console.log('[BREAKEVEN] === НАЧАЛО ОТРИСОВКИ ТАБЛИЦЫ ===');
-  console.log('[BREAKEVEN] Получено строк:', tableData ? tableData.length : 'null');
-  console.log(`[BREAKEVEN] Точность цены (Price Precision): ${currentPairPricePrecision}, будет использовано: ${currentPairPricePrecision + 1}`);
-  
   const body=$('breakEvenBody');
-  console.log('[BREAKEVEN] Элемент #breakEvenBody:', body ? 'найден ✅' : 'НЕ НАЙДЕН ❌');
   
   if(!body){
-    console.error('[BREAKEVEN] ❌ Элемент breakEvenBody не найден в DOM');
-    console.error('[BREAKEVEN] Проверка document.getElementById:', document.getElementById('breakEvenBody'));
+    console.error('[BREAKEVEN] Элемент breakEvenBody не найден в DOM');
     return;
   }
   
-  console.log('[BREAKEVEN] Очистка содержимого tbody...');
   body.innerHTML='';
   
   if(!Array.isArray(tableData)||tableData.length===0){
-    console.warn('[BREAKEVEN] ⚠️ Нет данных для отображения');
     body.innerHTML=`<tr><td colspan="9" style='padding:12px;text-align:center;color:#999;'>Нет данных</td></tr>`;
-    console.log('[BREAKEVEN] === КОНЕЦ ОТРИСОВКИ (нет данных) ===');
     return;
   }
   
-  console.log('[BREAKEVEN] 🎨 Отрисовка таблицы, строк:', tableData.length);
-  
   // Получаем текущее значение параметра "Стакан"
   const orderbookLevel = parseFloat($('paramOrderbookLevel')?.value) || 1;
-  console.log(`[BREAKEVEN] Параметр Стакан: ${orderbookLevel}`);
   
   tableData.forEach((row,idx)=>{
     const tr=document.createElement('tr');
@@ -589,20 +831,12 @@ function renderBreakEvenTable(tableData){
     `;
     body.appendChild(tr);
   });
-  
-  console.log('[BREAKEVEN] ✅ Все строки добавлены в DOM');
-  console.log('[BREAKEVEN] Итого строк в tbody:', body.children.length);
-  console.log('[BREAKEVEN] === КОНЕЦ ОТРИСОВКИ ===');
 }
 async function loadBreakEvenTable(){
-  console.log('[BREAKEVEN] === НАЧАЛО ЗАГРУЗКИ ТАБЛИЦЫ ===');
-  console.log('[BREAKEVEN] currentBaseCurrency =', currentBaseCurrency);
-  
   try{
     // Проверяем, что базовая валюта установлена
     if(!currentBaseCurrency){
-      console.warn('[BREAKEVEN] ❌ Базовая валюта не установлена, пропускаем загрузку');
-      console.warn('[BREAKEVEN] Устанавливаем дефолтную валюту WLD');
+      console.warn('[BREAKEVEN] Базовая валюта не установлена, устанавливаем WLD');
       currentBaseCurrency = 'WLD'; // Принудительная установка дефолтной валюты
     }
     
@@ -625,7 +859,8 @@ async function loadBreakEvenTable(){
       base_currency: currentBaseCurrency,
       steps: currentParams.steps,
       start_volume: currentParams.start_volume,
-      start_price: currentParams.start_price,
+      // start_price НЕ передаём, чтобы API использовал сохранённое значение из state_manager
+      // это позволяет корректно отображать P0 после стартовой покупки
       pprof: currentParams.pprof,
       kprof: currentParams.kprof,
       target_r: currentParams.target_r,
@@ -636,60 +871,34 @@ async function loadBreakEvenTable(){
     });
     
     const url = `/api/breakeven/table?${params.toString()}`;
-    console.log('[BREAKEVEN] 📡 Запрос:', url);
-    console.log('[BREAKEVEN] 📊 Параметры:', currentParams);
     
     const r = await fetch(url);
-    console.log('[BREAKEVEN] 📥 Статус ответа:', r.status, r.statusText);
-    
     const d = await r.json();
-    console.log('[BREAKEVEN] 📦 Данные получены:', {
-      success: d.success,
-      currency: d.currency,
-      table_length: d.table ? d.table.length : 0,
-      current_price: d.current_price,
-      legacy: d.legacy
-    });
     
     if(d.success && d.table){
-      console.log('[BREAKEVEN] ✅ Таблица получена, строк:', d.table.length);
-      console.log('[BREAKEVEN] Первая строка:', d.table[0]);
-      console.log('[BREAKEVEN] Последняя строка:', d.table[d.table.length - 1]);
-      console.log('[BREAKEVEN] 🎨 Вызов renderBreakEvenTable...');
       renderBreakEvenTable(d.table);
-      console.log('[BREAKEVEN] ✅ renderBreakEvenTable завершен');
     }else{
-      console.error('[BREAKEVEN] ❌ Ошибка:', d.error);
+      console.error('[BREAKEVEN] Ошибка:', d.error);
       logDbg('loadBreakEvenTable fail '+(d.error||''));
       renderBreakEvenTable([]);
     }
   }catch(e){ 
-    console.error('[BREAKEVEN] ❌ Исключение:', e);
-    console.error('[BREAKEVEN] Stack trace:', e.stack);
+    console.error('[BREAKEVEN] Исключение:', e);
     logDbg('loadBreakEvenTable err '+e);
     renderBreakEvenTable([]);
   }
-  
-  console.log('[BREAKEVEN] === КОНЕЦ ЗАГРУЗКИ ТАБЛИЦЫ ===');
 }
 
 // Функции для работы с параметрами торговли
 async function loadTradeParams(){
   try{
-    console.log('[PARAMS] === ЗАГРУЗКА ПАРАМЕТРОВ ===');
-    console.log('[PARAMS] currentBaseCurrency =', currentBaseCurrency);
-    
     // Загружаем параметры для текущей валюты (per-currency)
     const url = currentBaseCurrency 
       ? `/api/trade/params?base_currency=${currentBaseCurrency}` 
       : '/api/trade/params';
     
-    console.log('[PARAMS] 📡 Запрос:', url);
-    
     const r=await fetch(url);
     const d=await r.json();
-    
-    console.log('[PARAMS] 📦 Данные получены:', d);
     
     if(d.success && d.params){
       $('paramSteps').value = d.params.steps || 16;
@@ -703,12 +912,9 @@ async function loadTradeParams(){
       $('paramRebuyMode').value = d.params.rebuy_mode || 'geometric';
       $('paramKeep').value = d.params.keep || 0;
       $('paramOrderbookLevel').value = d.params.orderbook_level || 1;
-      console.log('[PARAMS] ✅ Параметры загружены для', d.currency || 'LEGACY');
-    } else {
-      console.warn('[PARAMS] ⚠️ Не удалось загрузить параметры');
     }
   }catch(e){ 
-    console.error('[PARAMS] ❌ Ошибка загрузки:', e);
+    console.error('[PARAMS] Ошибка загрузки:', e);
     logDbg('loadTradingMode err '+e);
   }
 }
@@ -716,9 +922,6 @@ async function loadTradeParams(){
 async function saveTradeParams(){
   const statusEl = $('paramsSaveStatus');
   try{
-    console.log('[PARAMS] === НАЧАЛО СОХРАНЕНИЯ ПАРАМЕТРОВ ===');
-    console.log('[PARAMS] currentBaseCurrency =', currentBaseCurrency);
-    
     const params = {
       base_currency: currentBaseCurrency, // Добавляем текущую валюту
       steps: parseInt($('paramSteps').value) || 16,
@@ -734,8 +937,6 @@ async function saveTradeParams(){
       orderbook_level: parseFloat($('paramOrderbookLevel').value) || 1
     };
     
-    console.log('[PARAMS] Параметры для сохранения:', params);
-    
     statusEl.textContent = 'Сохранение...';
     statusEl.className = 'params-save-status';
     
@@ -746,13 +947,11 @@ async function saveTradeParams(){
     });
     
     const d = await r.json();
-    console.log('[PARAMS] Ответ сервера:', d);
     
     if(d.success){
       statusEl.textContent = '✓ Сохранено';
       statusEl.className = 'params-save-status';
       setTimeout(()=>{ statusEl.textContent = ''; }, 3000);
-      console.log('[PARAMS] ✅ Параметры сохранены, перезагрузка таблицы...');
       
       // Сохраняем также в UI state для восстановления после перезагрузки
       await UIStateManager.savePartial({
@@ -764,19 +963,17 @@ async function saveTradeParams(){
       
       // Перезагружаем таблицу break-even после сохранения параметров
       await loadBreakEvenTable();
-      console.log('[PARAMS] ✅ Таблица перезагружена');
     }else{
       statusEl.textContent = '✗ ' + (d.error || 'Ошибка');
       statusEl.className = 'params-save-status error';
-      console.error('[PARAMS] ❌ Ошибка сохранения:', d.error);
+      console.error('[PARAMS] Ошибка сохранения:', d.error);
     }
   }catch(e){ 
     statusEl.textContent = '✗ ' + e.message;
     statusEl.className = 'params-save-status error';
-    console.error('[PARAMS] ❌ Исключение:', e);
+    console.error('[PARAMS] Исключение:', e);
     logDbg('saveTradeParams err '+e);
   }
-  console.log('[PARAMS] === КОНЕЦ СОХРАНЕНИЯ ПАРАМЕТРОВ ===');
 }
 
 // Новая функция для переключения режима с явным указанием
@@ -786,7 +983,7 @@ async function switchNetworkMode(targetMode){
   
   console.log('========================================');
   console.log('[NETWORK] Переключение на режим:', targetMode);
-  logDbg('switchNetworkMode -> '+targetMode);
+ 
   
   try{
     const resp=await fetch('/api/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:targetMode})});
@@ -1245,7 +1442,6 @@ paramsInputIds.forEach(id => {
   const input = $(id);
   if(input) {
     input.addEventListener('input', () => {
-      console.log('[PARAMS] Параметр изменен:', id);
       if(paramsUpdateTimeout) clearTimeout(paramsUpdateTimeout);
       const statusEl = $('paramsSaveStatus');
       if(statusEl) {
@@ -1253,7 +1449,6 @@ paramsInputIds.forEach(id => {
         statusEl.className = 'params-save-status';
       }
       paramsUpdateTimeout = setTimeout(async () => {
-        console.log('[PARAMS] Обновление таблицы после изменения параметров');
         try {
           await loadBreakEvenTable();
           if(statusEl) {
@@ -1269,16 +1464,11 @@ paramsInputIds.forEach(id => {
   }
 });
 
-console.log('[INIT] Обработчики параметров установлены');
-
 // DOMContentLoaded – единая точка старта UI
 async function initApp(){
   try{
-    console.log('[INIT] Начало инициализации приложения');
-
     // 1. Загружаем состояние UI (режим сети, автотрейд, разрешения, активная пара, breakeven)
     await loadUIState();
-    console.log('[INIT] UI State загружен');
 
     // 2. Актуальный режим сети и режим торговли с сервера
     await loadNetworkMode();
@@ -1293,7 +1483,6 @@ async function initApp(){
 
     // 5. Загружаем список валют и строим вкладки
     await loadCurrenciesFromServer();
-    console.log('[INIT] Валюты загружены, текущая:', currentBaseCurrency);
 
     // 6. Загружаем разрешения торговли и обновляем индикаторы на вкладках
     await loadTradingPermissions();
@@ -1312,7 +1501,6 @@ async function initApp(){
     ]);
     await loadPairBalances(); // Повторный вызов для гарантии отрисовки баланса
 
-    console.log('[INIT] Инициализация завершена, запуск интервалов обновления');
     setInterval(()=>{ loadMarketData(); },5000);
     setInterval(()=>{ loadPairBalances(); },15000);
     setInterval(()=>{ loadBreakEvenTable(); },6000);
@@ -1324,10 +1512,64 @@ async function initApp(){
   }
 }
 
+// === СБРОС ЦИКЛА ===
+async function handleResetCycle(){
+  if(!currentBaseCurrency){
+    alert('Выберите валюту для сброса цикла');
+    return;
+  }
+  
+  const confirmMsg = `Вы уверены, что хотите сбросить цикл для ${currentBaseCurrency}?\n\nЭто удалит текущее состояние цикла и позволит начать новый цикл.\nУбедитесь, что вы уже продали все монеты!`;
+  
+  if(!confirm(confirmMsg)){
+    return;
+  }
+  
+  console.log(`[RESET] Отправка запроса на сброс цикла для ${currentBaseCurrency}...`);
+  
+  try{
+    const response = await fetch('/api/autotrader/reset_cycle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({base_currency: currentBaseCurrency})
+    });
+    
+    console.log('[RESET] Ответ получен:', response.status, response.statusText);
+    
+    if(!response.ok){
+      const errorText = await response.text();
+      console.error('[RESET] Ошибка HTTP:', response.status, errorText);
+      alert(`❌ Ошибка сброса цикла: ${response.status} ${response.statusText}\n${errorText}`);
+      return;
+    }
+    
+    const data = await response.json();
+    console.log('[RESET] Данные ответа:', data);
+    
+    if(data.success){
+      alert(`✅ Цикл ${currentBaseCurrency} успешно сброшен!\n\n${data.message}`);
+      loadPerBaseIndicators();
+      loadPairBalances();
+      console.log('[RESET] Цикл сброшен успешно');
+    } else {
+      alert(`❌ Ошибка сброса цикла: ${data.error}`);
+    }
+  } catch(e){
+    alert(`❌ Ошибка при сбросе цикла: ${e.message}`);
+    console.error('[RESET] Исключение:', e);
+  }
+}
+
 document.addEventListener('DOMContentLoaded',()=>{
   initApp();
   startUptimeLoops();
   loadTradeParams();
+  
+  // Обработчик кнопки сброса цикла
+  const resetCycleBtn = document.getElementById('resetCycleBtn');
+  if(resetCycleBtn){
+    resetCycleBtn.addEventListener('click', handleResetCycle);
+  }
 });
 
 // === UPTIME (статус сервера) ===
