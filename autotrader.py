@@ -473,14 +473,20 @@ class AutoTrader:
             # КРИТИЧЕСКИ ВАЖНО: обновляем start_price в state_manager для таблицы безубыточности
             try:
                 current_params = self.state_manager.get_breakeven_params(base)
+                print(f"[AutoTrader][{base}] 🔍 DEBUG: current_params ДО обновления: start_price={current_params.get('start_price', 'НЕТ')}")
                 current_params['start_price'] = buy_price
-                self.state_manager.set_breakeven_params(base, current_params)
-                print(f"[AutoTrader][{base}] 📊 Обновлён start_price в state_manager: {buy_price:.8f}")
+                save_result = self.state_manager.set_breakeven_params(base, current_params)
+                print(f"[AutoTrader][{base}] 📊 Обновлён start_price в state_manager: {buy_price:.8f} (save_result={save_result})")
+                
+                # Проверяем, что сохранилось
+                verify_params = self.state_manager.get_breakeven_params(base)
+                print(f"[AutoTrader][{base}] 🔍 DEBUG: start_price ПОСЛЕ сохранения: {verify_params.get('start_price', 'НЕТ')}")
                 
                 # ВАЖНО: Пересчитываем таблицу с новым start_price
                 new_table = calculate_breakeven_table(current_params, buy_price)
                 cycle['table'] = new_table
                 print(f"[AutoTrader][{base}] 📊 Таблица пересчитана с новым P0: {buy_price:.8f}")
+                print(f"[AutoTrader][{base}] 🔍 DEBUG: P0 в таблице (row 0): {new_table[0]['rate']:.8f}")
             except Exception as e:
                 print(f"[AutoTrader][{base}] ⚠️ Ошибка обновления start_price и пересчёта таблицы: {e}")
                 import traceback
