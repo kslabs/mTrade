@@ -875,3 +875,8 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Плавный переход для подсветки активной строки в таблице безубыточности */
+table tbody tr {
+    transition: background-color 0.3s ease, border-left 0.3s ease, font-weight 0.3s ease;
+}

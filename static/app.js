@@ -10,6 +10,7 @@ function logDbg(m){
 // Глобальные переменные для уровней покупки/продажи (для подсветки в стакане)
 let globalBuyPrice = null;
 let globalSellPrice = null;
+let globalActiveStep = null; // Текущий активный шаг в таблице безубыточности
 
 // === Copyable Message Modal ===
 function showMessageModal(title, content) {
@@ -180,6 +181,9 @@ function updateAutoTradeLevels(levels){
   // Сохраняем уровни покупки/продажи для подсветки в стакане
   globalBuyPrice = levels.next_buy_price;
   globalSellPrice = levels.sell_price;
+  
+  // Сохраняем активный шаг для подсветки в таблице безубыточности
+  globalActiveStep = levels.active_step;
   
   // Обновляем индикаторы текущего цикла
   const activeEl = $('autotradeCycleActive');
@@ -787,14 +791,21 @@ function renderBreakEvenTable(tableData){
   
   tableData.forEach((row,idx)=>{
     const tr=document.createElement('tr');
-    tr.style.background = idx===0 ? '#1f2f1f' : (idx%2===0?'#1a1a1a':'transparent');
+    const stepNum = row.step !== undefined ? row.step : idx;
+    
+    // Выделяем активный шаг ярким цветом, иначе чередуем строки
+    const isActiveStep = globalActiveStep !== null && stepNum === globalActiveStep;
+    if(isActiveStep){
+      tr.style.background = '#2a4a2a'; // Яркий зелёный для активного шага
+      tr.style.borderLeft = '4px solid #4CAF50';
+      tr.style.fontWeight = '600';
+    } else {
+      tr.style.background = idx===0 ? '#1f2f1f' : (idx%2===0?'#1a1a1a':'transparent');
+    }
     tr.style.borderBottom = '1px solid #2a2a2a';
     
     // Динамическая точность для курсов: Price Precision + 1
     const pricePrecisionPlus1 = currentPairPricePrecision + 1;
-    
-    // Форматируем значения
-    const stepNum = row.step !== undefined ? row.step : idx;
     
     // Расчёт уровня стакана для покупки: (# * Стакан) + 1, округляем до целого
     const orderbookLevelForStep = Math.round((stepNum * orderbookLevel) + 1);
