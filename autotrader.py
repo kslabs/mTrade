@@ -52,7 +52,7 @@ class AutoTrader:
         self.state_manager = state_manager
         self.running = False
         self._thread: Optional[Thread] = None
-        self._sleep_interval = 2.5
+        self._sleep_interval = 1.0  # Уменьшен с 2.5 до 1.0 для более быстрой реакции
         # Состояние по каждой базе
         # cycles[BASE] = {
         #   'active': bool,
@@ -219,15 +219,24 @@ class AutoTrader:
     def _recalc_table_if_needed(self, base: str, quote: str, current_price: float):
         params = self.state_manager.get_breakeven_params(base)
         cycle = self.cycles.get(base, {})
-        # Пересчёт таблицы если её нет или start_price = 0 в params
-        if not cycle.get('table') or params.get('start_price', 0) == 0:
-            table = calculate_breakeven_table(params, current_price)
+        
+        # КРИТИЧЕСКИ ВАЖНО: Используем зафиксированный start_price из state_manager, если он есть
+        # Это гарантирует, что P0 в таблице будет соответствовать цене первой покупки
+        saved_start_price = params.get('start_price', 0)
+        
+        # Если start_price уже зафиксирован (есть активный или завершённый цикл), используем его
+        # Если start_price = 0 (нет активного цикла), используем текущую рыночную цену для превью
+        price_for_table = saved_start_price if saved_start_price > 0 else current_price
+        
+        # Пересчёт таблицы если её нет
+        if not cycle.get('table'):
+            table = calculate_breakeven_table(params, price_for_table)
             cycle['table'] = table
-            # НЕ перезаписываем start_price! Он фиксируется только при стартовой покупке
-            # Если start_price ещё не установлен (цикл неактивен), используем текущую цену
+            # Устанавливаем start_price в цикле только если его там нет
             if not cycle.get('start_price') or cycle.get('start_price') == 0:
                 cycle['start_price'] = table[0]['rate']
             self.cycles[base] = cycle
+            print(f"[AutoTrader][{base}] 📊 Таблица рассчитана с P0={price_for_table:.8f} (saved_start_price={saved_start_price}, current={current_price:.8f})")
 
     def _ensure_cycle_struct(self, base: str):
         self.cycles.setdefault(base, {
@@ -606,6 +615,16 @@ class AutoTrader:
                 'total_invested_usd': 0.0,
                 'base_volume': 0.0
             }
+            
+            # КРИТИЧЕСКИ ВАЖНО: обнуляем start_price в state_manager для нового цикла
+            try:
+                current_params = self.state_manager.get_breakeven_params(base)
+                current_params['start_price'] = 0.0
+                self.state_manager.set_breakeven_params(base, current_params)
+                print(f"[AutoTrader][{base}] 📊 start_price обнулён в state_manager, готов к новому циклу")
+            except Exception as e:
+                print(f"[AutoTrader][{base}] ⚠️ Ошибка обнуления start_price: {e}")
+            
             # Сохраняем состояние (удаляем активный цикл)
             self._save_cycles_state()
         else:
