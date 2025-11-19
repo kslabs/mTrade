@@ -119,16 +119,85 @@
             </div>
             <div style="margin-top:10px;text-align:center;font-size:.85em;color:#888;"><span id="wsStatus">🔄 Подключение к WebSocket...</span></div>
         </div>
-        <div class="card indicator-card" style="grid-column:2;display:flex;align-items:flex-end;justify-content:center;">
+        <div class="card indicator-card" style="grid-column:2;display:flex;flex-direction:column;justify-content:space-between;align-items:center;">
             <div id="indicatorScale" class="indicator-scale" aria-hidden="false">
-                <div id="markerSell" class="indicator-marker marker-sell"><span class="label">Sell</span><div class="marker-tooltip">Sell: -</div></div>
-                <div id="markerBE" class="indicator-marker marker-be"><span class="label">BE</span><div class="marker-tooltip">BE: -</div></div>
-                <div id="markerLast" class="indicator-marker marker-last"><span class="label">Last</span><div class="marker-tooltip">Last: -</div></div>
-                <div id="markerStart" class="indicator-marker marker-start"><span class="label">Start</span><div class="marker-tooltip">Start: -</div></div>
-                <div id="markerBuy" class="indicator-marker marker-buy"><span class="label">Buy</span><div class="marker-tooltip">Buy: -</div></div>
-                <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label">Price:</div><div class="value" id="indPrice">-</div></div><div class="row"><div class="label">Sell:</div><div class="value" id="indSell">-</div></div><div class="row"><div class="label">BE:</div><div class="value" id="indBE">-</div></div><div class="row"><div class="label">Last:</div><div class="value" id="indLast">-</div></div><div class="row"><div class="label">Start:</div><div class="value" id="indStart">-</div></div><div class="row"><div class="label">Buy:</div><div class="value" id="indBuy">-</div></div></div>
+                <div id="markerSell" class="indicator-marker marker-sell" style="background:#00ff00;"><span class="label" style="color:#00ff00;">Sell</span><div class="marker-tooltip">Sell: -</div></div>
+                <div id="markerBE" class="indicator-marker marker-be" style="background:#00bfff;"><span class="label" style="color:#00bfff;">BE</span><div class="marker-tooltip">BE: -</div></div>
+                <div id="markerPrice" class="indicator-marker marker-price" style="background:#ffff00;"><span class="label" style="color:#ffff00;">Price</span><div class="marker-tooltip">Price: -</div></div>
+                <div id="markerLast" class="indicator-marker marker-last" style="background:#ff8c00;"><span class="label" style="color:#ff8c00;">Last</span><div class="marker-tooltip">Last: -</div></div>
+                <div id="markerStart" class="indicator-marker marker-start" style="background:#da70d6;"><span class="label" style="color:#da70d6;">Start</span><div class="marker-tooltip">Start: -</div></div>
+                <div id="markerBuy" class="indicator-marker marker-buy" style="background:#ff0000;"><span class="label" style="color:#ff0000;">Buy</span><div class="marker-tooltip">Buy: -</div></div>
+            </div>
+            <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label" style="color:#ffff00;">Price:</div><div class="value" id="indPrice" style="color:#ffff00;">-</div></div><div class="row"><div class="label" style="color:#00ff00;">Sell:</div><div class="value" id="indSell" style="color:#00ff00;">-</div></div><div class="row"><div class="label" style="color:#00bfff;">BE:</div><div class="value" id="indBE" style="color:#00bfff;">-</div></div><div class="row"><div class="label" style="color:#ff8c00;">Last:</div><div class="value" id="indLast" style="color:#ff8c00;">-</div></div><div class="row"><div class="label" style="color:#da70d6;">Start:</div><div class="value" id="indStart" style="color:#da70d6;">-</div></div><div class="row"><div class="label" style="color:#ff0000;">Buy:</div><div class="value" id="indBuy" style="color:#ff0000;">-</div></div></div>
+        </div>
+        
+        <!-- Блок индикатора активного цикла -->
+        <div class="card autotrade-cycle-indicator" id="autotradeCycleIndicator">
+            <div class="cycle-header">
+                <h3 style="margin:0;">🔄 Активный торговый цикл</h3>
+                <div class="cycle-status">
+                    <span class="cycle-label">Статус:</span>
+                    <span class="value inactive" id="autotradeCycleActive">Неактивен</span>
+                </div>
+            </div>
+            
+            <div class="cycle-info-grid">
+                <!-- Уровни цен -->
+                <div class="cycle-section">
+                    <div class="section-title">📈 Уровни цен</div>
+                    <div class="price-levels">
+                        <div class="price-row">
+                            <span class="label">Текущая цена:</span>
+                            <span class="value" id="autotradePriceCurrent">-</span>
+                        </div>
+                        <div class="price-row">
+                            <span class="label">Стартовая (P0):</span>
+                            <span class="value" id="autotradePriceStart">-</span>
+                        </div>
+                        <div class="price-row">
+                            <span class="label">Безубыток (BE):</span>
+                            <span class="value" id="autotradePriceBreakeven">-</span>
+                        </div>
+                        <div class="price-row">
+                            <span class="label">Последняя покупка:</span>
+                            <span class="value" id="autotradePriceLastBuy">-</span>
+                        </div>
+                        <div class="price-row sell">
+                            <span class="label">📤 Цена продажи:</span>
+                            <span class="value highlight" id="autotradePriceSell">-</span>
+                        </div>
+                        <div class="price-row buy">
+                            <span class="label">📥 След. покупка:</span>
+                            <span class="value highlight" id="autotradePriceNextBuy">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Статистика цикла -->
+                <div class="cycle-section">
+                    <div class="section-title">📊 Статистика</div>
+                    <div class="cycle-stats">
+                        <div class="stat-row">
+                            <span class="label">Текущий шаг:</span>
+                            <span class="value" id="autotradeCurrentStep">-</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Рост от P0:</span>
+                            <span class="value" id="autotradeGrowthPct">-</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Инвестировано:</span>
+                            <span class="value" id="autotradeInvested">-</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Объём базы:</span>
+                            <span class="value" id="autotradeBaseVolume">-</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
+        
         <div class="card breakeven-table">
             <div class="params-header">
                 <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;">
@@ -245,7 +314,7 @@
 </div>
 
 <!-- External JavaScript -->
-<script src="{{ url_for('static', filename='app.js') }}"></script>
-<script src="{{ url_for('static', filename='trade-logs-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v={{ cache_buster }}"></script>
+<script src="{{ url_for('static', filename='trade-logs-manager.js') }}?v={{ cache_buster }}"></script>
 </body>
 </html>

@@ -33,12 +33,46 @@
         .toggle-slider {position:absolute;top:3px;left:3px;width:24px;height:24px;background:#fff;border-radius:50%;transition:transform .3s;box-shadow:0 2px 5px rgba(0,0,0,.4)}
         .toggle-switch.active .toggle-slider {transform:translateX(30px)}
         .grid {display:grid;grid-template-columns:1fr 80px 1fr;gap:15px;margin-bottom:15px}
-        .indicator-card {display:flex;align-items:flex-end;justify-content:center;padding:8px 6px;height:100%}
+        .indicator-card {display:flex;align-items:flex-start;justify-content:center;padding:8px 6px;height:100%}
         .indicator-scale {position:relative;width:56px;height:calc(100vh - 260px);background:linear-gradient(#0d0d0d,#111);border-radius:8px;border:1px solid #2a2a2a;box-shadow:inset 0 0 20px rgba(0,0,0,.7);display:block}
-        .indicator-marker {position:absolute;left:50%;transform:translateX(-50%);width:90%;height:3px;border-radius:2px;box-shadow:0 1px 6px rgba(0,0,0,.6);transition:top .6s cubic-bezier(.22,1,.36,1),height .25s,box-shadow .25s,opacity .25s}
-        .indicator-marker .label {position:absolute;left:100%;margin-left:8px;top:-8px;font-size:11px;color:#ccc;white-space:nowrap}
+        .indicator-marker {position:absolute;left:0;width:45%;height:3px;border-radius:2px;box-shadow:0 1px 6px rgba(0,0,0,.6);transition:top .6s cubic-bezier(.22,1,.36,1),height .25s,box-shadow .25s,opacity .25s}
+        .indicator-marker .label {position:absolute;left:100%;margin-left:4px;top:-8px;font-size:11px;color:#ccc;white-space:nowrap}
         .marker-tooltip {position:absolute;left:100%;top:-30px;margin-left:10px;background:rgba(0,0,0,.8);color:#fff;padding:6px 8px;border-radius:6px;font-size:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.6);opacity:0;transform:translateY(6px);transition:.18s}
         .indicator-marker:hover .marker-tooltip {opacity:1;transform:translateY(0)}
+        /* Футер индикатора с уменьшенным шрифтом */
+        .indicator-footer {
+            width:56px;
+            background:rgba(0,0,0,0.7);
+            border-top:1px solid #3a3a3a;
+            border-radius:0 0 8px 8px;
+            padding:4px 6px;
+            font-size:9px;
+            margin-top:4px;
+        }
+        .indicator-footer .row {
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:2px 0;
+            border-bottom:1px solid rgba(255,255,255,0.05);
+        }
+        .indicator-footer .row:last-child {
+            border-bottom:none;
+        }
+        .indicator-footer .row.price {
+            font-weight:600;
+        }
+        .indicator-footer .label {
+            color:#888;
+            font-size:9px;
+            margin-left:-2px;
+        }
+        .indicator-footer .value {
+            color:#4CAF50;
+            font-weight:500;
+            font-size:9px;
+            text-align:right;
+        }
         .card {background:#2a2a2a;border-radius:8px;padding:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a}
         .card h3 {color:#4CAF50;margin-bottom:12px;font-size:14px;border-bottom:1px solid #3a3a3a;padding-bottom:8px;font-weight:600}
         .market-header {display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:8px 10px;background:#1a1a1a;border-radius:6px;border:1px solid #3a3a3a}
@@ -692,3 +726,135 @@
             border-color: #4CAF50;
             box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
         }
+
+/* Стили для индикатора активного торгового цикла */
+.autotrade-cycle-indicator {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    margin-bottom: 15px;
+}
+
+.cycle-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #3a3a3a;
+}
+
+.cycle-header h3 {
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+.cycle-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #1a1a1a;
+    border-radius: 6px;
+    border: 1px solid #3a3a3a;
+}
+
+.cycle-status .cycle-label {
+    font-size: 12px;
+    color: #999;
+}
+
+.cycle-status .value {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+}
+
+.cycle-status .value.active {
+    color: #4CAF50;
+    background: rgba(76, 175, 80, 0.15);
+}
+
+.cycle-status .value.inactive {
+    color: #999;
+    background: rgba(153, 153, 153, 0.1);
+}
+
+.cycle-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.cycle-section {
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4CAF50;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.price-levels,
+.cycle-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.price-row,
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: #2a2a2a;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.price-row.sell,
+.price-row.buy {
+    border: 1px solid #3a3a3a;
+    background: #252525;
+}
+
+.price-row .label,
+.stat-row .label {
+    color: #999;
+    font-weight: 500;
+}
+
+.price-row .value,
+.stat-row .value {
+    color: #e0e0e0;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+}
+
+.price-row .value.highlight {
+    color: #4CAF50;
+    font-size: 13px;
+}
+
+.stat-row .value.positive {
+    color: #4CAF50;
+}
+
+.stat-row .value.negative {
+    color: #f44336;
+}
+
+@media (max-width: 1200px) {
+    .cycle-info-grid {
+        grid-template-columns: 1fr;
+    }
+}
