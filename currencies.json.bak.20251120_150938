@@ -1,0 +1,46 @@
+[
+  {
+    "code": "BTC",
+    "symbol": "₿"
+  },
+  {
+    "code": "WLD",
+    "symbol": "🌐"
+  },
+  {
+    "code": "ETH",
+    "symbol": "Ξ"
+  },
+  {
+    "code": "SOL",
+    "symbol": "◎"
+  },
+  {
+    "code": "BNB",
+    "symbol": "🔶"
+  },
+  {
+    "code": "XRP",
+    "symbol": "✕"
+  },
+  {
+    "code": "ADA",
+    "symbol": "₳"
+  },
+  {
+    "code": "AVAX",
+    "symbol": "🔺"
+  },
+  {
+    "code": "DOT",
+    "symbol": "⬤"
+  },
+  {
+    "code": "DOGE",
+    "symbol": "💠"
+  },
+  {
+    "code": "GT",
+    "symbol": ""
+  }
+]

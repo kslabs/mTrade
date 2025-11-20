@@ -1,0 +1,33 @@
+# === Обработка окончаний строк ===
+* text=auto
+
+# === Python файлы ===
+*.py text eol=lf
+*.pyw text eol=lf
+
+# === Web файлы ===
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+
+# === Markdown и документация ===
+*.md text eol=lf
+*.txt text eol=lf
+
+# === Batch файлы Windows ===
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# === Конфигурационные файлы ===
+*.example text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# === Бинарные файлы ===
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

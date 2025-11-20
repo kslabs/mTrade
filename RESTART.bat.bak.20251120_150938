@@ -1,0 +1,9 @@
+@echo off
+chcp 65001 >nul
+echo ========================================
+echo    mTrade Server - RESTART
+echo ========================================
+echo.
+
+py -3 restart.py
+pause

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Orderbook</title>
+    <style>
+        body { background: #1a1a1a; color: #e0e0e0; font-family: sans-serif; padding: 20px; }
+        .orderbook { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 600px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; padding: 5px; }
+        .header { font-weight: bold; color: #888; }
+        .ask { color: #f44336; }
+        .bid { color: #4caf50; }
+    </style>
+</head>
+<body>
+    <h1>Test Orderbook Display</h1>
+    <div class="orderbook">
+        <div id="status">Loading...</div>
+        <div id="orderbook"></div>
+    </div>
+
+    <script>
+        async function testOrderbook() {
+            try {
+                const response = await fetch('/api/pair/data?base_currency=WLD&quote_currency=USDT');
+                const result = await response.json();
+                
+                document.getElementById('status').textContent = `Status: ${result.success}, Pair: ${result.pair}`;
+                
+                if (result.success && result.data && result.data.orderbook) {
+                    const ob = result.data.orderbook;
+                    let html = '<div class="row header"><div>Цена</div><div>Кол-во</div><div>Сумма</div><div>Накоп</div></div>';
+                    
+                    // Asks
+                    if (ob.asks && ob.asks.length > 0) {
+                        html += '<h3 style="color: #f44336;">ASKS (Продажа)</h3>';
+                        let cumulative = 0;
+                        ob.asks.slice(0, 10).reverse().forEach(ask => {
+                            const price = parseFloat(ask[0]);
+                            const amount = parseFloat(ask[1]);
+                            const total = price * amount;
+                            cumulative += total;
+                            html += `<div class="row ask">
+                                <div>${price.toFixed(4)}</div>
+                                <div>${amount.toFixed(2)}</div>
+                                <div>${total.toFixed(2)}</div>
+                                <div>${cumulative.toFixed(2)}</div>
+                            </div>`;
+                        });
+                    }
+                    
+                    // Bids
+                    if (ob.bids && ob.bids.length > 0) {
+                        html += '<h3 style="color: #4caf50;">BIDS (Покупка)</h3>';
+                        let cumulative = 0;
+                        ob.bids.slice(0, 10).forEach(bid => {
+                            const price = parseFloat(bid[0]);
+                            const amount = parseFloat(bid[1]);
+                            const total = price * amount;
+                            cumulative += total;
+                            html += `<div class="row bid">
+                                <div>${price.toFixed(4)}</div>
+                                <div>${amount.toFixed(2)}</div>
+                                <div>${total.toFixed(2)}</div>
+                                <div>${cumulative.toFixed(2)}</div>
+                            </div>`;
+                        });
+                    }
+                    
+                    document.getElementById('orderbook').innerHTML = html;
+                } else {
+                    document.getElementById('orderbook').textContent = 'No orderbook data';
+                }
+            } catch (error) {
+                document.getElementById('status').textContent = 'Error: ' + error.message;
+                console.error(error);
+            }
+        }
+        
+        // Загрузить при старте
+        testOrderbook();
+        
+        // Обновлять каждые 3 секунды
+        setInterval(testOrderbook, 3000);
+    </script>
+</body>
+</html>
