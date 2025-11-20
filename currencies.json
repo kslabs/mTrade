@@ -1,31 +1,39 @@
 [
   {
-    "code": "WLD",
-    "symbol": "🌐"
-  },
-  {
-    "code": "BTC",
-    "symbol": "₿"
-  },
-  {
     "code": "ETH",
     "symbol": "Ξ"
+  },
+  {
+    "code": "XRP",
+    "symbol": "Ʀ"
   },
   {
     "code": "SOL",
     "symbol": "◎"
   },
   {
-    "code": "BNB",
-    "symbol": "◆"
-  },
-  {
-    "code": "XRP",
-    "symbol": "✕"
+    "code": "DOGE",
+    "symbol": "Ð"
   },
   {
     "code": "ADA",
     "symbol": "₳"
+  },
+  {
+    "code": "LINK",
+    "symbol": "◬"
+  },
+  {
+    "code": "XLM",
+    "symbol": "*"
+  },
+  {
+    "code": "LTC",
+    "symbol": "Ł"
+  },
+  {
+    "code": "BNB",
+    "symbol": "Ⓑ"
   },
   {
     "code": "AVAX",
@@ -33,46 +41,10 @@
   },
   {
     "code": "DOT",
-    "symbol": "⬤"
+    "symbol": "●"
   },
   {
-    "code": "DOGE",
-    "symbol": "Ɖ"
-  },
-  {
-    "code": "LTC",
-    "symbol": "Ł"
-  },
-  {
-    "code": "LINK",
-    "symbol": "🔗"
-  },
-  {
-    "code": "UNI",
-    "symbol": "🦄"
-  },
-  {
-    "code": "ATOM",
-    "symbol": "⚛"
-  },
-  {
-    "code": "TON",
-    "symbol": "💎"
-  },
-  {
-    "code": "TRX",
-    "symbol": "⊤"
-  },
-  {
-    "code": "NEAR",
-    "symbol": "Ⓝ"
-  },
-  {
-    "code": "APT",
-    "symbol": "🅰"
-  },
-  {
-    "code": "SUI",
-    "symbol": "〰"
+    "code": "GT",
+    "symbol": "GT"
   }
 ]

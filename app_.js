@@ -64,7 +64,75 @@ function updateTradeIndicators(d){
       const v=d[k];
       el.textContent=(v===null||v===undefined)?'-':formatPrice(v)
     }
-  })
+  });
+  
+  // Обновляем autotrade_levels если есть
+  if(d.autotrade_levels){
+    updateAutoTradeLevels(d.autotrade_levels);
+  }
+}
+
+function updateAutoTradeLevels(levels){
+  if(!levels) return;
+  
+  // Обновляем индикаторы текущего цикла
+  const activeEl = $('autotradeCycleActive');
+  if(activeEl){
+    activeEl.textContent = levels.active_cycle ? 'Активен' : 'Неактивен';
+    activeEl.className = 'value ' + (levels.active_cycle ? 'active' : 'inactive');
+  }
+  
+  // Обновляем текущий шаг
+  const stepEl = $('autotradeCurrentStep');
+  if(stepEl){
+    if(levels.active_step !== null && levels.total_steps !== null){
+      stepEl.textContent = `${levels.active_step} / ${levels.total_steps}`;
+    } else {
+      stepEl.textContent = '-';
+    }
+  }
+  
+  // Обновляем все уровни цен
+  const priceFields = {
+    'autotradePriceCurrent': levels.current_price,
+    'autotradePriceStart': levels.start_price,
+    'autotradePriceBreakeven': levels.breakeven_price,
+    'autotradePriceLastBuy': levels.last_buy_price,
+    'autotradePriceSell': levels.sell_price,
+    'autotradePriceNextBuy': levels.next_buy_price
+  };
+  
+  for(const [id, value] of Object.entries(priceFields)){
+    const el = $(id);
+    if(el){
+      el.textContent = (value === null || value === undefined) ? '-' : formatPrice(value);
+    }
+  }
+  
+  // Обновляем процент роста
+  const growthEl = $('autotradeGrowthPct');
+  if(growthEl){
+    if(levels.current_growth_pct !== null && levels.current_growth_pct !== undefined){
+      const pct = levels.current_growth_pct;
+      growthEl.textContent = pct.toFixed(2) + '%';
+      growthEl.className = 'value ' + (pct >= 0 ? 'positive' : 'negative');
+    } else {
+      growthEl.textContent = '-';
+      growthEl.className = 'value';
+    }
+  }
+  
+  // Обновляем инвестировано
+  const investedEl = $('autotradeInvested');
+  if(investedEl){
+    investedEl.textContent = levels.invested_usd !== null ? levels.invested_usd.toFixed(2) + ' USDT' : '-';
+  }
+  
+  // Обновляем объём базовой валюты
+  const volumeEl = $('autotradeBaseVolume');
+  if(volumeEl){
+    volumeEl.textContent = levels.base_volume !== null ? levels.base_volume.toFixed(8) : '-';
+  }
 }
 function updateNetworkUI(){
   const sw=$('networkSwitcher');
@@ -404,7 +472,11 @@ async function loadPerBaseIndicators(){
   try{
     const r=await fetch(`/api/trade/indicators?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
     const d=await r.json();
-    if(d.success&&d.indicators){ updateTradeIndicators(d.indicators); }
+    if(d.success&&d.indicators){ 
+      // Передаём весь объект d, чтобы updateTradeIndicators мог получить autotrade_levels
+      d.indicators.autotrade_levels = d.autotrade_levels;
+      updateTradeIndicators(d.indicators); 
+    }
   }catch(e){ logDbg('loadPerBaseIndicators err '+e) }
 }
 async function loadPairBalances(){

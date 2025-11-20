@@ -10,6 +10,9 @@ from datetime import datetime
 from threading import Lock
 from collections import deque
 from typing import Dict, List, Optional
+import logging
+
+logging.basicConfig(filename='system_trader.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 
 class TradeLogger:
@@ -22,6 +25,10 @@ class TradeLogger:
         # Словарь логов по валютам: {currency: deque()}
         self.logs_by_currency = {}
         self.lock = Lock()
+        
+        # Общая объём инвестиций и профита по валютам
+        self.total_invested = {}  # {currency: float}
+        self.total_pnl = {}       # {currency: float}
         
         # Создаём директорию для логов если её нет
         if not os.path.exists(self.LOG_DIR):
@@ -132,6 +139,12 @@ class TradeLogger:
                 delta_percent: float, total_drop_percent: float, investment: float):
         """Логировать операцию покупки (в файл конкретной валюты)"""
         currency = currency.upper()
+        volume_quote = volume * price  # Объём в котируемой валюте
+        
+        # Обновляем общую сумму инвестиций
+        if currency not in self.total_invested:
+            self.total_invested[currency] = 0.0
+        self.total_invested[currency] += investment
         
         entry = {
             'timestamp': datetime.now().isoformat(),
@@ -139,10 +152,12 @@ class TradeLogger:
             'type': 'buy',
             'currency': currency,
             'volume': volume,
+            'volume_quote': volume_quote,
             'price': price,
             'delta_percent': delta_percent,
             'total_drop_percent': total_drop_percent,
-            'investment': investment
+            'investment': investment,
+            'total_invested': self.total_invested[currency]
         }
         
         with self.lock:
@@ -159,12 +174,23 @@ class TradeLogger:
             if len(self.logs_by_currency[currency]) % 100 == 0:
                 self._trim_log_file(currency)
         
-        print(f"[TRADE_LOG] {currency} Buy: V={volume:.4f} P={price:.4f} ↓Δ%={delta_percent:.2f} ↓%={total_drop_percent:.2f} Inv={investment:.4f}")
+        # Лог только в котируемой валюте:
+        print(f"[{entry['time']}] [{currency}] Buy{{USDT:{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{investment:.4f}; ВсегоИнвест:{self.total_invested[currency]:.4f}}}")
+        logging.info(f"BUY: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, total_drop_percent={total_drop_percent}, investment={investment}")
     
     def log_sell(self, currency: str, volume: float, price: float, 
                  delta_percent: float, pnl: float):
         """Логировать операцию продажи (в файл конкретной валюты)"""
         currency = currency.upper()
+        volume_quote = volume * price  # Объём в котируемой валюте
+        
+        # Обновляем профит и уменьшаем инвестиции
+        if currency not in self.total_invested:
+            self.total_invested[currency] = 0.0
+        if currency not in self.total_pnl:
+            self.total_pnl[currency] = 0.0
+        self.total_pnl[currency] += pnl
+        self.total_invested[currency] -= volume_quote  # считаем, что продаём весь объём
         
         entry = {
             'timestamp': datetime.now().isoformat(),
@@ -172,9 +198,12 @@ class TradeLogger:
             'type': 'sell',
             'currency': currency,
             'volume': volume,
+            'volume_quote': volume_quote,
             'price': price,
             'delta_percent': delta_percent,
-            'pnl': pnl
+            'pnl': pnl,
+            'total_pnl': self.total_pnl[currency],
+            'total_invested': self.total_invested[currency]
         }
         
         with self.lock:
@@ -191,7 +220,25 @@ class TradeLogger:
             if len(self.logs_by_currency[currency]) % 100 == 0:
                 self._trim_log_file(currency)
         
-        print(f"[TRADE_LOG] {currency} Sell: V={volume:.4f} P={price:.4f} ↑Δ%={delta_percent:.2f} PnL={pnl:.4f}")
+        # Лог только в котируемой валюте:
+        print(f"[{entry['time']}] [{currency}] Sell{{{currency}; USDT:{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl:.4f}; СуммПрофит:{self.total_pnl[currency]:.4f}; ОстИнвест:{self.total_invested[currency]:.4f}}}")
+        logging.info(f"SELL: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}")
+    
+    def log_sell_diagnostics(self, currency: str, price: float, sell_level: float, volume: float, active_step: int, cycle_state: str, last_buy: dict, reason: str):
+        """
+        Логировать диагностику попытки продажи: параметры и причину отказа
+        """
+        currency = currency.upper()
+        time_str = datetime.now().strftime('%H:%M:%S')
+        line = (
+            f"[{time_str}] [{currency}] Sell-DIAG{{"
+            f"Цена:{price:.4f}; Sell-уровень:{sell_level:.4f}; Объём:{volume:.4f}; "
+            f"Шаг:{active_step}; Состояние:{cycle_state}; ПоследняяПокупка:{last_buy}; "
+            f"Причина: {reason}}}"
+        )
+        print(line)
+        logging.info(f"SELL-DIAG: currency={currency}, price={price}, sell_level={sell_level}, volume={volume}, active_step={active_step}, cycle_state={cycle_state}, last_buy={last_buy}, reason={reason}")
+        # Можно добавить запись в отдельный диагностический лог-файл при необходимости
     
     def get_logs(self, limit: Optional[int] = None, currency: Optional[str] = None) -> List[dict]:
         """Получить логи
@@ -212,55 +259,58 @@ class TradeLogger:
                 else:
                     logs_list = []
             else:
-                # Логи для всех валют (объединяем и сортируем по времени)
-                logs_list = []
-                for curr_logs in self.logs_by_currency.values():
-                    logs_list.extend(list(curr_logs))
-                # Сортируем по timestamp
-                logs_list.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-        
+                # Защита: не возвращать объединённые логи всех валют
+                print("[TRADE_LOGGER] ВНИМАНИЕ: Для получения логов укажите валюту! Объединённые логи не возвращаются.")
+                return []
         # Ограничение количества
         if limit and len(logs_list) > limit:
             logs_list = logs_list[:limit]
-        
         return logs_list
     
     def get_formatted_logs(self, limit: Optional[int] = None, currency: Optional[str] = None) -> List[str]:
-        """Получить логи в форматированном виде
-        
-        Returns:
-            Список строк в формате:
-            [17:19:39] Buy{Объем:44.7746; Курс:0.7745; ↓Δ%:0.96; ↓%:3.6; Инвест:85.9807}
         """
+        Форматированный вывод логов для UI/консоли
+        Все расчёты (инвестиции, профит, остаток) ведутся по истории логов данной валюты.
+        """
+        if not currency:
+            print("[TRADE_LOGGER] ВНИМАНИЕ: Для отображения логов укажите валюту! Объединённые логи не выводятся.")
+            return []
         logs = self.get_logs(limit, currency)
         formatted = []
-        
+        # Для расчёта динамики по валюте
+        invested = 0.0
+        pnl_sum = 0.0
         for log in logs:
             time_str = log.get('time', '??:??:??')
+            currency_str = log.get('currency', '')
             log_type = log.get('type', '').capitalize()
-            
+            volume_quote = log.get('volume_quote', log.get('volume', 0) * log.get('price', 0))
             if log.get('type') == 'buy':
-                # Формат для покупки
+                invested += log.get('investment', 0)
                 line = (
-                    f"[{time_str}] {log_type}{{"
-                    f"Объем:{log.get('volume', 0):.4f}; "
+                    f"[{time_str}] [{currency_str}] {log_type}{{"
+                    f"USDT:{volume_quote:.4f}; "
                     f"Курс:{log.get('price', 0):.4f}; "
                     f"↓Δ%:{log.get('delta_percent', 0):.2f}; "
                     f"↓%:{log.get('total_drop_percent', 0):.2f}; "
-                    f"Инвест:{log.get('investment', 0):.4f}}}"
+                    f"Инвест:{log.get('investment', 0):.4f}; "
+                    f"ВсегоИнвест:{invested:.4f}}}"
                 )
             else:  # sell
-                # Формат для продажи
+                pnl_sum += log.get('pnl', 0)
+                invested -= volume_quote
                 line = (
-                    f"[{time_str}] {log_type}{{"
-                    f"Объем:{log.get('volume', 0):.4f}; "
+                    f"[{time_str}] [{currency_str}] {log_type}{{"
+                    f"USDT:{volume_quote:.4f}; "
                     f"Курс:{log.get('price', 0):.4f}; "
                     f"↑Δ%:{log.get('delta_percent', 0):.2f}; "
-                    f"PnL:{log.get('pnl', 0):.4f}}}"
+                    f"PnL:{log.get('pnl', 0):.4f}; "
+                    f"СуммПрофит:{pnl_sum:.4f}; "
+                    f"ОстИнвест:{invested:.4f}}}"
                 )
-            
             formatted.append(line)
         
+        print(f"[TRADE_LOGGER] get_formatted_logs: {len(logs)} записей, валюта: {currency}")
         return formatted
     
     def clear_logs(self, currency: Optional[str] = None):
@@ -285,20 +335,7 @@ class TradeLogger:
                 except Exception as e:
                     print(f"[TRADE_LOGGER] Ошибка удаления файла логов {currency}: {e}")
             else:
-                # Очистить все логи всех валют
-                for currency in list(self.logs_by_currency.keys()):
-                    self.logs_by_currency[currency].clear()
-                    
-                    # Удалить файл
-                    log_file = self._get_log_file_path(currency)
-                    try:
-                        if os.path.exists(log_file):
-                            os.remove(log_file)
-                    except Exception as e:
-                        print(f"[TRADE_LOGGER] Ошибка удаления файла логов {currency}: {e}")
-                
-                self.logs_by_currency.clear()
-                print(f"[TRADE_LOGGER] Все логи очищены")
+                print("[TRADE_LOGGER] ВНИМАНИЕ: Для удаления логов укажите валюту! Удаление всех логов запрещено.")
     
     def get_stats(self, currency: Optional[str] = None) -> Dict:
         """Получить статистику по логам

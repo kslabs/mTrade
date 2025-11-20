@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест индикатора BE</title>
+    <style>
+        body {
+            background: #0a0a0a;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 5px;
+        }
+        h3 {
+            color: #4CAF50;
+            margin-top: 0;
+        }
+        pre {
+            background: #0a0a0a;
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        #console {
+            background: #0a0a0a;
+            padding: 10px;
+            border-radius: 3px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-line {
+            margin: 2px 0;
+        }
+        .log-info { color: #2196F3; }
+        .log-warn { color: #FF9800; }
+        .log-error { color: #f44336; }
+        .log-success { color: #4CAF50; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Тест индикатора BE (цена безубыточности)</h1>
+    
+    <div class="test-section">
+        <h3>1. Проверка API</h3>
+        <button onclick="testAPI()">Проверить /api/trade/indicators</button>
+        <pre id="apiResult">Нажмите кнопку для проверки...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h3>2. Проверка DOM элементов</h3>
+        <button onclick="testDOM()">Проверить наличие маркеров</button>
+        <pre id="domResult">Нажмите кнопку для проверки...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h3>3. Имитация обновления индикатора</h3>
+        <button onclick="testUpdate()">Имитировать обновление с BE</button>
+        <button onclick="testUpdateWithoutBE()">Имитировать обновление БЕЗ BE</button>
+        <pre id="updateResult">Нажмите кнопку для проверки...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h3>4. Консоль логов</h3>
+        <button onclick="clearConsole()">Очистить</button>
+        <div id="console"></div>
+    </div>
+
+    <script>
+        const consoleEl = document.getElementById('console');
+        
+        // Перехватываем console.log
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        
+        function addLog(type, ...args) {
+            const line = document.createElement('div');
+            line.className = `log-line log-${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addLog('info', ...args);
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            addLog('warn', ...args);
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addLog('error', ...args);
+        };
+        
+        function clearConsole() {
+            consoleEl.innerHTML = '';
+        }
+        
+        async function testAPI() {
+            const resultEl = document.getElementById('apiResult');
+            resultEl.textContent = 'Загрузка...';
+            
+            try {
+                console.log('[API] Отправка запроса к /api/trade/indicators...');
+                const response = await fetch('/api/trade/indicators?base_currency=DOGE&quote_currency=USDT');
+                console.log('[API] Статус ответа:', response.status, response.statusText);
+                
+                const data = await response.json();
+                console.log('[API] Получены данные:', data);
+                
+                resultEl.textContent = JSON.stringify(data, null, 2);
+                
+                // Проверяем наличие BE
+                if (data.autotrade_levels && data.autotrade_levels.breakeven_price) {
+                    console.log('[API] ✅ BE найдено:', data.autotrade_levels.breakeven_price);
+                } else {
+                    console.warn('[API] ⚠️ BE не найдено в ответе!');
+                }
+            } catch (error) {
+                console.error('[API] ❌ Ошибка:', error);
+                resultEl.textContent = 'Ошибка: ' + error.message;
+            }
+        }
+        
+        function testDOM() {
+            const resultEl = document.getElementById('domResult');
+            console.log('[DOM] Проверка наличия маркеров...');
+            
+            const markers = {
+                'markerSell': document.getElementById('markerSell'),
+                'markerBE': document.getElementById('markerBE'),
+                'markerPrice': document.getElementById('markerPrice'),
+                'markerLast': document.getElementById('markerLast'),
+                'markerStart': document.getElementById('markerStart'),
+                'markerBuy': document.getElementById('markerBuy')
+            };
+            
+            let result = 'Результаты проверки маркеров:\n\n';
+            let allFound = true;
+            
+            for (const [id, element] of Object.entries(markers)) {
+                const found = element !== null;
+                result += `${id}: ${found ? '✅ НАЙДЕН' : '❌ НЕ НАЙДЕН'}\n`;
+                console.log(`[DOM] ${id}:`, found ? '✅' : '❌');
+                if (!found) allFound = false;
+            }
+            
+            result += '\n' + (allFound ? '✅ Все маркеры найдены!' : '❌ Некоторые маркеры отсутствуют!');
+            resultEl.textContent = result;
+            
+            if (allFound) {
+                console.log('[DOM] ✅ Все маркеры найдены в DOM');
+            } else {
+                console.error('[DOM] ❌ Не все маркеры найдены!');
+            }
+        }
+        
+        function testUpdate() {
+            const resultEl = document.getElementById('updateResult');
+            console.log('[UPDATE] Имитация обновления С BE...');
+            
+            const testLevels = {
+                active_cycle: true,
+                active_step: 2,
+                total_steps: 16,
+                current_price: 0.1585,
+                start_price: 0.1549,
+                breakeven_price: 0.1567,  // ← BE ЕСТЬ!
+                last_buy_price: 0.1482,
+                sell_price: 0.1583,
+                next_buy_price: 0.1408,
+                current_growth_pct: 1.15,
+                invested_usd: 20.0,
+                base_volume: 131.58
+            };
+            
+            console.log('[UPDATE] Тестовые данные:', testLevels);
+            resultEl.textContent = 'Данные для обновления:\n' + JSON.stringify(testLevels, null, 2);
+            
+            // Вызываем функцию обновления (если она доступна)
+            if (typeof updateAutoTradeLevels === 'function') {
+                console.log('[UPDATE] Вызываем updateAutoTradeLevels...');
+                updateAutoTradeLevels(testLevels);
+                console.log('[UPDATE] ✅ Функция вызвана');
+            } else {
+                console.warn('[UPDATE] ⚠️ Функция updateAutoTradeLevels не найдена');
+            }
+        }
+        
+        function testUpdateWithoutBE() {
+            const resultEl = document.getElementById('updateResult');
+            console.log('[UPDATE] Имитация обновления БЕЗ BE...');
+            
+            const testLevels = {
+                active_cycle: false,
+                active_step: null,
+                total_steps: 16,
+                current_price: 0.1585,
+                start_price: null,
+                breakeven_price: null,  // ← BE ОТСУТСТВУЕТ!
+                last_buy_price: null,
+                sell_price: null,
+                next_buy_price: 0.1549,
+                current_growth_pct: null,
+                invested_usd: 0,
+                base_volume: 0
+            };
+            
+            console.log('[UPDATE] Тестовые данные (без BE):', testLevels);
+            resultEl.textContent = 'Данные для обновления (без BE):\n' + JSON.stringify(testLevels, null, 2);
+            
+            // Вызываем функцию обновления (если она доступна)
+            if (typeof updateAutoTradeLevels === 'function') {
+                console.log('[UPDATE] Вызываем updateAutoTradeLevels...');
+                updateAutoTradeLevels(testLevels);
+                console.log('[UPDATE] ✅ Функция вызвана');
+            } else {
+                console.warn('[UPDATE] ⚠️ Функция updateAutoTradeLevels не найдена');
+            }
+        }
+        
+        // Автоматическая проверка при загрузке
+        window.addEventListener('load', () => {
+            console.log('[INIT] Страница загружена, начинаем тесты...');
+            setTimeout(testDOM, 500);
+        });
+    </script>
+</body>
+</html>

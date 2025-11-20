@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест кнопки</title>
+    <style>
+        body { background: #0d0d0d; color: #fff; font-family: Arial; padding: 20px; }
+        .test-block { background: #1a1a1a; padding: 20px; margin: 20px 0; border: 2px solid #3a3a3a; }
+        h3 { color: #4CAF50; }
+        .save-params-btn-compact {
+            padding:6px 12px;
+            background:#4CAF50;
+            color:#fff;
+            border:none;
+            border-radius:6px;
+            font-size:11px;
+            font-weight:600;
+            cursor:pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Тест отображения кнопки "Сохранить"</h1>
+    
+    <div class="test-block">
+        <h2>Эталонная структура (как должно быть):</h2>
+        <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <span>📊 Таблица безубыточности</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div id="paramsSaveStatus" style="font-size:10px;color:#4CAF50;">Статус</div>
+                <button id="saveParamsBtn" class="save-params-btn-compact">💾 Сохранить</button>
+            </div>
+        </h3>
+        <p>✅ Если вы видите кнопку "💾 Сохранить" выше - значит браузер работает правильно.</p>
+    </div>
+
+    <div class="test-block">
+        <h2>Инструкция по очистке кэша:</h2>
+        <ol>
+            <li><strong>Откройте DevTools:</strong> Нажмите <code>F12</code></li>
+            <li><strong>Жесткая перезагрузка:</strong>
+                <ul>
+                    <li>Щелкните <strong>ПРАВОЙ кнопкой мыши</strong> по значку обновления ⟳ (слева от адресной строки)</li>
+                    <li>Выберите <strong>"Очистить кэш и жесткая перезагрузка"</strong> (Empty Cache and Hard Reload)</li>
+                </ul>
+            </li>
+            <li><strong>Или откройте в режиме инкогнито:</strong> <code>Ctrl + Shift + N</code></li>
+        </ol>
+    </div>
+
+    <div class="test-block">
+        <h2>Проверка в основном приложении:</h2>
+        <p>После очистки кэша:</p>
+        <ol>
+            <li>Перейдите на <a href="http://localhost:5000" style="color: #4a9eff;">http://localhost:5000</a></li>
+            <li>Найдите секцию "📊 Таблица безубыточности"</li>
+            <li>Справа от заголовка должна быть кнопка "💾 Сохранить"</li>
+        </ol>
+    </div>
+
+    <div class="test-block">
+        <h2>Если кнопка всё равно не видна:</h2>
+        <p><strong>Откройте DevTools (F12) → Console</strong> и выполните:</p>
+        <pre style="background: #000; padding: 10px; border-radius: 4px;">
+document.getElementById('saveParamsBtn')
+        </pre>
+        <p>Результат:</p>
+        <ul>
+            <li>✅ <strong>Если вернёт элемент</strong> - кнопка в DOM есть, но скрыта CSS</li>
+            <li>❌ <strong>Если вернёт null</strong> - кнопки нет, нужна жесткая перезагрузка</li>
+        </ul>
+    </div>
+
+    <div class="test-block" style="border-color: #f44336;">
+        <h2 style="color: #f44336;">⚠️ ВАЖНО!</h2>
+        <p>Файл <code>templates/index.html</code> <strong>УЖЕ ИСПРАВЛЕН</strong>!</p>
+        <p>Кнопка есть в коде (строки 133-137). Проблема только в кэше браузера.</p>
+        <p><strong>Сервер был перезапущен.</strong> Теперь нужно только очистить кэш браузера.</p>
+    </div>
+</body>
+</html>

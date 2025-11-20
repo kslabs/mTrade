@@ -89,20 +89,33 @@ class GateAPIClient:
         """Получить текущий тикер для торговой пары"""
         return self._request('GET', f'/spot/tickers', params={'currency_pair': currency_pair})
     
-    def create_spot_order(self, currency_pair: str, side: str, amount: str, price: str = None, order_type: str = "limit"):
-        """Создать спотовый ордер"""
+    def create_spot_order(self, currency_pair: str, side: str, amount: str, price: str = None, order_type: str = "limit", time_in_force: str = "gtc"):
+        """Создать спотовый ордер
+        Добавлено: поддержка time_in_force (gtc, fok, ioc)
+        Args:
+            currency_pair: Пара вида BASE_QUOTE
+            side: 'buy' или 'sell'
+            amount: Кол-во BASE (строка)
+            price: Лимитная цена (для limit)
+            order_type: 'limit' или 'market'
+            time_in_force: gtc | fok | ioc (для лимитных ордеров)
+        """
         order_data = {
             "currency_pair": currency_pair,
-            "side": side,  # buy или sell
+            "side": side,
             "amount": amount,
-            "type": order_type  # limit или market
+            "type": order_type
         }
         
         # Для лимитных ордеров добавляем цену, time_in_force и account
         if order_type == "limit":
             if price:
                 order_data["price"] = price
-            order_data["time_in_force"] = "gtc"  # Good Till Canceled
+            # Валидируем time_in_force
+            tif = (time_in_force or "gtc").lower()
+            if tif not in ("gtc", "fok", "ioc"):
+                tif = "gtc"
+            order_data["time_in_force"] = tif
             order_data["account"] = "spot"
         # Для рыночных ордеров добавляем только account
         else:
