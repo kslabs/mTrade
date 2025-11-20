@@ -1,4 +1,11 @@
 Flask==3.0.0
+
 requests==2.31.0
+
 Werkzeug==3.0.1
+
 websocket-client==1.6.4
+
+# Gate.io official SDK (used in tests and some scripts)
+gate-api
+
