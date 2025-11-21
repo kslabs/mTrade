@@ -750,6 +750,17 @@
     border: 1px solid #3a3a3a;
     margin-bottom: 15px;
 }
+/* Дополнительный класс для крупных иконок в быстрых действиях (Купить/Продать/Сбросы) */
+.server-btn-small.control-large {
+    width:36px;
+    height:36px;
+    padding:0;
+    font-size:22px;
+    line-height:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
 
 .cycle-header {
     display: flex;

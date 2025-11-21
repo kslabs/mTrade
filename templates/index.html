@@ -90,12 +90,10 @@
             <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
                 <span>📈 Рынок и стакан</span>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <button id="buyMinOrderBtn" class="server-btn-small" style="background:#28a745;color:#fff;width:32px;height:32px;padding:0;font-size:12px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Купить минимальный ордер">&#x1F6D2;</button>
-                    <button id="sellAllBtn" class="server-btn-small" style="background:#dc3545;color:#fff;width:32px;height:32px;padding:0;font-size:12px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Продать всё">
-                        💰
-                    </button>
-                    <button id="resetCycleBtn" class="server-btn-small" style="background:#ff9800;color:#fff;width:32px;height:32px;padding:0;font-size:12px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс цикла">&#x23EE;</button>
-                    <button id="resetSessionBtn" class="server-btn-small" style="background:#9c27b0;color:#fff;width:32px;height:32px;padding:0;font-size:12px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс сессии (скоро)">&#x1F501;</button>
+                    <button id="buyMinOrderBtn" class="server-btn-small control-large" style="background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Купить минимальный ордер">&#x1F6D2;</button>
+                    <button id="sellAllBtn" class="server-btn-small control-large" style="background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Продать всё">💰</button>
+                    <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
+                    <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (скоро)">&#x1F501;</button>
                     <span style="font-size:11px;color:#888;">Баланс:</span>
                     <span id="headerQuoteBalance" style="font-size:12px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
                     <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
@@ -316,5 +314,51 @@
 <!-- External JavaScript -->
 <script src="{{ url_for('static', filename='app.js') }}?v={{ cache_buster }}"></script>
 <script src="{{ url_for('static', filename='trade-logs-manager.js') }}?v={{ cache_buster }}"></script>
+
+<!-- Patch: ensure TradeLogsManager requests use selected base currency -->
+<script>
+    (function(){
+        function ensureInit(){
+            if(window.tradeLogsManager){
+                const mgr = window.tradeLogsManager;
+                const origLoad = mgr.loadLogs.bind(mgr);
+                mgr.loadLogs = function(currency){
+                    const c = currency || (window.currentBaseCurrency ? window.currentBaseCurrency.toUpperCase() : null);
+                    return origLoad(c);
+                };
+                mgr.refreshLogs = function(){
+                    return mgr.loadLogs(window.currentBaseCurrency || null);
+                };
+                mgr.clearLogs = function(){
+                    if (!confirm('Вы уверены, что хотите очистить логи для текущей валюты?')) return;
+                    const currency = window.currentBaseCurrency || null;
+                    const payload = currency ? { currency: currency } : {};
+                    (async ()=>{
+                        try{
+                            const resp = await fetch('/api/trade/logs/clear', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(payload)
+                            });
+                            const d = await resp.json();
+                            if(d.success){
+                                mgr.logs = [];
+                                mgr.renderLogs();
+                                await mgr.loadStats(currency);
+                            } else {
+                                alert('Ошибка очистки логов: ' + (d.error||''));
+                            }
+                        }catch(e){
+                            alert('Ошибка связи: ' + e);
+                        }
+                    })();
+                };
+            } else {
+                setTimeout(ensureInit, 200);
+            }
+        }
+        ensureInit();
+    })();
+</script>
 </body>
 </html>

@@ -1,20 +1,29 @@
 {
-  "DOGE": {
+  "ETH": {
     "active": true,
-    "active_step": 5,
-    "last_buy_price": 0.14987,
-    "start_price": 0.15719,
-    "total_invested_usd": 152.2158672,
-    "base_volume": 998.2399999999999,
-    "saved_at": 1763589374.6773865
+    "active_step": 0,
+    "last_buy_price": 2749.7,
+    "start_price": 2749.7,
+    "total_invested_usd": 10.0,
+    "base_volume": 0.0036367603738589665,
+    "saved_at": 1763733932.3722186
   },
   "XRP": {
     "active": true,
     "active_step": 0,
-    "last_buy_price": 2.041,
-    "start_price": 2.041,
-    "total_invested_usd": 9.998859,
-    "base_volume": 4.899,
-    "saved_at": 1763589374.6773865
+    "last_buy_price": 1.933,
+    "start_price": 1.933,
+    "total_invested_usd": 9.999409,
+    "base_volume": 5.173,
+    "saved_at": 1763733932.3722215
+  },
+  "DOGE": {
+    "active": true,
+    "active_step": 0,
+    "last_buy_price": 0.1409,
+    "start_price": 0.1409,
+    "total_invested_usd": 10.0,
+    "base_volume": 70.97232079489,
+    "saved_at": 1763733932.372223
   }
 }

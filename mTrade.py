@@ -26,6 +26,21 @@ from state_manager import get_state_manager
 from autotrader import AutoTrader  # добавлено: новый пер-валютный автотрейдер
 from trade_logger import get_trade_logger
 
+# Минимальные значения по умолчанию для legacy параметров (fallback при старте)
+DEFAULT_TRADE_PARAMS = {
+    'steps': 5,
+    'start_volume': 0.0,
+    'start_price': 0.0,
+    'pprof': 0.0,
+    'kprof': 0.0,
+    'target_r': 0.0,
+    'rk': 0.0,
+    'geom_multiplier': 1.0,
+    'rebuy_mode': 'percent',
+    'keep': 0.0,
+    'orderbook_level': 0
+}
+
 # Конфигурация Flask
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -53,123 +68,20 @@ def add_header(response):
 # Глобальный обработчик ошибок для API endpoints
 @app.errorhandler(Exception)
 def handle_error(error):
-    """Обработка всех необработанных исключений"""
-    # Если это API запрос (начинается с /api/), возвращаем JSON
-    if request.path.startswith('/api/'):
-        import traceback
-        error_message = str(error)
-        error_traceback = traceback.format_exc()
-        print(f"[ERROR] API Exception: {error_message}")
-        print(f"[ERROR] Traceback:\n{error_traceback}")
-        return jsonify({
-            "success": False,
-            "error": error_message,
-            "path": request.path
-        }), 500
-    # Для обычных запросов пробрасываем стандартную обработку
-    raise error
-
-# =============================================================================
-# ИНИЦИАЛИЗАЦИЯ ГЛОБАЛЬНЫХ ПЕРЕМЕННЫХ
-# =============================================================================
-
-# Инициализация глобальных служебных переменных
-server_start_time = time.time()
-PAIR_INFO_CACHE = {}
-PAIR_INFO_CACHE_TTL = 3600  # 1 час
-CURRENT_NETWORK_MODE = Config.load_network_mode()
-print(f"[NETWORK] Текущий режим сети: {CURRENT_NETWORK_MODE}")
-
-# Multi-pairs watcher глобальные переменные (перенесены в handlers/websocket.py)
-from handlers.websocket import WATCHED_PAIRS, MULTI_PAIRS_CACHE
-
-# --- Реинициализация сетевого режима (work/test) ---
-_ws_reinit_lock = None
-try:
-    from threading import Lock
-    _ws_reinit_lock = Lock()
-except Exception:
-    pass
-
-def _init_default_watchlist():
-    """Инициализирует watchlist валютными парами по умолчанию из currencies.json"""
-    try:
-        bases = Config.load_currencies()
-        default_pairs = []
-        for c in bases:
-            code = (c or {}).get('code')
-            if code:
-                default_pairs.append(f"{str(code).upper()}_USDT")
-        if default_pairs:
-            from threading import Lock as _Lock
-            # Используем WATCHED_PAIRS напрямую
-            for pair in default_pairs:
-                WATCHED_PAIRS.add(pair)
-    except Exception as e:
-        print(f"[WATCHLIST] Ошибка инициализации: {e}")
-
-def _reinit_network_mode(new_mode: str) -> bool:
-    """Переключение режима сети с переинициализацией WebSocket менеджера.
-    - Закрывает старые соединения
-    - Сохраняет новый режим на диск
-    - Инициализирует менеджер с ключами соответствующей сети
-    - Пересоздает базовый watchlist
-    """
-    global CURRENT_NETWORK_MODE
-    new_mode = str(new_mode).lower()
-    if new_mode not in ('work','test'):
-        return False
-    if new_mode == CURRENT_NETWORK_MODE:
-        return True  # уже установлен
-    if _ws_reinit_lock:
-        _ws_reinit_lock.acquire()
-    try:
-        print(f"[NETWORK] Переключение режима: {CURRENT_NETWORK_MODE} -> {new_mode}")
-        # Сохраняем файл конфигурации режима
-        Config.save_network_mode(new_mode)
-        CURRENT_NETWORK_MODE = new_mode
-        # Закрываем текущие WS соединения
-        from handlers.websocket import ws_close_all
-        try:
-            ws_close_all()
-        except Exception as e:
-            print(f"[NETWORK] Ошибка закрытия WS: {e}")
-        # Инициализация нового менеджера
-        try:
-            ak, sk = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-            init_websocket_manager(ak, sk, CURRENT_NETWORK_MODE)
-            _init_default_watchlist()
-            print(f"[NETWORK] WS менеджер переинициализирован (mode={CURRENT_NETWORK_MODE}, keys={'yes' if ak and sk else 'no'})")
-        except Exception as e:
-            print(f"[NETWORK] Ошибка инициализации WS менеджера: {e}")
-        return True
-    finally:
-        if _ws_reinit_lock:
-            _ws_reinit_lock.release()
-
-
-# =============================================================================
-# FLASK ROUTES (WEB INTERFACE)
-# =============================================================================
-
-# Глобальные объекты
-account_manager = AccountManager()
-trading_engines = {}
-
-# Параметры торговли по умолчанию (глобальные, используются как базовые для всех валют)
-DEFAULT_TRADE_PARAMS = {
-    'steps': 16,
-    'start_volume': 3.0,
-    'start_price': 0.0,
-    'pprof': 0.6,
-    'kprof': 0.02,
-    'target_r': 3.65,
-    'geom_multiplier': 2.0,
-    'rebuy_mode': 'geometric'
-}
-
+    from handlers.indicators import get_trade_indicators_impl
+    return get_trade_indicators_impl()
 # Инициализация State Manager (раньше, чтобы он был доступен во всех эндпойнтах)
 state_manager = get_state_manager()
+CURRENT_NETWORK_MODE = state_manager.get_network_mode()
+# Вспомогательные глобальные объекты (fallback инициализация для тестового запуска)
+server_start_time = time.time()
+try:
+    account_manager = AccountManager()
+except Exception:
+    account_manager = None
+
+# Контейнер для движков по аккаунтам
+trading_engines = {}
 
 # Глобальный экземпляр автотрейдера (инициализируется позже)
 AUTO_TRADER = None
@@ -907,95 +819,8 @@ def get_breakeven_table():
     Добавлено вычисление current_price из WebSocket (fallback: 0).
     Поддержка передачи параметров через query string для мгновенного предпросмотра.
     """
-    try:
-        from breakeven_calculator import calculate_breakeven_table
-        # Определяем тип запроса (legacy или per-currency)
-        has_currency_arg = ('base_currency' in request.args) or ('currency' in request.args)
-        base_currency = (request.args.get('base_currency') or request.args.get('currency') or '')
-        base_currency = base_currency.upper() if base_currency else ''
-        use_legacy = not has_currency_arg or base_currency == '' or base_currency == 'LEGACY'
-        
-        # Загружаем сохраненные параметры
-        if use_legacy:
-            params = TRADE_PARAMS.copy()
-            base_for_price = 'BTC'  # legacy UI чаще по BTC
-        else:
-            params = state_manager.get_breakeven_params(base_currency).copy()
-            base_for_price = base_currency
-        
-        # Переопределяем параметры из query string (для мгновенного предпросмотра)
-        if 'steps' in request.args:
-            try:
-                params['steps'] = int(request.args.get('steps'))
-            except (ValueError, TypeError):
-                pass
-        if 'start_volume' in request.args:
-            try:
-                params['start_volume'] = float(request.args.get('start_volume'))
-            except (ValueError, TypeError):
-                pass
-        if 'start_price' in request.args:
-            try:
-                params['start_price'] = float(request.args.get('start_price'))
-            except (ValueError, TypeError):
-                pass
-        if 'pprof' in request.args:
-            try:
-                params['pprof'] = float(request.args.get('pprof'))
-            except (ValueError, TypeError):
-                pass
-        if 'kprof' in request.args:
-            try:
-                params['kprof'] = float(request.args.get('kprof'))
-            except (ValueError, TypeError):
-                pass
-        if 'target_r' in request.args:
-            try:
-                params['target_r'] = float(request.args.get('target_r'))
-            except (ValueError, TypeError):
-                pass
-        if 'rk' in request.args:
-            try:
-                params['rk'] = float(request.args.get('rk'))
-            except (ValueError, TypeError):
-                pass
-        if 'geom_multiplier' in request.args:
-            try:
-                params['geom_multiplier'] = float(request.args.get('geom_multiplier'))
-            except (ValueError, TypeError):
-                pass
-        if 'rebuy_mode' in request.args:
-            rebuy_mode = str(request.args.get('rebuy_mode')).lower()
-            if rebuy_mode in ('fixed', 'geometric', 'martingale'):
-                params['rebuy_mode'] = rebuy_mode
-        
-        # Получаем текущую цену из WS
-        current_price = 0.0
-        try:
-            from handlers.websocket import ws_get_data
-            if base_for_price:
-                pd = ws_get_data(f"{base_for_price}_USDT")
-                if pd and pd.get('ticker') and pd['ticker'].get('last'):
-                    current_price = float(pd['ticker']['last'])
-        except Exception:
-            current_price = 0.0
-        
-        # Если start_price в параметрах 0, передаем current_price калькулятору
-        # Калькулятор сам решит, использовать ли current_price или дефолт 1.0
-        table_data = calculate_breakeven_table(params, current_price=current_price)
-        return jsonify({
-            "success": True,
-            "table": table_data,
-            "params": params,
-            "currency": base_currency if not use_legacy else 'LEGACY',
-            "legacy": use_legacy,
-            "current_price": current_price
-        })
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] Breakeven table calculation: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.breakeven import get_breakeven_table_impl
+    return get_breakeven_table_impl()
 
 
 @app.route('/api/trade/permissions', methods=['GET'])
@@ -1051,168 +876,36 @@ def set_trading_permission():
 @app.route('/api/autotrade/start', methods=['POST'])
 def start_autotrade():
     """Включить автоторговлю (запустить поток per-currency)"""
-    global AUTO_TRADE_GLOBAL_ENABLED, AUTO_TRADER
-    try:
-        AUTO_TRADE_GLOBAL_ENABLED = True
-        state_manager.set_auto_trade_enabled(True)
-        # Ленивая инициализация автотрейдера
-        if AUTO_TRADER is None:
-            def _api_client_provider():
-                if not account_manager.active_account:
-                    return None
-                acc = account_manager.get_account(account_manager.active_account)
-                if not acc:
-                    return None
-                from gate_api_client import GateAPIClient
-                return GateAPIClient(acc['api_key'], acc['api_secret'], CURRENT_NETWORK_MODE)
-            from handlers.websocket import get_ws_manager
-            ws_manager = get_ws_manager()
-            AUTO_TRADER = AutoTrader(_api_client_provider, ws_manager, state_manager)
-        if not AUTO_TRADER.running:
-            AUTO_TRADER.start()
-        print(f"[AUTOTRADE] Автоторговля включена (per-currency)")
-        return jsonify({
-            "success": True,
-            "enabled": True,
-            "running": AUTO_TRADER.running if AUTO_TRADER else False,
-            "message": "Автоторговля включена"
-        })
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] Start autotrade: {e}\n{traceback.format_exc()}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.autotrade import start_autotrade_impl
+    return start_autotrade_impl()
 
 
 @app.route('/api/autotrade/stop', methods=['POST'])
 def stop_autotrade():
     """Выключить автоторговлю (остановить поток)"""
-    global AUTO_TRADE_GLOBAL_ENABLED, AUTO_TRADER
-    try:
-        AUTO_TRADE_GLOBAL_ENABLED = False
-        state_manager.set_auto_trade_enabled(False)
-        if AUTO_TRADER and AUTO_TRADER.running:
-            AUTO_TRADER.stop()
-        print(f"[AUTOTRADE] Автоторговля выключена")
-        return jsonify({
-            "success": True,
-            "enabled": False,
-            "running": AUTO_TRADER.running if AUTO_TRADER else False,
-            "message": "Автоторговля выключена"
-        })
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] Stop autotrade: {e}\n{traceback.format_exc()}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.autotrade import stop_autotrade_impl
+    return stop_autotrade_impl()
 
 
 @app.route('/api/autotrade/status', methods=['GET'])
 def get_autotrade_status():
     """Получить статус автоторговли + краткую статистику"""
-    try:
-        enabled = state_manager.get_auto_trade_enabled()
-        stats = {}
-        if AUTO_TRADER and AUTO_TRADER.running:
-            stats = AUTO_TRADER.stats
-        return jsonify({
-            "success": True,
-            "enabled": enabled,
-            "running": AUTO_TRADER.running if AUTO_TRADER else False,
-            "stats": stats
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.autotrade import get_autotrade_status_impl
+    return get_autotrade_status_impl()
 
 
 @app.route('/api/autotrader/stats', methods=['GET'])
 def get_autotrader_stats():
     """Получить статистику автотрейдера для конкретной валюты"""
-    try:
-        base_currency = request.args.get('base_currency', '').upper()
-        if not base_currency:
-            return jsonify({"success": False, "error": "Не указана валюта"}), 400
-        
-        stats = {
-            "base_currency": base_currency,
-            "enabled": AUTO_TRADE_GLOBAL_ENABLED,
-            "running": AUTO_TRADER.running if AUTO_TRADER else False,
-            "trades_count": 0,
-            "profit": 0.0,
-            "last_trade_time": None
-        }
-        
-        if AUTO_TRADER and AUTO_TRADER.running and hasattr(AUTO_TRADER, 'stats'):
-            # Получаем статистику для конкретной валюты из автотрейдера
-            all_stats = AUTO_TRADER.stats
-            if base_currency in all_stats:
-                stats.update(all_stats[base_currency])
-        
-        return jsonify({"success": True, "stats": stats})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.autotrade import get_autotrader_stats_impl
+    return get_autotrader_stats_impl()
 
 
 @app.route('/api/autotrader/reset_cycle', methods=['POST'])
 def reset_autotrader_cycle():
     """Сбросить цикл автотрейдера для конкретной валюты"""
-    try:
-        data = request.get_json() or {}
-        base_currency = data.get('base_currency', '').upper()
-        
-        if not base_currency:
-            return jsonify({"success": False, "error": "Не указана валюта"}), 400
-        
-        if not AUTO_TRADER:
-            return jsonify({"success": False, "error": "Автотрейдер не инициализирован"}), 500
-        
-        # Сбрасываем цикл для указанной валюты
-        if base_currency in AUTO_TRADER.cycles:
-            old_cycle = AUTO_TRADER.cycles[base_currency].copy()
-            AUTO_TRADER.cycles[base_currency] = {
-                'active': False,
-                'active_step': -1,
-                'table': old_cycle.get('table', []),  # сохраняем таблицу
-                'last_buy_price': 0.0,
-                'start_price': 0.0,
-                'total_invested_usd': 0.0,
-                'base_volume': 0.0
-            }
-            # ВАЖНО: Сохраняем обновлённое состояние (это удалит цикл из файла)
-            AUTO_TRADER._save_cycles_state()
-            
-            print(f"[API] ✅ Цикл {base_currency} сброшен вручную (было: step={old_cycle.get('active_step')}, "
-                  f"invested={old_cycle.get('total_invested_usd', 0):.2f})")
-            print(f"[API] 🔄 Автотрейдер начнёт новый цикл при следующей итерации (если торговля включена)")
-            
-            return jsonify({
-                "success": True,
-                "message": f"Цикл {base_currency} успешно сброшен. Автотрейдер начнёт новый цикл автоматически.",
-                "old_state": {
-                    "active": old_cycle.get('active'),
-                    "step": old_cycle.get('active_step'),
-                    "invested": old_cycle.get('total_invested_usd')
-                }
-            })
-        else:
-            # Создаём пустой цикл, если его не было
-            AUTO_TRADER.cycles[base_currency] = {
-                'active': False,
-                'active_step': -1,
-                'table': [],
-                'last_buy_price': 0.0,
-                'start_price': 0.0,
-                'total_invested_usd': 0.0,
-                'base_volume': 0.0
-            }
-            AUTO_TRADER._save_cycles_state()
-            print(f"[API] ℹ️ Цикл {base_currency} не был активен, создана пустая структура")
-            return jsonify({
-                "success": True,
-                "message": f"Цикл {base_currency} готов к запуску. Автотрейдер начнёт новый цикл автоматически."
-            })
-            
-    except Exception as e:
-        print(f"[API] Ошибка сброса цикла: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.autotrade import reset_autotrader_cycle_impl
+    return reset_autotrader_cycle_impl()
 
 
 @app.route('/api/trade/indicators', methods=['GET'])
@@ -1419,158 +1112,22 @@ def get_trade_indicators():
 @app.route('/api/ui/state', methods=['GET'])
 def get_ui_state():
     """Получить состояние UI (разрешения торговли, автоторговля, режимы, параметры безубыточности)"""
-    try:
-        return jsonify({
-            "success": True,
-            "state": {
-                "auto_trade_enabled": state_manager.get_auto_trade_enabled(),
-                "enabled_currencies": state_manager.get_trading_permissions(),
-                "network_mode": state_manager.get_network_mode(),
-                "trading_mode": state_manager.get_trading_mode(),
-                "breakeven_params": state_manager.get_breakeven_params()  # все валюты
-            }
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.ui_state import get_ui_state_impl
+    return get_ui_state_impl()
 
 
 @app.route('/api/ui/state', methods=['POST'])
 def save_ui_state():
     """Сохранить состояние UI (поддержка пакетного обновления параметров для валют)"""
-    try:
-        global AUTO_TRADE_GLOBAL_ENABLED, TRADING_PERMISSIONS, TRADING_MODE, CURRENT_NETWORK_MODE
-        data = request.get_json(silent=True) or {}
-        state = data.get('state', {})
-        # Автоторговля
-        if 'auto_trade_enabled' in state:
-            AUTO_TRADE_GLOBAL_ENABLED = bool(state['auto_trade_enabled'])
-            state_manager.set_auto_trade_enabled(AUTO_TRADE_GLOBAL_ENABLED)
-        # Разрешения торговли
-        if 'enabled_currencies' in state and isinstance(state['enabled_currencies'], dict):
-            TRADING_PERMISSIONS.update(state['enabled_currencies'])
-            for currency, enabled in state['enabled_currencies'].items():
-                state_manager.set_trading_permission(currency, enabled)
-        # Режим торговли
-        if 'trading_mode' in state:
-            mode = str(state['trading_mode']).lower()
-            if mode in ('trade','copy'):
-                TRADING_MODE = mode
-                state_manager.set_trading_mode(TRADING_MODE)
-        # Режим сети
-        if 'network_mode' in state:
-            nm = str(state['network_mode']).lower()
-            if nm in ('work','test') and nm != CURRENT_NETWORK_MODE:
-                if _reinit_network_mode(nm):
-                    CURRENT_NETWORK_MODE = nm
-                    state_manager.set_network_mode(nm)
-        # Параметры безубыточности (пакетное обновление)
-        if 'breakeven_params' in state and isinstance(state['breakeven_params'], dict):
-            for currency, params in state['breakeven_params'].items():
-                try:
-                    cur = currency.upper()
-                    existing = state_manager.get_breakeven_params(cur)
-                    # обновляем допустимые поля
-                    for k in ('steps','start_volume','start_price','pprof','kprof','target_r','geom_multiplier','rebuy_mode','orderbook_level'):
-                        if k in params:
-                            existing[k] = params[k]
-                    state_manager.set_breakeven_params(cur, existing)
-                except Exception as e:
-                    print(f"[STATE] Ошибка сохранения breakeven для {currency}: {e}")
-        return jsonify({"success": True, "message": "Состояние UI сохранено"})
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] Save UI state: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.ui_state import save_ui_state_impl
+    return save_ui_state_impl()
 
 
 @app.route('/api/ui/state/partial', methods=['POST'])
 def save_ui_state_partial():
     """Частичное сохранение состояния UI (используется фронтендом UIStateManager)."""
-    try:
-        global AUTO_TRADE_GLOBAL_ENABLED, TRADING_MODE, CURRENT_NETWORK_MODE
-        payload = request.get_json(silent=True) or {}
-
-        # Загружаем текущее состояние из файла (для совместимости с Config)
-        try:
-            full_state = Config.load_ui_state()
-        except Exception:
-            full_state = {
-                "enabled_currencies": {},
-                "auto_trade_enabled": False,
-                "network_mode": CURRENT_NETWORK_MODE,
-                "active_base_currency": "BTC",
-                "active_quote_currency": "USDT",
-                "theme": "dark",
-                "show_indicators": True,
-                "show_orderbook": True,
-                "show_trades": True,
-                "orderbook_depth": 20,
-                "last_updated": None
-            }
-
-        # Базовая валюта
-        if 'active_base_currency' in payload:
-            base = str(payload['active_base_currency']).upper()
-            if base:
-                full_state['active_base_currency'] = base
-        # Котируемая валюта
-        if 'active_quote_currency' in payload:
-            quote = str(payload['active_quote_currency']).upper()
-            if quote:
-                full_state['active_quote_currency'] = quote
-        # Автоторговля
-        if 'auto_trade_enabled' in payload:
-            AUTO_TRADE_GLOBAL_ENABLED = bool(payload['auto_trade_enabled'])
-            full_state['auto_trade_enabled'] = AUTO_TRADE_GLOBAL_ENABLED
-            state_manager.set_auto_trade_enabled(AUTO_TRADE_GLOBAL_ENABLED)
-        # Режим сети
-        if 'network_mode' in payload:
-            nm = str(payload['network_mode']).lower()
-            if nm in ('work', 'test') and nm != CURRENT_NETWORK_MODE:
-                if _reinit_network_mode(nm):
-                    CURRENT_NETWORK_MODE = nm
-                    full_state['network_mode'] = nm
-                    state_manager.set_network_mode(nm)
-        # Режим торговли
-        if 'trading_mode' in payload:
-            mode = str(payload['trading_mode']).lower()
-            if mode in ('trade', 'copy'):
-                TRADING_MODE = mode
-                state_manager.set_trading_mode(TRADING_MODE)
-        # Параметры безубыточности (возможно частичное обновление)
-        if 'breakeven_params' in payload and isinstance(payload['breakeven_params'], dict):
-            be_updates = payload['breakeven_params']
-            existing_all = state_manager.get("breakeven_params", {}) or {}
-            for currency, params in be_updates.items():
-                try:
-                    cur = str(currency).upper()
-                    if not cur:
-                        continue
-                    existing = existing_all.get(cur) or state_manager.get_breakeven_params(cur)
-                    if not isinstance(existing, dict):
-                        existing = {}
-                    for k in ('steps','start_volume','start_price','pprof','kprof','target_r','geom_multiplier','rebuy_mode','orderbook_level'):
-                        if k in params:
-                            existing[k] = params[k]
-                    existing_all[cur] = existing
-                    state_manager.set_breakeven_params(cur, existing)
-                except Exception as e:
-                    print(f"[STATE] Ошибка partial breakeven для {currency}: {e}")
-            full_state['breakeven_params'] = existing_all
-
-        # Сохраняем объединённое состояние через Config
-        try:
-            Config.save_ui_state(full_state)
-        except Exception as e:
-            print(f"[STATE] Не удалось сохранить ui_state.json: {e}")
-
-        return jsonify({"success": True, "state": full_state})
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] Save UI state partial: {e}")
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+    from handlers.ui_state import save_ui_state_partial_impl
+    return save_ui_state_partial_impl()
 
 
 # =============================================================================
@@ -1580,81 +1137,22 @@ def save_ui_state_partial():
 @app.route('/api/trade/logs', methods=['GET'])
 def get_trade_logs():
     """Получить логи торговых операций"""
-    try:
-        trade_logger = get_trade_logger()
-        
-        # Параметры запроса
-        limit = request.args.get('limit', '100')
-        currency = request.args.get('currency')
-        formatted = request.args.get('formatted', '0') == '1'
-        
-        try:
-            limit = int(limit)
-        except:
-            limit = 100
-        
-        if formatted:
-            # Возвращаем отформатированные строки
-            logs = trade_logger.get_formatted_logs(limit=limit, currency=currency)
-            return jsonify({
-                'success': True,
-                'logs': logs,
-                'count': len(logs)
-            })
-        else:
-            # Возвращаем сырые данные
-            logs = trade_logger.get_logs(limit=limit, currency=currency)
-            return jsonify({
-                'success': True,
-                'logs': logs,
-                'count': len(logs)
-            })
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] get_trade_logs: {e}")
-        print(traceback.format_exc())
-        return jsonify({'success': False, 'error': str(e)}), 500
+    from handlers.logs import get_trade_logs_impl
+    return get_trade_logs_impl()
 
 
 @app.route('/api/trade/logs/stats', methods=['GET'])
 def get_trade_logs_stats():
     """Получить статистику по логам"""
-    try:
-        trade_logger = get_trade_logger()
-        currency = request.args.get('currency')
-        
-        stats = trade_logger.get_stats(currency=currency)
-        
-        return jsonify({
-            'success': True,
-            'stats': stats
-        })
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] get_trade_logs_stats: {e}")
-        print(traceback.format_exc())
-        return jsonify({'success': False, 'error': str(e)}), 500
+    from handlers.logs import get_trade_logs_stats_impl
+    return get_trade_logs_stats_impl()
 
 
 @app.route('/api/trade/logs/clear', methods=['POST'])
 def clear_trade_logs():
     """Очистить логи"""
-    try:
-        trade_logger = get_trade_logger()
-        data = request.get_json() or {}
-        currency = data.get('currency')
-        
-        trade_logger.clear_logs(currency=currency)
-        
-        return jsonify({
-            'success': True,
-            'message': f"Логи {'для ' + currency if currency else 'все'} очищены"
-        })
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] clear_trade_logs: {e}")
-        print(traceback.format_exc())
-        return jsonify({'success': False, 'error': str(e)}), 500
+    from handlers.logs import clear_trade_logs_impl
+    return clear_trade_logs_impl()
 
 # =============================================================================
 # QUICK TRADE API (Быстрая торговля)
@@ -1662,538 +1160,14 @@ def clear_trade_logs():
 
 @app.route('/api/trade/buy-min', methods=['POST'])
 def quick_buy_min():
-    """Купить минимальный ордер по текущей цене"""
-    import traceback
-    
-    # Переменные для диагностики (заполняются по ходу выполнения)
-    diagnostic_info = {
-        'pair': None,
-        'base_currency': None,
-        'quote_currency': None,
-        'balance_usdt': None,
-        'best_ask': None,
-        'best_bid': None,
-        'orderbook_bids': None,
-        'orderbook_asks': None,
-        'amount': None,
-        'execution_price': None,
-        'start_volume': None,
-        'api_min_quote': None,
-        'network_mode': CURRENT_NETWORK_MODE,
-        'error_stage': None
-    }
-    
-    try:
-        data = request.get_json() or {}
-        base_currency = data.get('base_currency')
-        quote_currency = data.get('quote_currency', 'USDT')
-        
-        diagnostic_info['base_currency'] = base_currency
-        diagnostic_info['quote_currency'] = quote_currency
-        
-        if not base_currency:
-            diagnostic_info['error_stage'] = 'validation'
-            return jsonify({
-                'success': False, 
-                'error': 'Не указана базовая валюта',
-                'details': diagnostic_info
-            }), 400
-        
-        pair = f"{base_currency}_{quote_currency}"
-        diagnostic_info['pair'] = pair
-        
-        # Получаем API ключи из конфига для текущего режима
-        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-        if not api_key or not api_secret:
-            diagnostic_info['error_stage'] = 'api_keys'
-            return jsonify({
-                'success': False, 
-                'error': 'API ключи не настроены для текущего режима',
-                'details': diagnostic_info
-            }), 400
-        
-        api_client = GateAPIClient(api_key, api_secret, CURRENT_NETWORK_MODE)
-        
-        # Получаем баланс USDT для диагностики
-        diagnostic_info['error_stage'] = 'get_balance'
-        try:
-            balance = api_client.get_account_balance()
-            for item in balance:
-                if item.get('currency', '').upper() == quote_currency.upper():
-                    diagnostic_info['balance_usdt'] = float(item.get('available', '0'))
-                    break
-        except Exception as e:
-            print(f"[WARNING] Не удалось получить баланс: {e}")
-        
-        # Получаем параметры пары
-        diagnostic_info['error_stage'] = 'get_pair_info'
-
-
-        pair_info = api_client.get_currency_pair_details_exact(pair)
-        if not pair_info or 'error' in pair_info:
-            diagnostic_info['error_stage'] = 'pair_not_found'
-            return jsonify({
-                'success': False, 
-                'error': f'Пара {pair} не найдена',
-                'details': diagnostic_info
-            }), 400
-        
-        diagnostic_info['api_min_quote'] = float(pair_info.get('min_quote_amount', '3'))
-        
-        # Получаем текущую цену (best ask)
-        diagnostic_info['error_stage'] = 'get_market_data'
-        from handlers.websocket import ws_get_data
-        market_data = ws_get_data(f"{base_currency}_{quote_currency}")
-        
-        if not market_data or 'orderbook' not in market_data:
-            diagnostic_info['error_stage'] = 'no_market_data'
-            return jsonify({
-                'success': False, 
-                'error': 'Нет данных рынка',
-                'details': diagnostic_info
-            }), 400
-        
-        orderbook = market_data['orderbook']
-        
-        # Сохраняем информацию об ордербуке для диагностики
-        if orderbook.get('bids'):
-            diagnostic_info['orderbook_bids'] = [[float(b[0]), float(b[1])] for b in orderbook['bids'][:5]]
-            diagnostic_info['best_bid'] = float(orderbook['bids'][0][0])
-        if orderbook.get('asks'):
-            diagnostic_info['orderbook_asks'] = [[float(a[0]), float(a[1])] for a in orderbook['asks'][:5]]
-            diagnostic_info['best_ask'] = float(orderbook['asks'][0][0])
-        
-        if not orderbook.get('asks'):
-            diagnostic_info['error_stage'] = 'no_asks'
-            return jsonify({
-                'success': False, 
-                'error': 'Нет цен продажи в стакане',
-                'details': diagnostic_info
-            }), 400
-        
-        # Получаем параметры безубыточности для данной валюты
-        breakeven_params = state_manager.get_breakeven_params(base_currency)
-        
-        # Получаем уровень стакана (по умолчанию 1 = лучшая цена)
-        orderbook_level = int(breakeven_params.get('orderbook_level', 1))
-        diagnostic_info['orderbook_level'] = orderbook_level
-        
-        # Проверяем, что уровень стакана доступен
-        if len(orderbook['asks']) < orderbook_level:
-            diagnostic_info['error_stage'] = 'orderbook_level_unavailable'
-            return jsonify({
-                'success': False, 
-                'error': f'Уровень стакана {orderbook_level} недоступен (доступно уровней: {len(orderbook["asks"])})',
-                'details': diagnostic_info
-            }), 400
-        
-        # Берём цену по выбранному уровню стакана (индекс = уровень - 1)
-        best_ask = float(orderbook['asks'][orderbook_level - 1][0])
-        diagnostic_info['selected_ask'] = best_ask
-        
-        # ВАЖНО: Берём start_volume из параметров безубыточности для данной валюты!
-        start_volume = float(breakeven_params.get('start_volume', 10.0))
-        diagnostic_info['start_volume'] = start_volume
-        
-        # Проверяем минимум API (для безопасности)
-        api_min_quote = diagnostic_info['api_min_quote']
-        if start_volume < api_min_quote:
-            print(f"[WARNING] start_volume ({start_volume}) < API минимум ({api_min_quote}), используем {api_min_quote}")
-            start_volume = api_min_quote
-            diagnostic_info['start_volume'] = start_volume
-        
-        # Проверяем достаточность баланса
-        if diagnostic_info.get('balance_usdt') is not None and diagnostic_info['balance_usdt'] < start_volume:
-            diagnostic_info['error_stage'] = 'insufficient_balance'
-            return jsonify({
-                'success': False, 
-                'error': f'Недостаточно {quote_currency} для покупки (баланс: {diagnostic_info["balance_usdt"]}, требуется: {start_volume})',
-                'details': diagnostic_info
-            }), 400
-        
-        # Рассчитываем количество базовой валюты
-        amount = start_volume / best_ask
-        
-        # Округляем до точности пары
-        amount_precision = int(pair_info.get('amount_precision', 8))
-        amount = round(amount, amount_precision)
-        diagnostic_info['amount'] = amount
-        
-        # Форматируем amount без научной нотации
-        amount_str = f"{amount:.{amount_precision}f}"
-        
-        # В testnet mode используем лимитные ордера (market не поддерживаются)
-        diagnostic_info['error_stage'] = 'create_order'
-        if CURRENT_NETWORK_MODE == 'test':
-            # При ПОКУПКЕ: используем best_ask напрямую (покупаем по цене продавцов)
-            # Ордер исполнится мгновенно как taker, т.к. цена = лучшему ask
-            execution_price = best_ask
-            diagnostic_info['execution_price'] = execution_price
-            price_precision = int(pair_info.get('precision', 8))
-            price_str = f"{execution_price:.{price_precision}f}"
-            print(f"[INFO] quick_buy_min: создание ЛИМИТНОГО ордера {pair}, amount={amount_str}, price={price_str} (testnet, покупка по best_ask)")
-            result = api_client.create_spot_order(
-                currency_pair=pair,
-                side='buy',
-                amount=amount_str,
-                price=price_str,
-                order_type='limit'
-            )
-        else:
-            # В production используем market ордера
-            execution_price = best_ask
-            diagnostic_info['execution_price'] = execution_price
-            print(f"[INFO] quick_buy_min: создание РЫНОЧНОГО ордера {pair}, amount={amount_str}")
-            result = api_client.create_spot_order(
-                currency_pair=pair,
-                side='buy',
-                amount=amount_str,
-                order_type='market'
-            )
-        
-        print(f"[INFO] quick_buy_min: ответ API: {result}")
-        print(f"[INFO] quick_buy_min: type(result) = {type(result)}")
-        print(f"[INFO] quick_buy_min: 'label' in result = {'label' in result if isinstance(result, dict) else 'N/A'}")
-        
-        # Проверяем результат на ошибки (любое наличие 'label' означает ошибку в Gate.io API)
-        if isinstance(result, dict) and 'label' in result:
-            error_msg = result.get('message', 'Неизвестная ошибка API')
-            error_label = result.get('label', 'UNKNOWN_ERROR')
-            diagnostic_info['error_stage'] = f'api_error_{error_label}'
-            diagnostic_info['api_error'] = {'label': error_label, 'message': error_msg}
-            print(f"[ERROR] quick_buy_min: ошибка API [{error_label}] - {error_msg}")
-            return jsonify({
-                'success': False, 
-                'error': f'[{error_label}] {error_msg}',
-                'details': diagnostic_info
-            }), 400
-        
-        # Проверяем, что ордер действительно создан (есть поле id)
-        if not isinstance(result, dict) or 'id' not in result:
-            diagnostic_info['error_stage'] = 'no_order_id'
-            diagnostic_info['api_response'] = str(result)[:200]  # Ограничиваем размер
-            print(f"[ERROR] quick_buy_min: нет ID в ответе - {result}")
-            return jsonify({
-                'success': False, 
-                'error': 'Ордер не создан (нет ID в ответе)',
-                'details': diagnostic_info
-            }), 400
-        
-        # Логируем сделку
-        trade_logger = get_trade_logger()
-        trade_logger.log_buy(
-            currency=base_currency,
-            volume=amount,
-            price=best_ask,
-            delta_percent=0.0,
-            total_drop_percent=0.0,
-            investment=start_volume
-        )
-        
-        # Успешный результат с полной информацией
-        return jsonify({
-            'success': True,
-            'order': result,
-            'amount': amount,
-            'price': best_ask,
-            'execution_price': diagnostic_info['execution_price'],
-            'total': start_volume,
-            'order_id': result.get('id', 'unknown'),
-            'details': {
-                'pair': pair,
-                'side': 'buy',
-                'order_type': 'limit' if CURRENT_NETWORK_MODE == 'test' else 'market',
-                'best_ask': best_ask,
-                'best_bid': diagnostic_info.get('best_bid'),
-                'amount': amount,
-                'start_volume_usdt': start_volume,
-                'balance_usdt': diagnostic_info.get('balance_usdt'),
-                'network_mode': CURRENT_NETWORK_MODE,
-                'orderbook_snapshot': {
-                    'bids': diagnostic_info.get('orderbook_bids'),
-                    'asks': diagnostic_info.get('orderbook_asks')
-                }
-            }
-        })
-        
-    except Exception as e:
-        diagnostic_info['error_stage'] = 'exception'
-        diagnostic_info['exception'] = str(e)
-        print(f"[ERROR] quick_buy_min: {e}")
-        print(traceback.format_exc())
-        return jsonify({
-            'success': False, 
-            'error': str(e),
-            'details': diagnostic_info
-        }), 500
+    from handlers.quick_trades import quick_buy_min_impl
+    return quick_buy_min_impl()
 
 
 @app.route('/api/trade/sell-all', methods=['POST'])
 def quick_sell_all():
-    """Продать весь доступный баланс базовой валюты"""
-    import time
-    import traceback
-    
-    # Переменные для диагностики (заполняются по ходу выполнения)
-    diagnostic_info = {
-        'pair': None,
-        'base_currency': None,
-        'quote_currency': None,
-        'balance': None,
-        'best_bid': None,
-        'best_ask': None,
-        'orderbook_bids': None,
-        'orderbook_asks': None,
-        'amount': None,
-        'execution_price': None,
-        'total': None,
-        'cancelled_orders': 0,
-        'network_mode': CURRENT_NETWORK_MODE,
-        'error_stage': None
-    }
-    
-    try:
-        data = request.get_json() or {}
-        base_currency = data.get('base_currency')
-        quote_currency = data.get('quote_currency', 'USDT')
-        
-        diagnostic_info['base_currency'] = base_currency
-        diagnostic_info['quote_currency'] = quote_currency
-        
-        if not base_currency:
-            diagnostic_info['error_stage'] = 'validation'
-            return jsonify({
-                'success': False, 
-                'error': 'Не указана базовая валюта',
-                'details': diagnostic_info
-            }), 400
-        
-        pair = f"{base_currency}_{quote_currency}"
-        diagnostic_info['pair'] = pair
-        
-        # Получаем API ключи из конфига для текущего режима
-        api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-        if not api_key or not api_secret:
-            diagnostic_info['error_stage'] = 'api_keys'
-            return jsonify({
-                'success': False, 
-                'error': 'API ключи не настроены для текущего режима',
-                'details': diagnostic_info
-            }), 400
-        
-        api_client = GateAPIClient(api_key, api_secret, CURRENT_NETWORK_MODE)
-        
-        # В testnet режиме: отменяем все открытые ордера по этой паре перед продажей
-        cancel_result = {'count': 0}
-        if CURRENT_NETWORK_MODE == 'test':
-            try:
-                cancel_result = api_client.cancel_all_open_orders(pair)
-                diagnostic_info['cancelled_orders'] = cancel_result.get('count', 0)
-                if cancel_result.get('count', 0) > 0:
-                    print(f"[INFO] Отменено {cancel_result['count']} открытых ордеров для {pair}")
-                    # Даём время на обновление баланса после отмены
-                    time.sleep(1)
-            except Exception as e:
-                print(f"[WARNING] Не удалось отменить открытые ордера: {e}")
-        
-        # Получаем баланс базовой валюты
-        diagnostic_info['error_stage'] = 'get_balance'
-        balance = api_client.get_account_balance()
-        base_balance = None
-        
-        for item in balance:
-            if item.get('currency', '').upper() == base_currency.upper():
-                base_balance = float(item.get('available', '0'))
-                break
-        
-        diagnostic_info['balance'] = base_balance
-        
-        if not base_balance or base_balance <= 0:
-            diagnostic_info['error_stage'] = 'insufficient_balance'
-            return jsonify({
-                'success': False, 
-                'error': f'Недостаточно {base_currency} для продажи (баланс: {base_balance or 0})',
-                'details': diagnostic_info
-            }), 400
-        
-        # Получаем параметры пары
-        diagnostic_info['error_stage'] = 'get_pair_info'
-        pair_info = api_client.get_currency_pair_details_exact(pair)
-        if not pair_info or 'error' in pair_info:
-            diagnostic_info['error_stage'] = 'pair_not_found'
-            return jsonify({
-                'success': False, 
-                'error': f'Пара {pair} не найдена',
-                'details': diagnostic_info
-            }), 400
-        
-        # Получаем текущую цену (best bid)
-        diagnostic_info['error_stage'] = 'get_market_data'
-        from handlers.websocket import ws_get_data
-        market_data = ws_get_data(f"{base_currency}_{quote_currency}")
-        
-        if not market_data or 'orderbook' not in market_data:
-            diagnostic_info['error_stage'] = 'no_market_data'
-            return jsonify({
-                'success': False, 
-                'error': 'Нет данных рынка',
-                'details': diagnostic_info
-            }), 400
-        
-        orderbook = market_data['orderbook']
-        
-        # Сохраняем информацию об ордербуке для диагностики
-        if orderbook.get('bids'):
-            diagnostic_info['orderbook_bids'] = [[float(b[0]), float(b[1])] for b in orderbook['bids'][:5]]
-            diagnostic_info['best_bid'] = float(orderbook['bids'][0][0])
-        if orderbook.get('asks'):
-            diagnostic_info['orderbook_asks'] = [[float(a[0]), float(a[1])] for a in orderbook['asks'][:5]]
-            diagnostic_info['best_ask'] = float(orderbook['asks'][0][0])
-        
-        if not orderbook.get('bids'):
-            diagnostic_info['error_stage'] = 'no_bids'
-            return jsonify({
-                'success': False, 
-                'error': 'Нет цен покупки в стакане',
-                'details': diagnostic_info
-            }), 400
-        
-        # Получаем параметры безубыточности для данной валюты
-        breakeven_params = state_manager.get_breakeven_params(base_currency)
-        
-        # Получаем уровень стакана (по умолчанию 1 = лучшая цена)
-        orderbook_level = int(breakeven_params.get('orderbook_level', 1))
-        diagnostic_info['orderbook_level'] = orderbook_level
-        
-        # Проверяем, что уровень стакана доступен
-        if len(orderbook['bids']) < orderbook_level:
-            diagnostic_info['error_stage'] = 'orderbook_level_unavailable'
-            return jsonify({
-                'success': False, 
-                'error': f'Уровень стакана {orderbook_level} недоступен (доступно уровней: {len(orderbook["bids"])})',
-                'details': diagnostic_info
-            }), 400
-        
-        # Берём цену по выбранному уровню стакана (индекс = уровень - 1)
-        best_bid = float(orderbook['bids'][orderbook_level - 1][0])
-        diagnostic_info['selected_bid'] = best_bid
-        
-        # Округляем количество до точности пары (ВАЖНО: округляем ВНИЗ, чтобы не превысить доступный баланс)
-        amount_precision = int(pair_info.get('amount_precision', 8))
-        import math
-        # Используем floor вместо round, чтобы гарантировать, что amount <= base_balance
-        amount = math.floor(base_balance * (10 ** amount_precision)) / (10 ** amount_precision)
-        diagnostic_info['amount'] = amount
-        
-        # Рассчитываем общую сумму продажи
-        total = amount * best_bid
-        diagnostic_info['total'] = total
-        
-        # Форматируем amount без научной нотации
-        amount_str = f"{amount:.{amount_precision}f}"
-        
-        # В testnet mode используем лимитные ордера (market не поддерживаются)
-        diagnostic_info['error_stage'] = 'create_order'
-        if CURRENT_NETWORK_MODE == 'test':
-            # При ПРОДАЖЕ: используем best_bid напрямую (продаём по цене покупателей)
-            # Ордер исполнится мгновенно как taker, т.к. цена = лучшему bid
-            execution_price = best_bid
-            diagnostic_info['execution_price'] = execution_price
-            price_precision = int(pair_info.get('precision', 8))
-            price_str = f"{execution_price:.{price_precision}f}"
-            print(f"[INFO] quick_sell_all: создание ЛИМИТНОГО ордера {pair}, amount={amount_str}, price={price_str} (testnet, продажа по best_bid)")
-            result = api_client.create_spot_order(
-                currency_pair=pair,
-                side='sell',
-                amount=amount_str,
-                price=price_str,
-                order_type='limit'
-            )
-        else:
-            # В production используем market ордера
-            execution_price = best_bid
-            diagnostic_info['execution_price'] = execution_price
-            print(f"[INFO] quick_sell_all: создание РЫНОЧНОГО ордера {pair}, amount={amount_str}")
-            result = api_client.create_spot_order(
-                currency_pair=pair,
-                side='sell',
-                amount=amount_str,
-                order_type='market'
-            )
-        
-        print(f"[INFO] quick_sell_all: ответ API: {result}")
-        
-        # Проверяем результат на ошибки (любое наличие 'label' означает ошибку в Gate.io API)
-        if isinstance(result, dict) and 'label' in result:
-            error_msg = result.get('message', 'Неизвестная ошибка API')
-            error_label = result.get('label', 'UNKNOWN_ERROR')
-            diagnostic_info['error_stage'] = f'api_error_{error_label}'
-            diagnostic_info['api_error'] = {'label': error_label, 'message': error_msg}
-            print(f"[ERROR] quick_sell_all: ошибка API [{error_label}] - {error_msg}")
-            return jsonify({
-                'success': False, 
-                'error': f'[{error_label}] {error_msg}',
-                'details': diagnostic_info
-            }), 400
-        
-        # Проверяем, что ордер действительно создан (есть поле id)
-        if not isinstance(result, dict) or 'id' not in result:
-            diagnostic_info['error_stage'] = 'no_order_id'
-            diagnostic_info['api_response'] = str(result)[:200]  # Ограничиваем размер
-            print(f"[ERROR] quick_sell_all: нет ID в ответе - {result}")
-            return jsonify({
-                'success': False, 
-                'error': 'Ордер не создан (нет ID в ответе)',
-                'details': diagnostic_info
-            }), 400
-        
-        # Логируем сделку
-        trade_logger = get_trade_logger()
-        trade_logger.log_sell(
-            currency=base_currency,
-            volume=amount,
-            price=best_bid,
-            delta_percent=0.0,
-            pnl=0.0
-        )
-        
-        # Успешный результат с полной информацией
-        return jsonify({
-            'success': True,
-            'order': result,
-            'amount': amount,
-            'price': best_bid,
-            'execution_price': diagnostic_info['execution_price'],
-            'total': total,
-            'order_id': result.get('id', 'unknown'),
-            'details': {
-                'pair': pair,
-                'side': 'sell',
-                'order_type': 'limit' if CURRENT_NETWORK_MODE == 'test' else 'market',
-                'best_bid': best_bid,
-                'best_ask': diagnostic_info.get('best_ask'),
-                'amount': amount,
-                'total_usdt': total,
-                'balance': base_balance,
-                'network_mode': CURRENT_NETWORK_MODE,
-                'cancelled_orders': diagnostic_info['cancelled_orders'],
-                'orderbook_snapshot': {
-                    'bids': diagnostic_info.get('orderbook_bids'),
-                    'asks': diagnostic_info.get('orderbook_asks')
-                }
-            }
-        })
-        
-    except Exception as e:
-        diagnostic_info['error_stage'] = 'exception'
-        diagnostic_info['exception'] = str(e)
-        print(f"[ERROR] quick_sell_all: {e}")
-        print(traceback.format_exc())
-        return jsonify({
-            'success': False, 
-            'error': str(e),
-            'details': diagnostic_info
-        }), 500
+    from handlers.quick_trades import quick_sell_all_impl
+    return quick_sell_all_impl()
 
 
 # =============================================================================

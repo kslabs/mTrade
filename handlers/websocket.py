@@ -5,6 +5,7 @@ from typing import List
 from config import Config
 from gate_api_client import GateAPIClient
 from gateio_websocket import init_websocket_manager, get_websocket_manager
+import threading
 
 # Local caches and watchlist for websocket-related handlers
 WATCHED_PAIRS = set()
@@ -118,7 +119,7 @@ def _remove_pairs_from_watchlist(pairs: List[str]):
             pass
 
 
-class _PairsUpdater(threading := __import__('threading')):
+class _PairsUpdater:
     def run(self):
         while True:
             try:
