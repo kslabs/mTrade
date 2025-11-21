@@ -80,9 +80,8 @@ PAIR_INFO_CACHE_TTL = 3600  # 1 час
 CURRENT_NETWORK_MODE = Config.load_network_mode()
 print(f"[NETWORK] Текущий режим сети: {CURRENT_NETWORK_MODE}")
 
-# Multi-pairs watcher глобальные переменные
-WATCHED_PAIRS = set()
-MULTI_PAIRS_CACHE = {}  # { pair: { ts: <float>, data: <dict> } }
+# Multi-pairs watcher глобальные переменные (перенесены в handlers/websocket.py)
+from handlers.websocket import WATCHED_PAIRS, MULTI_PAIRS_CACHE
 
 # --- Реинициализация сетевого режима (work/test) ---
 _ws_reinit_lock = None
@@ -130,12 +129,11 @@ def _reinit_network_mode(new_mode: str) -> bool:
         Config.save_network_mode(new_mode)
         CURRENT_NETWORK_MODE = new_mode
         # Закрываем текущие WS соединения
-        ws_manager = get_websocket_manager()
-        if ws_manager:
-            try:
-                ws_manager.close_all()
-            except Exception as e:
-                print(f"[NETWORK] Ошибка закрытия WS: {e}")
+        from handlers.websocket import ws_close_all
+        try:
+            ws_close_all()
+        except Exception as e:
+            print(f"[NETWORK] Ошибка закрытия WS: {e}")
         # Инициализация нового менеджера
         try:
             ak, sk = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
@@ -544,9 +542,8 @@ def server_shutdown():
         time.sleep(1)
         print("\n[SHUTDOWN] Остановка сервера...")
         # Закрыть все WebSocket соединения
-        ws_manager = get_websocket_manager()
-        if ws_manager:
-            ws_manager.close_all()
+        from handlers.websocket import ws_close_all
+        ws_close_all()
         ProcessManager.remove_pid()
         os._exit(0)
     
@@ -603,100 +600,20 @@ def set_network_mode():
 
 @app.route('/api/pair/subscribe', methods=['POST'])
 def subscribe_pair():
-    """Подписаться на данные торговой пары через WebSocket"""
-    try:
-        data = request.json
-        base_currency = data.get('base_currency', 'BTC')
-        quote_currency = data.get('quote_currency', 'USDT')
-        currency_pair = f"{base_currency}_{quote_currency}"
-        ws_manager = get_websocket_manager()
-        # Ленивая инициализация менеджера даже без ключей (публичный режим)
-        if not ws_manager:
-            ak, sk = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-            init_websocket_manager(ak, sk, CURRENT_NETWORK_MODE)
-            ws_manager = get_websocket_manager()
-            _init_default_watchlist()
-            print(f"[WEBSOCKET] Lazy init manager (mode={CURRENT_NETWORK_MODE}, keys={'yes' if ak and sk else 'no'})")
-        if not ws_manager:
-            return jsonify({"success": False, "error": "WebSocket менеджер не инициализирован"})
-        ws_manager.create_connection(currency_pair)
-        return jsonify({"success": True, "pair": currency_pair, "message": f"Подписка на {currency_pair} создана"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    from handlers.websocket import subscribe_pair_impl
+    return subscribe_pair_impl()
 
 
 @app.route('/api/pair/data', methods=['GET'])
 def get_pair_data():
-    """Получить данные торговой пары из WebSocket кэша, с REST fallback."""
-    try:
-        base_currency = request.args.get('base_currency', 'BTC')
-        quote_currency = request.args.get('quote_currency', 'USDT')
-        force_refresh = request.args.get('force', '0') == '1'
-        currency_pair = f"{base_currency}_{quote_currency}"
-        ws_manager = get_websocket_manager()
-        data = None
-        if ws_manager:
-            data = ws_manager.get_data(currency_pair)
-            # Если force=1 или данных нет, создаём новое соединение
-            if data is None or force_refresh:
-                print(f"[PAIR_DATA] Creating/refreshing connection for {currency_pair} (force={force_refresh})")
-                ws_manager.create_connection(currency_pair)
-                # Ждём немного, чтобы получить первые данные
-                import time
-                time.sleep(0.5)
-                data = ws_manager.get_data(currency_pair)
-        if not data:
-            # REST fallback тикер + стакан
-            # ВАЖНО: Для рыночных данных (orderbook, ticker) ВСЕГДА используем основной API Gate.io,
-            # даже в тестовом режиме, т.к. тестовая сеть не предоставляет рыночные данные
-            api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
-            # Для публичных данных используем 'work' режим (основной API)
-            market_data_client = GateAPIClient(api_key, api_secret, 'work')
-            try:
-                # Запрос реальных рыночных данных из основного API
-                ob = market_data_client._request('GET', '/spot/order_book', params={'currency_pair': currency_pair.upper(), 'limit': 20})
-                ticker = market_data_client._request('GET', '/spot/tickers', params={'currency_pair': currency_pair.upper()})
-                
-                data = {
-                    'ticker': ticker[0] if isinstance(ticker, list) and ticker else {},
-                    'orderbook': {'asks': ob.get('asks', []), 'bids': ob.get('bids', [])} if isinstance(ob, dict) else ob,
-                    'trades': []
-                }
-                
-                print(f"[PAIR_DATA] Loaded real market data for {currency_pair} (mode={CURRENT_NETWORK_MODE}, asks={len(data['orderbook'].get('asks',[]))}, bids={len(data['orderbook'].get('bids',[]))})")
-            except Exception as rest_err:
-                print(f"[ERROR] Failed to load real market data for {currency_pair}: {rest_err}")
-                return jsonify({'success': False, 'error': f'Не удалось загрузить данные рынка: {str(rest_err)}'})
-        
-        return jsonify({'success': True, 'pair': currency_pair, 'data': data})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    from handlers.websocket import get_pair_data_impl
+    return get_pair_data_impl()
 
 
 @app.route('/api/pair/unsubscribe', methods=['POST'])
 def unsubscribe_pair():
-    """Отписаться от данных торговой пары"""
-    try:
-        data = request.json
-        base_currency = data.get('base_currency', 'BTC')
-        quote_currency = data.get('quote_currency', 'USDT')
-        
-        currency_pair = f"{base_currency}_{quote_currency}"
-        
-        ws_manager = get_websocket_manager()
-        if not ws_manager:
-            return jsonify({"success": False, "error": "WebSocket менеджер не инициализирован"})
-        
-        # Закрыть соединение для пары
-        ws_manager.close_connection(currency_pair)
-        
-        return jsonify({
-            "success": True,
-            "pair": currency_pair,
-            "message": f"Отписка от {currency_pair} выполнена"
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    from handlers.websocket import unsubscribe_pair_impl
+    return unsubscribe_pair_impl()
 
 
 @app.route('/api/pair/balances', methods=['GET'])
@@ -731,15 +648,14 @@ def get_pair_balances():
                     base_balance = {"currency": base_currency, "available": item.get('available','0'), "locked": item.get('locked','0')}
                 elif cur == quote_currency.upper():
                     quote_balance = {"currency": quote_currency, "available": item.get('available','0'), "locked": item.get('locked','0')}
-        ws_manager = get_websocket_manager()
+        from handlers.websocket import ws_get_data
         current_price = 0
-        if ws_manager:
-            pair_data = ws_manager.get_data(f"{base_currency}_{quote_currency}")
-            if pair_data and pair_data.get('ticker') and pair_data['ticker'].get('last'):
-                try:
-                    current_price = float(pair_data['ticker']['last'])
-                except Exception:
-                    current_price = 0
+        pair_data = ws_get_data(f"{base_currency}_{quote_currency}")
+        if pair_data and pair_data.get('ticker') and pair_data['ticker'].get('last'):
+            try:
+                current_price = float(pair_data['ticker']['last'])
+            except Exception:
+                current_price = 0
         try:
             base_available = float(base_balance['available'])
         except Exception:
@@ -750,8 +666,8 @@ def get_pair_balances():
         except Exception:
             quote_available = 0.0
         quote_equivalent = quote_available
-        if quote_currency.upper() != 'USDT' and ws_manager:
-            usdt_data = ws_manager.get_data(f"{quote_currency}_USDT")
+        if quote_currency.upper() != 'USDT':
+            usdt_data = ws_get_data(f"{quote_currency}_USDT")
             if usdt_data and usdt_data.get('ticker') and usdt_data['ticker'].get('last'):
                 try:
                     quote_equivalent = quote_available * float(usdt_data['ticker']['last'])
@@ -866,90 +782,30 @@ def get_pair_info():
     return jsonify(resp)
 
 
-# =============================================================================
-# MULTI-PAIRS WATCHER (Постоянное считывание данных по нескольким парам)
-# =============================================================================
-
-from threading import Thread as _Thread
-
-
-def _add_pairs_to_watchlist(pairs: List[str]):
-    ws = get_websocket_manager()
-    for p in (pairs or []):
-        pair = str(p).upper()
-        WATCHED_PAIRS.add(pair)
-        try:
-            if ws:
-                ws.create_connection(pair)
-        except Exception:
-            pass
-
-
-def _remove_pairs_from_watchlist(pairs: List[str]):
-    ws = get_websocket_manager()
-    for p in (pairs or []):
-        pair = str(p).upper()
-        WATCHED_PAIRS.discard(pair)
-        try:
-            if ws:
-                ws.close_connection(pair)
-        except Exception:
-            pass
-
-
-class _PairsUpdater(_Thread):
-    daemon = True
-
-    def run(self):
-        while True:
-            try:
-                ws = get_websocket_manager()
-                if ws:
-                    for pair in list(WATCHED_PAIRS):
-                        try:
-                            # гарантируем наличие соединения
-                            ws.create_connection(pair)
-                            data = ws.get_data(pair)
-                            if data is not None:
-                                MULTI_PAIRS_CACHE[pair] = {"ts": time.time(), "data": data}
-                        except Exception:
-                            # игнорируем точечные ошибки по конкретной паре
-                            pass
-                time.sleep(1.0)
-            except Exception:
-                # защитный блок, чтобы поток не падал
-                time.sleep(1.0)
+# WebSocket handlers and watchlist moved to handlers/websocket.py
+from handlers.websocket import (
+    WATCHED_PAIRS,
+    MULTI_PAIRS_CACHE,
+    api_get_watchlist_impl,
+    api_watch_pairs_impl,
+    api_unwatch_pairs_impl,
+    api_pairs_data_impl,
+)
 
 
 @app.route('/api/pairs/watchlist', methods=['GET'])
 def api_get_watchlist():
-    return jsonify({"success": True, "pairs": sorted(list(WATCHED_PAIRS))})
+    return api_get_watchlist_impl()
 
 
 @app.route('/api/pairs/watch', methods=['POST'])
 def api_watch_pairs():
-    try:
-        payload = request.get_json(silent=True) or {}
-        pairs = payload.get('pairs', [])
-        if not pairs:
-            return jsonify({"success": False, "error": "pairs[] пуст"}), 400
-        _add_pairs_to_watchlist(pairs)
-        return jsonify({"success": True, "added": [p.upper() for p in pairs]})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    return api_watch_pairs_impl()
 
 
 @app.route('/api/pairs/unwatch', methods=['POST'])
 def api_unwatch_pairs():
-    try:
-        payload = request.get_json(silent=True) or {}
-        pairs = payload.get('pairs', [])
-        if not pairs:
-            return jsonify({"success": False, "error": "pairs[] пуст"}), 400
-        _remove_pairs_from_watchlist(pairs)
-        return jsonify({"success": True, "removed": [p.upper() for p in pairs]})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    return api_unwatch_pairs_impl()
 
 
 @app.route('/api/pairs/data', methods=['GET'])
@@ -967,23 +823,7 @@ def api_pairs_data():
         else:
             pairs = sorted(list(WATCHED_PAIRS))
 
-        ws = get_websocket_manager()
-        result = {}
-        for pair in pairs:
-            if fresh and ws:
-                try:
-                    ws.create_connection(pair)
-                    data_now = ws.get_data(pair)
-                    if data_now is not None:
-                        MULTI_PAIRS_CACHE[pair] = {"ts": time.time(), "data": data_now}
-                except Exception:
-                    pass
-            cached = MULTI_PAIRS_CACHE.get(pair, {})
-            result[pair] = {
-                "ts": cached.get('ts'),
-                "data": cached.get('data')
-            }
-        return jsonify({"success": True, "pairs": result})
+        return api_pairs_data_impl()
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -1132,9 +972,9 @@ def get_breakeven_table():
         # Получаем текущую цену из WS
         current_price = 0.0
         try:
-            ws_manager = get_websocket_manager()
-            if ws_manager and base_for_price:
-                pd = ws_manager.get_data(f"{base_for_price}_USDT")
+            from handlers.websocket import ws_get_data
+            if base_for_price:
+                pd = ws_get_data(f"{base_for_price}_USDT")
                 if pd and pd.get('ticker') and pd['ticker'].get('last'):
                     current_price = float(pd['ticker']['last'])
         except Exception:
@@ -1225,7 +1065,8 @@ def start_autotrade():
                     return None
                 from gate_api_client import GateAPIClient
                 return GateAPIClient(acc['api_key'], acc['api_secret'], CURRENT_NETWORK_MODE)
-            ws_manager = get_websocket_manager()
+            from handlers.websocket import get_ws_manager
+            ws_manager = get_ws_manager()
             AUTO_TRADER = AutoTrader(_api_client_provider, ws_manager, state_manager)
         if not AUTO_TRADER.running:
             AUTO_TRADER.start()
@@ -1393,8 +1234,8 @@ def get_trade_indicators():
         currency_pair = f"{base_currency}_{quote_currency}".upper()
 
         # Данные из WebSocket
-        ws_manager = get_websocket_manager()
-        pair_data = ws_manager.get_data(currency_pair) if ws_manager else None
+        from handlers.websocket import ws_get_data
+        pair_data = ws_get_data(currency_pair)
 
         indicators = {
             "pair": currency_pair,
@@ -1901,8 +1742,8 @@ def quick_buy_min():
         
         # Получаем текущую цену (best ask)
         diagnostic_info['error_stage'] = 'get_market_data'
-        ws_manager = get_websocket_manager()
-        market_data = ws_manager.get_pair_data(base_currency, quote_currency)
+        from handlers.websocket import ws_get_data
+        market_data = ws_get_data(f"{base_currency}_{quote_currency}")
         
         if not market_data or 'orderbook' not in market_data:
             diagnostic_info['error_stage'] = 'no_market_data'
@@ -2188,8 +2029,8 @@ def quick_sell_all():
         
         # Получаем текущую цену (best bid)
         diagnostic_info['error_stage'] = 'get_market_data'
-        ws_manager = get_websocket_manager()
-        market_data = ws_manager.get_pair_data(base_currency, quote_currency)
+        from handlers.websocket import ws_get_data
+        market_data = ws_get_data(f"{base_currency}_{quote_currency}")
         
         if not market_data or 'orderbook' not in market_data:
             diagnostic_info['error_stage'] = 'no_market_data'
@@ -2401,7 +2242,7 @@ if __name__ == '__main__':
     else:
         print("[WARNING] API ключи не найдены, WebSocket работает в ограниченном режиме")
     
-    # Автоинициализация автотрейдера при старте если был включен ранее
+        # Автоинициализация автотрейдера при старте если был включен ранее
     try:
         if state_manager.get_auto_trade_enabled():
             def _api_client_provider():
@@ -2412,7 +2253,8 @@ if __name__ == '__main__':
                     return None
                 from gate_api_client import GateAPIClient
                 return GateAPIClient(acc['api_key'], acc['api_secret'], CURRENT_NETWORK_MODE)
-            ws_manager = get_websocket_manager()
+            from handlers.websocket import get_ws_manager
+            ws_manager = get_ws_manager()
             AUTO_TRADER = AutoTrader(_api_client_provider, ws_manager, state_manager)
             AUTO_TRADER.start()
             print('[INIT] Автотрейдер запущен (восстановлено из состояния)')
