@@ -11,6 +11,8 @@ def get_trade_logs_impl():
         currency = request.args.get('currency')
         formatted = request.args.get('formatted', '0') == '1'
 
+        print(f"[API] get_trade_logs_impl: currency={currency}, limit={limit}, formatted={formatted}")
+
         try:
             limit = int(limit)
         except Exception:
@@ -19,12 +21,17 @@ def get_trade_logs_impl():
         # Если валюта не указана, попробуем автоматически выбрать первую валюту с логами
         if not currency:
             available = trade_logger.get_currencies_with_logs()
+            print(f"[API] No currency specified, available currencies with logs: {available}")
             if available and len(available) > 0:
                 # используем первую найденную валюту
                 currency = available[0]
+                print(f"[API] Auto-selected currency: {currency}")
             else:
                 # Нет логов ни для одной валюты
+                print("[API] No logs available for any currency")
                 return jsonify({'success': True, 'logs': [], 'count': 0, 'currency': None})
+
+        print(f"[API] Final currency to load: {currency}")
 
         if formatted:
             logs = trade_logger.get_formatted_logs(limit=limit, currency=currency)

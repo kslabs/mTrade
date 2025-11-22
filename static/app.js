@@ -81,12 +81,136 @@ function fallbackCopyText(text) {
 const $=id=>document.getElementById(id);
 let currentNetworkMode='work';
 let currentBaseCurrency=null; // Будет установлено после загрузки currencies
+try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
 let currentQuoteCurrency='USDT';
+try{ window.currentQuoteCurrency = currentQuoteCurrency; }catch(_){/* noop */}
+let currencySetByUser = false; // Флаг, что валюта была установлена пользователем
 let currenciesList=[];
 let currentPairPricePrecision=8; // Точность цены для текущей пары (по умолчанию 8)
 let autoTradeActive=false;
 let autoTradeEnabled = true; // По умолчанию включено (ON), будет загружено из state
 let tradingPermissions = {}; // статус разрешений торговли
+
+// --- On-page debug panel --------------------------------------------------
+// Creates a small debug panel on the page which collects DEBUG messages
+// Use window.uiDebugLog(message, level) from any script to append messages
+window.uiDebugLog = function(msg, level='DEBUG'){
+  try{
+    if(!window.__uiDebugPanel){
+      // create container lazily
+      const panel = document.createElement('div');
+      panel.id = 'uiDebugPanel';
+      panel.style.position = 'fixed';
+      panel.style.right = '12px';
+      panel.style.bottom = '12px';
+      panel.style.width = '420px';
+      panel.style.maxHeight = '40vh';
+      panel.style.overflow = 'auto';
+      panel.style.background = 'rgba(18,18,18,0.92)';
+      panel.style.color = '#ddd';
+      panel.style.border = '1px solid rgba(255,255,255,0.06)';
+      panel.style.borderRadius = '8px';
+      panel.style.fontSize = '12px';
+      panel.style.zIndex = 99999;
+      panel.style.padding = '8px';
+      panel.style.boxShadow = '0 6px 18px rgba(0,0,0,0.6)';
+
+      const header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'center';
+      header.style.marginBottom = '6px';
+
+      const title = document.createElement('div');
+      title.textContent = 'DEBUG PANEL';
+      title.style.fontWeight = '700';
+      title.style.color = '#fff';
+      title.style.letterSpacing = '0.6px';
+      header.appendChild(title);
+
+      const controls = document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.gap = '6px';
+
+      const clearBtn = document.createElement('button');
+      clearBtn.textContent = 'Clear';
+      clearBtn.style.background = '#333';
+      clearBtn.style.color = '#fff';
+      clearBtn.style.border = 'none';
+      clearBtn.style.padding = '4px 8px';
+      clearBtn.style.borderRadius = '4px';
+      clearBtn.onclick = () => { panel.querySelector('.dbg-body').innerHTML = ''; };
+
+      const copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy';
+      copyBtn.style.background = '#1f6feb';
+      copyBtn.style.color = '#fff';
+      copyBtn.style.border = 'none';
+      copyBtn.style.padding = '4px 8px';
+      copyBtn.style.borderRadius = '4px';
+      copyBtn.onclick = () => {
+        const text = [...panel.querySelectorAll('.dbg-row')].map(n=>n.textContent).join('\n');
+        navigator.clipboard?.writeText(text).then(()=>{ copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy',1000) });
+      };
+
+      controls.appendChild(clearBtn);
+      controls.appendChild(copyBtn);
+      header.appendChild(controls);
+
+      const body = document.createElement('div');
+      body.className = 'dbg-body';
+      body.style.maxHeight = 'calc(40vh - 36px)';
+      body.style.overflow = 'auto';
+      body.style.padding = '4px';
+
+      panel.appendChild(header);
+      panel.appendChild(body);
+      document.body.appendChild(panel);
+
+      window.__uiDebugPanel = panel;
+      window.__uiDebugBuffer = [];
+    }
+
+    const timestamp = new Date().toLocaleTimeString();
+    const row = document.createElement('div');
+    row.className = 'dbg-row';
+    row.style.padding = '4px 6px';
+    row.style.borderBottom = '1px dashed rgba(255,255,255,0.03)';
+    row.style.fontFamily = 'monospace';
+    row.style.fontSize = '12px';
+    row.textContent = `[${timestamp}] ${level}: ${msg}`;
+
+    // cap buffer size
+    const body = window.__uiDebugPanel.querySelector('.dbg-body');
+    body.insertBefore(row, body.firstChild);
+    window.__uiDebugBuffer.unshift(row.textContent);
+    if(window.__uiDebugBuffer.length > 400){
+      window.__uiDebugBuffer.pop();
+      const nodes = body.querySelectorAll('.dbg-row');
+      if(nodes.length>400) nodes[nodes.length-1].remove();
+    }
+    return true;
+  }catch(e){ console.error('uiDebugLog err', e); return false; }
+};
+
+// ------------------ Watcher для currentBaseCurrency ---------------------
+// Если значение меняется в рантайме — пишем в debug панель (с небольшой подписью стека)
+try{
+  window.__lastObservedBaseCurrency = currentBaseCurrency;
+  setInterval(()=>{
+    try{
+      if(window.__lastObservedBaseCurrency !== currentBaseCurrency){
+        const from = window.__lastObservedBaseCurrency;
+        const to = currentBaseCurrency;
+        window.__lastObservedBaseCurrency = currentBaseCurrency;
+        const stack = (new Error()).stack || '';
+        const shortStack = stack.split('\n').slice(2,7).map(s=>s.trim()).join(' | ');
+        if(window.uiDebugLog) window.uiDebugLog(`currentBaseCurrency changed ${from} -> ${to}  stack: ${shortStack}`,'CHANGE');
+        else console.debug('currentBaseCurrency changed', from, '->', to);
+      }
+    }catch(e){/* nop */}
+  }, 400);
+}catch(e){ console.warn('currency watcher not started', e); }
 
 // UI State Manager - простой менеджер для сохранения состояния UI
 const UIStateManager = {
@@ -417,9 +541,11 @@ async function loadNetworkMode(){
   }
 }
 async function loadCurrenciesFromServer(){
+  console.log('[DEBUG] loadCurrenciesFromServer called');
   try{
     const r=await fetch('/api/currencies');
     const d=await r.json();
+    console.log('[DEBUG] loadCurrenciesFromServer response:', d);
     if(d.success&&Array.isArray(d.currencies)){
       currenciesList=d.currencies;
       renderCurrencyTabs(currenciesList);
@@ -442,8 +568,12 @@ function renderCurrencyTabs(list){
   }
   // Установить активную валюту: если текущая есть в списке - оставляем, иначе - первая из списка
   const codes=new Set(norm.map(o=>o.code));
-  if(!currentBaseCurrency || !codes.has(currentBaseCurrency)){
+  console.log('[DEBUG] renderCurrencyTabs: currentBaseCurrency:', currentBaseCurrency, 'currencySetByUser:', currencySetByUser, 'codes:', Array.from(codes));
+  if((!currentBaseCurrency || !codes.has(currentBaseCurrency)) && !currencySetByUser){
+    const oldCurrency = currentBaseCurrency;
     currentBaseCurrency=norm[0].code;
+    try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
+    console.log('[DEBUG] renderCurrencyTabs: changed currentBaseCurrency from', oldCurrency, 'to', currentBaseCurrency);
     logDbg('установлена активная валюта: '+currentBaseCurrency);
   }
   norm.forEach(cur=>{
@@ -469,7 +599,12 @@ function updatePairNameUI(){
   if(obQuote) obQuote.textContent=currentQuoteCurrency;
 }
 async function switchBaseCurrency(code){
+  const oldCurrency = currentBaseCurrency;
   currentBaseCurrency=code.toUpperCase();
+  // keep window property in sync so other modules using window.currentBaseCurrency see correct value
+  try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
+  currencySetByUser = true; // Валюта установлена пользователем
+  console.log('[DEBUG] switchBaseCurrency: changed from', oldCurrency, 'to', currentBaseCurrency);
   const cont=$('currencyTabsContainer');
   if(cont){
     [...cont.querySelectorAll('.tab-item')].forEach(n=>n.classList.toggle('active',n.dataset.code===currentBaseCurrency));
@@ -486,12 +621,13 @@ async function switchBaseCurrency(code){
   await loadBreakEvenTable();  // Таблица автоматически обновится с новыми параметрами
   
   // Сохраняем выбор базовой валюты в UI state
-  await UIStateManager.savePartial({baseCurrency: currentBaseCurrency});
+  await UIStateManager.savePartial({active_base_currency: currentBaseCurrency});
 }
 async function changeQuoteCurrency(){
   const sel=document.querySelector('#quoteCurrency');
   if(!sel) return;
   currentQuoteCurrency=sel.value.toUpperCase();
+  try{ window.currentQuoteCurrency = currentQuoteCurrency; }catch(_){/* noop */}
   updatePairNameUI();
   logDbg(`changeQuoteCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
   await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
@@ -507,6 +643,7 @@ async function changeQuoteCurrency(){
 async function switchQuoteCurrency(newQuote){
   if(!newQuote) return;
   currentQuoteCurrency=newQuote.toUpperCase();
+  try{ window.currentQuoteCurrency = currentQuoteCurrency; }catch(_){/* noop */}
   
   // Синхронизируем оба селектора, если старый существует
   const oldSel=document.querySelector('#quoteCurrency');
@@ -526,7 +663,7 @@ async function switchQuoteCurrency(newQuote){
   await loadBreakEvenTable();
   
   // Сохраняем выбор котируемой валюты в UI state
-  await UIStateManager.savePartial({quoteCurrency: currentQuoteCurrency});
+  await UIStateManager.savePartial({active_quote_currency: currentQuoteCurrency});
 }
 async function loadPairParams(force){
   try{
@@ -1176,6 +1313,7 @@ function updateAutoTradeUI(){
 
 // Загрузка состояния UI с сервера
 async function loadUIState() {
+  console.log('[DEBUG] loadUIState called, currencySetByUser:', currencySetByUser, 'currentBaseCurrency:', currentBaseCurrency);
   try {
     const response = await fetch('/api/ui/state');
     const result = await response.json();
@@ -1204,12 +1342,16 @@ async function loadUIState() {
       }
       
       // Восстанавливаем активную валютную пару
-      if (state.active_base_currency) {
+      if (state.active_base_currency && !currencySetByUser) {
+        const oldCurrency = currentBaseCurrency;
         currentBaseCurrency = state.active_base_currency;
+        try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
+        console.log('[DEBUG] loadUIState: changed currentBaseCurrency from', oldCurrency, 'to', currentBaseCurrency);
         logDbg('UI State: базовая валюта восстановлена - ' + currentBaseCurrency);
       }
       if (state.active_quote_currency) {
         currentQuoteCurrency = state.active_quote_currency;
+        console.log('[DEBUG] loadUIState: set currentQuoteCurrency to', currentQuoteCurrency);
         // Синхронизируем селектор котируемой валюты в заголовке
         const quoteSel = document.querySelector('#quoteCurrencySelect');
         if (quoteSel) quoteSel.value = currentQuoteCurrency;
@@ -1490,7 +1632,10 @@ async function initApp(){
 
     // 4. Синхронизируем текущую котируемую валюту из селектора (если есть)
     const sel=document.querySelector('#quoteCurrencySelect') || document.querySelector('#quoteCurrency');
-    if(sel) currentQuoteCurrency=sel.value.toUpperCase();
+    if(sel) {
+      currentQuoteCurrency=sel.value.toUpperCase();
+      try{ window.currentQuoteCurrency = currentQuoteCurrency; }catch(_){/* noop */}
+    }
 
     // 5. Загружаем список валют и строим вкладки
     await loadCurrenciesFromServer();

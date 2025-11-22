@@ -199,7 +199,11 @@
         <div class="card breakeven-table">
             <div class="params-header">
                 <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;">
-                    <span>📊 Таблица безубыточности</span>
+                    <div class="view-toggle-group">
+                        <button id="btn-view-breakeven" class="view-toggle-btn active">Таблица безубыточности</button>
+                        <span class="view-toggle-separator">/</span>
+                        <button id="btn-view-logs" class="view-toggle-btn">Логи</button>
+                    </div>
                 </h3>
                 <div class="params-header-actions">
                     <div id="paramsSaveStatus" class="params-save-status"></div>
@@ -288,6 +292,25 @@
                         <tr><td colspan="10" style="padding:12px;text-align:center;color:#999;">Загрузка данных...</td></tr>
                     </tbody>
                 </table>
+                </div>
+            </div>
+            
+            <!-- Trade Logs Container -->
+            <div id="trade-logs-container" class="trade-logs-content" style="display:none;">
+                <div class="logs-header">
+                    <h3 style="margin:0 0 8px 0;color:#fff;font-size:16px;">Логи торгов</h3>
+                </div>
+                <div class="logs-toolbar" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+                    <button id="btn-refresh-logs" class="btn-secondary" style="padding:4px 8px;font-size:12px;">🔄 Обновить</button>
+                    <button id="btn-clear-logs" class="btn-danger" style="padding:4px 8px;font-size:12px;">🗑️ Очистить</button>
+                    <div class="logs-stats" style="margin-left:auto;font-size:12px;color:#999;">
+                        <span id="logs-count">0</span> записей
+                    </div>
+                </div>
+                <div class="logs-content" id="logs-content" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:4px;max-height:400px;overflow-y:auto;padding:8px;">
+                    <div id="logs-list" style="font-family:monospace;font-size:11px;color:#e0e0e0;">
+                        <div style="text-align:center;color:#666;padding:20px;">Загрузка логов...</div>
+                    </div>
                 </div>
             </div>
         </div>

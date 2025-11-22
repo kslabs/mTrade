@@ -1211,8 +1211,8 @@ if __name__ == '__main__':
     print("[INIT] Инициализация WebSocket менеджера...")
     api_key, api_secret = Config.load_secrets_by_mode(CURRENT_NETWORK_MODE)
     if api_key and api_secret:
-        init_websocket_manager(api_key, api_secret, CURRENT_NETWORK_MODE)
-        print("[INIT] WebSocket менеджер инициализирован")
+        # init_websocket_manager(api_key, api_secret, CURRENT_NETWORK_MODE)
+        print("[INIT] WebSocket менеджер временно отключен для тестирования")
     else:
         print("[WARNING] API ключи не найдены, WebSocket работает в ограниченном режиме")
     
