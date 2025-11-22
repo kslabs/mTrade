@@ -1,46 +1,50 @@
 [
   {
-    "code": "BTC",
-    "symbol": "₿"
-  },
-  {
-    "code": "WLD",
-    "symbol": "🌐"
-  },
-  {
     "code": "ETH",
     "symbol": "Ξ"
+  },
+  {
+    "code": "XRP",
+    "symbol": "Ʀ"
   },
   {
     "code": "SOL",
     "symbol": "◎"
   },
   {
-    "code": "BNB",
-    "symbol": "🔶"
-  },
-  {
-    "code": "XRP",
-    "symbol": "✕"
+    "code": "DOGE",
+    "symbol": "Ð"
   },
   {
     "code": "ADA",
     "symbol": "₳"
   },
   {
+    "code": "LINK",
+    "symbol": "◬"
+  },
+  {
+    "code": "XLM",
+    "symbol": "*"
+  },
+  {
+    "code": "LTC",
+    "symbol": "Ł"
+  },
+  {
+    "code": "BNB",
+    "symbol": "Ⓑ"
+  },
+  {
     "code": "AVAX",
-    "symbol": "🔺"
+    "symbol": "▲"
   },
   {
     "code": "DOT",
-    "symbol": "⬤"
-  },
-  {
-    "code": "DOGE",
-    "symbol": "💠"
+    "symbol": "●"
   },
   {
     "code": "GT",
-    "symbol": ""
+    "symbol": "GT"
   }
 ]

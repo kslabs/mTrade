@@ -12,13 +12,17 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     - start_price: Начальная цена (P0), 0 = использовать current_price
     - pprof: Pprof, %
     - kprof: Kprof
-    - target_r: ↑ БезУб, % (цель R)
+    - target_r: R - шаг изменения процента закупки (точность 3 знака после запятой)
+    - rk: Rk - коэффициент изменения шага процента закупки (точность 3 знака после запятой)
     - geom_multiplier: Множитель геометрии
     - rebuy_mode: Режим сумм докупок (fixed, geometric, martingale)
     
+    Формула расчёта процента снижения на шаге: decrease_step_pct = -((# × Rk) + R)
+    
     Возвращает список строк таблицы с полями:
     - step: номер шага (0, 1, 2, ...)
-    - decrease_pct: ↓, % (процент снижения)
+    - decrease_step_pct: ↓Δ,% (процент снижения на шаге, рассчитывается по формуле выше)
+    - cumulative_decrease_pct: ↓, % (накопленная сумма процентов снижения)
     - rate: Курс
     - purchase_usd: Покупка, $
     - total_invested: Инв.Сумм,$
@@ -32,7 +36,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     start_price = params.get('start_price', 0.0)
     pprof = params.get('pprof', 0.6)
     kprof = params.get('kprof', 0.02)
-    target_r = params.get('target_r', 3.65)
+    target_r = params.get('target_r', 3.65)  # Параметр R - шаг изменения процента закупки
+    rk = params.get('rk', 0.0)  # Параметр Rk - коэффициент изменения шага процента закупки
     geom_multiplier = params.get('geom_multiplier', 2.0)
     rebuy_mode = params.get('rebuy_mode', 'geometric')
     
@@ -40,22 +45,23 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     if start_price == 0 or start_price is None:
         start_price = current_price if current_price > 0 else 1.0
     
-    # Вычисляем шаг снижения из target_r и количества шагов
-    # target_r - это целевой процент роста для безубытка
-    # Формула: step_decrease = target_r / steps
-    step_decrease = target_r / steps if steps > 0 else 0.5
-    
     table_data = []
+    cumulative_decrease = 0.0  # Накопленная сумма процентов снижения
     
     for step in range(steps + 1):
         # 1. # - номер шага
         step_num = step
         
-        # 2. ↓, % - процент снижения курса на каждом шаге
-        decrease_pct = -step * step_decrease if step > 0 else 0.0
+        # 2. ↓Δ,% - процент снижения курса на каждом шаге
+        # Формула: -((# × Rk) + R)
+        decrease_step_pct = -((step * rk) + target_r) if step > 0 else 0.0
+        
+        # 2.1. ↓, % - накопленная сумма процентов снижения
+        if step > 0:
+            cumulative_decrease += decrease_step_pct
         
         # 3. Курс - расчетный курс относительно стартового
-        rate = start_price * (1 + decrease_pct / 100.0)
+        rate = start_price * (1 + cumulative_decrease / 100.0)
         
         # 4. Покупка, $ - сумма покупки на этом шаге
         if step == 0:
@@ -88,6 +94,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
         # 6. Ц.БезУб,$ - цена безубыточности (с учетом комиссий)
         # Рассчитываем общее количество купленных монет
         total_coins = 0
+        step_cumulative = 0.0  # Накопленная сумма для расчёта курсов покупки
+        
         for s in range(step + 1):
             if s == 0:
                 step_purchase = start_volume
@@ -101,7 +109,14 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
                 else:
                     step_purchase = start_volume * (geom_multiplier ** s)
             
-            step_rate = start_price * (1 - s * step_decrease / 100.0)
+            # Используем накопленную сумму процентов для расчёта курса покупки
+            # Формула шага: -((# × Rk) + R)
+            step_decrease = -((s * rk) + target_r) if s > 0 else 0.0
+            if s > 0:
+                step_cumulative += step_decrease
+            
+            # Курс покупки на шаге s рассчитывается от накопленной суммы
+            step_rate = start_price * (1 + step_cumulative / 100.0)
             if step_rate > 0:
                 total_coins += step_purchase / step_rate
         
@@ -123,7 +138,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
         
         table_data.append({
             'step': step_num,
-            'decrease_pct': decrease_pct,
+            'decrease_step_pct': decrease_step_pct,
+            'cumulative_decrease_pct': cumulative_decrease,
             'rate': rate,
             'purchase_usd': purchase_usd,
             'total_invested': total_invested,

@@ -120,7 +120,13 @@ class Config:
         if os.path.exists(Config.CURRENCIES_FILE):
             try:
                 with open(Config.CURRENCIES_FILE, 'r', encoding='utf-8') as f:
-                    currencies = json.load(f)
+                    data = json.load(f)
+                    # Поддержка нового формата (объект с ключом currencies)
+                    if isinstance(data, dict) and 'currencies' in data:
+                        currencies = data['currencies']
+                    else:
+                        # Старый формат (просто массив)
+                        currencies = data
                     return currencies if currencies else default_currencies
             except Exception as e:
                 print(f"[ERROR] Ошибка загрузки currencies.json: {e}")

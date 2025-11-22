@@ -196,7 +196,8 @@ server_control_routes = ServerControlRoutes(
     app,
     account_manager,
     get_current_network_mode,
-    server_start_time
+    server_start_time,
+    trading_engines
 )
 
 # =============================================================================
