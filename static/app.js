@@ -667,15 +667,63 @@ async function switchQuoteCurrency(newQuote){
 }
 async function loadPairParams(force){
   try{
-    const r=await fetch(`/api/pair/info?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}${force?'&force=1':''}`);
-    const d=await r.json();
-    if(d.success){
-      const info=d.data||{};
+    // Сначала попытка получить подробную инфу по паре (/api/pair/info)
+    let info = null;
+    try{
+      const r=await fetch(`/api/pair/info?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}${force?'&force=1':''}`);
+      const d=await r.json();
+      if(d && d.success && d.data){
+        info = d.data;
+      }
+    }catch(e){ logDbg('loadPairParams info fetch err '+e); }
+
+    // Если данных по паре нет — делаем fallback к /api/pair/data (используем ticker/orderbook для вычислений)
+    if(!info){
+      try{
+        const r2 = await fetch(`/api/pair/data?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}${force?'&force=1':''}`);
+        const d2 = await r2.json();
+        const market = d2 && d2.data ? d2.data : null;
+        info = {
+          min_quote_amount: null,
+          min_base_amount: null,
+          amount_precision: null,
+          price_precision: null
+        };
+
+        // Попробуем вычислить price_precision по текущей цене
+        const last = market && market.ticker && market.ticker.last ? parseFloat(market.ticker.last) : null;
+        if(last && isFinite(last)){
+          // использовать ту же логику, что и в loadMarketData
+          let pp = 5;
+          if(last >= 10) pp = 2;
+          else if(last >= 1) pp = 3;
+          else if(last >= 0.1) pp = 4;
+          info.price_precision = pp;
+        }
+
+        // Для amount_precision посмотрим на первый элемент стакана (asks/bids) и посчитаем дробную длину
+        const sampleAmount = (market && market.orderbook && Array.isArray(market.orderbook.asks) && market.orderbook.asks[0] && market.orderbook.asks[0][1])
+          || (market && market.orderbook && Array.isArray(market.orderbook.bids) && market.orderbook.bids[0] && market.orderbook.bids[0][1]);
+        if(sampleAmount){
+          const s = String(sampleAmount);
+          if(s.indexOf('.')>=0){
+            info.amount_precision = s.split('.')[1].length;
+          } else info.amount_precision = 0;
+        }
+
+        // If still empty, pick reasonable defaults
+        if(info.amount_precision==null) info.amount_precision = 8;
+        if(info.price_precision==null) info.price_precision = 2;
+      }catch(e){ logDbg('loadPairParams data fallback err '+e); }
+    }
+
+    // Применяем info (если есть)
+    if(info){
       if($('minQuoteAmount')) $('minQuoteAmount').textContent=info.min_quote_amount!=null?String(info.min_quote_amount):'-';
       if($('minBaseAmount')) $('minBaseAmount').textContent=info.min_base_amount!=null?String(info.min_base_amount):'-';
       if($('amountPrecision')) $('amountPrecision').textContent=info.amount_precision!=null?String(info.amount_precision):'-';
       if($('pricePrecision')) $('pricePrecision').textContent=info.price_precision!=null?String(info.price_precision):'-';
-      
+
       // Сохраняем точность цены для использования в таблице безубыточности
       if(info.price_precision!=null){
         currentPairPricePrecision = parseInt(info.price_precision);
