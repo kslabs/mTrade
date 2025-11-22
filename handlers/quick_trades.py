@@ -5,7 +5,9 @@ import traceback
 from config import Config
 from gate_api_client import GateAPIClient
 from trade_logger import get_trade_logger
+from breakeven_calculator import calculate_breakeven_table
 from state_manager import get_state_manager
+import math
 
 
 def quick_buy_min_impl():
@@ -97,7 +99,18 @@ def quick_buy_min_impl():
         best_ask = float(orderbook['asks'][orderbook_level - 1][0])
         diagnostic_info['selected_ask'] = best_ask
 
+        # Use the breakeven table's first row purchase_usd as the authoritative "start" amount
         start_volume = float(breakeven_params.get('start_volume', 10.0))
+        try:
+            table = calculate_breakeven_table(breakeven_params, diagnostic_info.get('selected_ask') or best_ask)
+            if isinstance(table, list) and len(table) > 0 and table[0].get('purchase_usd') is not None:
+                # table[0]['purchase_usd'] may be string or numeric
+                pu = float(table[0]['purchase_usd'])
+                start_volume = pu
+                diagnostic_info['start_from_table'] = True
+        except Exception:
+            # fallback to configured start_volume on any error
+            pass
         diagnostic_info['start_volume'] = start_volume
         api_min_quote = diagnostic_info['api_min_quote']
         if start_volume < api_min_quote:
@@ -107,26 +120,25 @@ def quick_buy_min_impl():
         if diagnostic_info.get('balance_usdt') is not None and diagnostic_info['balance_usdt'] < start_volume:
             diagnostic_info['error_stage'] = 'insufficient_balance'
             return jsonify({'success': False, 'error': f'Недостаточно {quote_currency} для покупки', 'details': diagnostic_info}), 400
-
-            import math
-            amount = start_volume / best_ask
-            amount_precision = int(pair_info.get('amount_precision', 8))
-            unit = 1.0 / (10 ** amount_precision)
-            # округляем вверх до ближайшей минимальной единицы (ceil), чтобы сумма >= start_volume
-            amount = math.ceil(amount / unit) * unit
-            # Убедимся, что количество не меньше min_base_amount (если указано)
-            try:
-                min_b = float(pair_info.get('min_base_amount') or 0)
-                if amount < min_b:
-                    amount = math.ceil(min_b / unit) * unit
-            except Exception:
-                pass
-            # Проверим, чтобы итоговая сумма в котируемой валюте была >= api_min_quote
+        # compute amount based on authoritative start_volume and apply rounding up to precision
+        amount = start_volume / best_ask
+        amount_precision = int(pair_info.get('amount_precision', 8))
+        unit = 1.0 / (10 ** amount_precision)
+        # округляем вверх до ближайшей минимальной единицы (ceil), чтобы сумма >= start_volume
+        amount = math.ceil(amount / unit) * unit
+        # Убедимся, что количество не меньше min_base_amount (если указано)
+        try:
+            min_b = float(pair_info.get('min_base_amount') or 0)
+            if amount < min_b:
+                amount = math.ceil(min_b / unit) * unit
+        except Exception:
+            pass
+        # Проверим, чтобы итоговая сумма в котируемой валюте была >= api_min_quote
+        total = amount * best_ask
+        api_min = float(api_min_quote or 0)
+        while api_min > 0 and total < api_min:
+            amount += unit
             total = amount * best_ask
-            api_min = float(api_min_quote or 0)
-            while api_min > 0 and total < api_min:
-                amount += unit
-                total = amount * best_ask
         diagnostic_info['amount'] = amount
         amount_str = f"{amount:.{amount_precision}f}"
 
