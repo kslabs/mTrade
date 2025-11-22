@@ -83,6 +83,11 @@ except Exception:
 # Контейнер для движков по аккаунтам
 trading_engines = {}
 
+# Cache for pair info fallback
+PAIR_INFO_CACHE = {}
+# Default TTL for cached pair info (seconds)
+PAIR_INFO_CACHE_TTL = 3600  # 1 hour
+
 # Глобальный экземпляр автотрейдера (инициализируется позже)
 AUTO_TRADER = None
 
@@ -686,6 +691,108 @@ def get_pair_info():
     }
 
     PAIR_INFO_CACHE[currency_pair] = {"ts": now, "data": pair_info, "debug": debug_block}
+
+    # Если min values отсутствуют — сначала посмотрим в локальном репозитории pair_minimums.json
+    # (это позволяет сохранять исправленные минимальные объёмы в репозитории с комментариями на русском)
+    try:
+        repo_min_file = os.path.join(os.path.dirname(__file__), 'pair_minimums.json')
+        if os.path.exists(repo_min_file):
+            try:
+                with open(repo_min_file, 'r', encoding='utf-8') as rf:
+                    repo_mins = json.load(rf)
+                # Ищем по базовой валюте
+                rbase = base_currency.upper()
+                if isinstance(repo_mins, dict) and rbase in repo_mins:
+                    entry = repo_mins[rbase]
+                    # Заполняем min_base_amount из репозитория, если отсутствует
+                    if pair_info.get('min_base_amount') is None and entry.get('min_base_amount') is not None:
+                        try:
+                            pair_info['min_base_amount'] = entry.get('min_base_amount')
+                            # отмечаем источник для диагоностки
+                            if isinstance(debug_block, dict):
+                                debug_block['repo_source'] = rbase
+                        except Exception:
+                            pass
+                    # Если в репозитории есть min_quote_amount — используем
+                    if pair_info.get('min_quote_amount') is None and entry.get('min_quote_amount') is not None:
+                        try:
+                            pair_info['min_quote_amount'] = entry.get('min_quote_amount')
+                            if isinstance(debug_block, dict):
+                                debug_block['repo_quote_source'] = rbase
+                        except Exception:
+                            pass
+            except Exception:
+                # не критично — просто продолжим с дальнейшими fallback
+                pass
+    except Exception:
+        pass
+
+    # Если min values по-прежнему отсутствуют — попытаемся вычислить их из рыночных данных (orderbook/ticker)
+    try:
+        if (pair_info.get('min_base_amount') is None) or (pair_info.get('min_quote_amount') is None):
+            from handlers.websocket import ws_get_data
+            md = ws_get_data(currency_pair)
+            min_base = None
+            if md and isinstance(md, dict):
+                ob = md.get('orderbook') or {}
+                amounts = []
+                for side in ('asks','bids'):
+                    for it in ob.get(side, [])[:50]:
+                        # item: [price, amount]
+                        try:
+                            amt = float(it[1])
+                        except Exception:
+                            continue
+                        if amt > 0:
+                            amounts.append(amt)
+                if amounts:
+                    min_base = min(amounts)
+
+                # если нашёлся min_base — заполним min_base_amount
+                if min_base is not None and pair_info.get('min_base_amount') is None:
+                    pair_info['min_base_amount'] = min_base
+
+                # вычислим min_quote_amount как min_base * текущая цена
+                price = None
+                try:
+                    if md.get('ticker') and md['ticker'].get('last'):
+                        price = float(md['ticker']['last'])
+                except Exception:
+                    price = None
+                if price is None:
+                    # fallback to best ask/bid
+                    try:
+                        best_ask = ob.get('asks', [])[0][0] if ob.get('asks') else None
+                        best_bid = ob.get('bids', [])[0][0] if ob.get('bids') else None
+                        if best_ask:
+                            price = float(best_ask)
+                        elif best_bid:
+                            price = float(best_bid)
+                    except Exception:
+                        price = None
+
+                if price is not None and min_base is not None and pair_info.get('min_quote_amount') is None:
+                    try:
+                        pair_info['min_quote_amount'] = float(min_base) * float(price)
+                    except Exception:
+                        pass
+
+            # Если всё ещё нет min_base, попробуем вывести из amount_precision
+            if pair_info.get('min_base_amount') is None and pair_info.get('amount_precision') is not None:
+                try:
+                    ap = int(pair_info.get('amount_precision'))
+                    if ap >= 0:
+                        pair_info['min_base_amount'] = 1 / (10 ** ap)
+                except Exception:
+                    pass
+    except Exception as _e:
+        print('[PAIR_INFO] fallback compute min amounts failed:', _e)
+
+    # Log computed values for diagnostics (server-side)
+    try:
+        print(f"[PAIR_INFO] pair={currency_pair} computed min_base={pair_info.get('min_base_amount')} min_quote={pair_info.get('min_quote_amount')} price_precision={pair_info.get('price_precision')} amount_precision={pair_info.get('amount_precision')} source={used_source}")
+    except Exception:
+        pass
 
     resp = {"success": True, "pair": currency_pair, "data": pair_info, "cached": False}
     if debug:
