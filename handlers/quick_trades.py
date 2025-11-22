@@ -108,9 +108,25 @@ def quick_buy_min_impl():
             diagnostic_info['error_stage'] = 'insufficient_balance'
             return jsonify({'success': False, 'error': f'Недостаточно {quote_currency} для покупки', 'details': diagnostic_info}), 400
 
-        amount = start_volume / best_ask
-        amount_precision = int(pair_info.get('amount_precision', 8))
-        amount = round(amount, amount_precision)
+            import math
+            amount = start_volume / best_ask
+            amount_precision = int(pair_info.get('amount_precision', 8))
+            unit = 1.0 / (10 ** amount_precision)
+            # округляем вверх до ближайшей минимальной единицы (ceil), чтобы сумма >= start_volume
+            amount = math.ceil(amount / unit) * unit
+            # Убедимся, что количество не меньше min_base_amount (если указано)
+            try:
+                min_b = float(pair_info.get('min_base_amount') or 0)
+                if amount < min_b:
+                    amount = math.ceil(min_b / unit) * unit
+            except Exception:
+                pass
+            # Проверим, чтобы итоговая сумма в котируемой валюте была >= api_min_quote
+            total = amount * best_ask
+            api_min = float(api_min_quote or 0)
+            while api_min > 0 and total < api_min:
+                amount += unit
+                total = amount * best_ask
         diagnostic_info['amount'] = amount
         amount_str = f"{amount:.{amount_precision}f}"
 

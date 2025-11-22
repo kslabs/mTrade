@@ -565,39 +565,40 @@ class AutoTrader:
 
             return {'success': True, 'filled': amount_base, 'simulated': True}
 
-        print(f"[AutoTrader][{base}] 📤 Отправка {side.upper()} FOK-ордера: {amount_base:.8f} {base} по цене {limit_price:.8f}")
+        pi = self._get_pair_info(base, quote)
+        try:
+            amt_prec = int(pi.get('amount_precision', 8))
+        except Exception:
+            amt_prec = 8
+        try:
+            price_prec = int(pi.get('price_precision', 8))
+        except Exception:
+            price_prec = 8
+        print(f"[AutoTrader][{base}] 📤 Отправка {side.upper()} FOK-ордера: {amount_base:.{amt_prec}f} {base} по цене {limit_price:.{price_prec}f}")
 
         # Только FOK, без fallback на IOC
 
         try:
 
             result_fok = api_client.create_spot_order(
-
                 currency_pair=currency_pair,
-
                 side=side,
-
-                amount=f"{amount_base:.8f}",
-
-                price=f"{limit_price:.8f}",
-
+                amount=f"{amount_base:.{amt_prec}f}",
+                price=f"{limit_price:.{price_prec}f}",
                 order_type='limit',
-
                 time_in_force='fok'
-
             )
 
             filled = self._parse_filled_amount(result_fok)
 
             if filled >= amount_base * 0.999:
-
-                print(f"[AutoTrader][{base}] ✅ FOK ордер исполнен: {filled:.8f} {base}")
+                print(f"[AutoTrader][{base}] ✅ FOK ордер исполнен: {filled:.{amt_prec}f} {base}")
 
                 return {'success': True, 'filled': filled, 'order': result_fok, 'tif': 'fok'}
 
             else:
 
-                print(f"[AutoTrader][{base}] ❌ FOK не исполнен полностью: {filled:.8f}/{amount_base:.8f}")
+                print(f"[AutoTrader][{base}] ❌ FOK не исполнен полностью: {filled:.{amt_prec}f}/{amount_base:.{amt_prec}f}")
 
                 return {'success': False, 'filled': filled, 'order': result_fok, 'tif': 'fok_partial'}
 
@@ -647,7 +648,7 @@ class AutoTrader:
 
             return self._pair_info_cache[pair]
 
-        info = {"min_quote_amount": 0.0, "min_base_amount": 0.0}
+        info = {"min_quote_amount": 0.0, "min_base_amount": 0.0, "amount_precision": 8, "price_precision": 8}
 
         try:
 
@@ -658,8 +659,15 @@ class AutoTrader:
             if isinstance(raw, dict) and str(raw.get('id','')).upper() == pair:
 
                 info["min_quote_amount"] = float(raw.get('min_quote_amount') or 0)
-
                 info["min_base_amount"] = float(raw.get('min_base_amount') or 0)
+                try:
+                    info['amount_precision'] = int(raw.get('amount_precision', info['amount_precision']))
+                except Exception:
+                    pass
+                try:
+                    info['price_precision'] = int(raw.get('precision', info['price_precision']))
+                except Exception:
+                    pass
 
             else:
 
@@ -674,8 +682,15 @@ class AutoTrader:
                         if str(it.get('id','')).upper() == pair:
 
                             info["min_quote_amount"] = float(it.get('min_quote_amount') or 0)
-
                             info["min_base_amount"] = float(it.get('min_base_amount') or 0)
+                            try:
+                                info['amount_precision'] = int(it.get('amount_precision', info['amount_precision']))
+                            except Exception:
+                                pass
+                            try:
+                                info['price_precision'] = int(it.get('precision', info['price_precision']))
+                            except Exception:
+                                pass
 
                             break
 
@@ -928,14 +943,24 @@ class AutoTrader:
         
 
         # Пересчитываем количество для цены ask
-
         amount_base = purchase_usd / buy_price if buy_price > 0 else 0
-
+        try:
+            ap2 = int(pair_info.get('amount_precision', 8))
+        except Exception:
+            ap2 = 8
+        unit2 = 1.0 / (10 ** ap2)
         if amount_base < min_b:
-
             amount_base = min_b
-
             purchase_usd = amount_base * buy_price
+        # округляем вверх до допустимой точности
+        amount_base = math.ceil(amount_base / unit2) * unit2
+        # Убедимся, что итоговая сумма >= минимальной квоты для пары
+        total2 = amount_base * buy_price
+        mq2 = float(min_q or 0)
+        while mq2 > 0 and total2 < mq2:
+            amount_base += unit2
+            total2 = amount_base * buy_price
+        purchase_usd = amount_base * buy_price
 
         
 
@@ -1104,11 +1129,8 @@ class AutoTrader:
             return
 
         purchase_usd = float(params_row['purchase_usd'])
-
         # Учитываем минимальные квоты
-
         pair_info = self._get_pair_info(base, quote)
-
         min_q = float(pair_info.get('min_quote_amount') or 0)
 
         min_b = float(pair_info.get('min_base_amount') or 0)
