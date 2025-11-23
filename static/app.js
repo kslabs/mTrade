@@ -91,6 +91,13 @@ let autoTradeActive=false;
 let autoTradeEnabled = true; // По умолчанию включено (ON), будет загружено из state
 let tradingPermissions = {}; // статус разрешений торговли
 
+// Объекты для хранения шагов и диагностических решений по валютам
+let activeSteps = {};
+let diagnosticDecisions = {};
+let sellPrices = {};
+let buyPrices = {};
+let currentPrices = {};
+
 // --- On-page debug panel --------------------------------------------------
 // Creates a small debug panel on the page which collects DEBUG messages
 // Use window.uiDebugLog(message, level) from any script to append messages
@@ -150,7 +157,7 @@ window.uiDebugLog = function(msg, level='DEBUG'){
       copyBtn.style.borderRadius = '4px';
       copyBtn.onclick = () => {
         const text = [...panel.querySelectorAll('.dbg-row')].map(n=>n.textContent).join('\n');
-        navigator.clipboard?.writeText(text).then(()=>{ copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy',1000) });
+        navigator.clipboard?.writeText(text).then(()=>{ copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy',500) });
       };
 
       controls.appendChild(clearBtn);
@@ -309,6 +316,16 @@ function updateAutoTradeLevels(levels){
   // Сохраняем активный шаг для подсветки в таблице безубыточности
   globalActiveStep = levels.active_step;
   
+  // Сохраняем шаги и диагностические решения для всех валют
+  activeSteps[currentBaseCurrency] = levels.active_step;
+  diagnosticDecisions[currentBaseCurrency] = levels.diagnostic_decision;
+  sellPrices[currentBaseCurrency] = levels.sell_price;
+  buyPrices[currentBaseCurrency] = levels.next_buy_price;
+  currentPrices[currentBaseCurrency] = levels.current_price;
+  
+  // Обновляем UI разрешений для отображения активного шага
+  updateTabsPermissionsUI();
+  
   // Обновляем индикаторы текущего цикла
   const activeEl = $('autotradeCycleActive');
   if(activeEl){
@@ -370,6 +387,79 @@ function updateAutoTradeLevels(levels){
   
   // Обновляем визуальную шкалу с маркерами
   updateVisualIndicatorScale(levels);
+
+  // Apply diagnostic decision coloring: green border for sell, red for buy
+  try {
+    const diag = levels.diagnostic_decision;
+    const container = document.querySelector('.indicator-card');
+    if (container) {
+      container.style.transition = 'box-shadow 160ms ease, border-color 160ms ease';
+
+      // Preferred: use numeric price bands when available.
+      //  - if current_price >= sell_price -> GREEN
+      //  - else if current_price <= next_buy_price -> RED
+      //  - else -> GREY (neutral)
+      // If either price is missing, fall back to detection/diagnostic state so clients still get a signal.
+
+      const currentPrice = parseFloat(levels.current_price);
+      const sellPrice = levels.sell_price !== null && levels.sell_price !== undefined ? parseFloat(levels.sell_price) : null;
+      const buyPrice = levels.next_buy_price !== null && levels.next_buy_price !== undefined ? parseFloat(levels.next_buy_price) : null;
+
+      let applied = false;
+
+      if (!isNaN(currentPrice) && sellPrice !== null && !isNaN(sellPrice) && currentPrice >= sellPrice) {
+        // price above or equal sell price -> green
+        container.style.border = '3px solid #28a745';
+        container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
+        applied = true;
+      } else if (!isNaN(currentPrice) && buyPrice !== null && !isNaN(buyPrice) && currentPrice <= buyPrice) {
+        // price at or below next buy price -> red
+        container.style.border = '3px solid #dc3545';
+        container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
+        applied = true;
+      } else if (!isNaN(currentPrice) && (sellPrice !== null || buyPrice !== null)) {
+        // price is between buy and sell (or one side missing) -> neutral
+        container.style.border = '';
+        container.style.boxShadow = '';
+        applied = true;
+      }
+
+      if (!applied) {
+        // No numeric band applied — fallback to diagnostic decision/last_detected
+        if (diag && diag.decision === 'sell') {
+          container.style.border = '3px solid #28a745'; // green
+          container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
+        } else if (diag && diag.decision === 'buy') {
+          container.style.border = '3px solid #dc3545'; // red
+          container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
+        } else if (diag && diag.decision === 'sell_attempt_failed') {
+          container.style.border = '3px solid #ff8c00';
+          container.style.boxShadow = '0 6px 18px rgba(255,140,0,0.12)';
+        } else {
+          // fallback: use derived sentiment flags should_sell / should_buy OR last_detected events
+          const shouldSell = (levels.last_detected && levels.last_detected.sell) || (levels.should_sell === true);
+          const shouldBuy = (levels.last_detected && levels.last_detected.buy) || (levels.should_buy === true);
+          if (shouldSell) {
+            container.style.border = '3px solid #28a745';
+            container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
+          } else if (shouldBuy) {
+            container.style.border = '3px solid #dc3545';
+            container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
+          } else {
+            container.style.border = '';
+            container.style.boxShadow = '';
+          }
+        }
+      }
+
+      // Sync border color with active currency tab
+      // const activeTab = document.querySelector('.tab-item.active');
+      // if (activeTab) {
+      //   activeTab.style.transition = 'border-color 160ms ease';
+      //   activeTab.style.border = container.style.border;
+      // }
+    }
+  } catch (e) { console.error('apply diag color failed', e); }
 }
 
 function updateVisualIndicatorScale(levels){
@@ -613,7 +703,7 @@ async function switchBaseCurrency(code){
   logDbg(`switchBaseCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
   await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
   // Даём время WebSocket получить данные, затем загружаем их с force=true
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise(resolve => setTimeout(resolve, 500));
   await loadMarketData(true);  // force refresh
   await loadPairBalances();
   await loadPairParams(true);
@@ -632,7 +722,7 @@ async function changeQuoteCurrency(){
   logDbg(`changeQuoteCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
   await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
   // Даём время WebSocket получить данные, затем загружаем их с force=true
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise(resolve => setTimeout(resolve, 500));
   await loadMarketData(true);  // force refresh
   await loadPairBalances();
   await loadPairParams(true);
@@ -655,7 +745,7 @@ async function switchQuoteCurrency(newQuote){
   logDbg(`switchQuoteCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
   await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
   // Даём время WebSocket получить данные, затем загружаем их с force=true
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise(resolve => setTimeout(resolve, 500));
   await loadMarketData(true);  // force refresh
   await loadPairBalances();
   await loadPairParams(true);
@@ -928,6 +1018,35 @@ async function loadPerBaseIndicators(){
     }
   }catch(e){ logDbg('loadPerBaseIndicators err '+e) }
 }
+
+// Функция для загрузки индикаторов для всех валют
+async function loadAllIndicators(){
+  if(!Array.isArray(currenciesList) || currenciesList.length===0) return;
+  console.log('[INDICATORS] Загружаем индикаторы для всех валют...');
+  for(const cur of currenciesList){
+    const code = typeof cur==='string' ? cur : cur.code;
+    if(code){
+      try{
+        const r=await fetch(`/api/trade/indicators?base_currency=${code}&quote_currency=${currentQuoteCurrency}`);
+        const d=await r.json();
+        if(d.success&&d.autotrade_levels){
+          // Сохраняем данные для каждой валюты
+          activeSteps[code] = d.autotrade_levels.active_step;
+          diagnosticDecisions[code] = d.autotrade_levels.diagnostic_decision;
+          sellPrices[code] = d.autotrade_levels.sell_price;
+          buyPrices[code] = d.autotrade_levels.next_buy_price;
+          currentPrices[code] = d.autotrade_levels.current_price;
+          console.log(`[INDICATORS] Загружены данные для ${code}: step=${d.autotrade_levels.active_step}, decision=${d.autotrade_levels.diagnostic_decision}`);
+        }
+      }catch(e){
+        console.log(`[INDICATORS] Ошибка загрузки для ${code}:`, e);
+      }
+    }
+  }
+  // Обновляем UI после загрузки всех данных
+  updateTabsPermissionsUI();
+  console.log('[INDICATORS] Загрузка индикаторов для всех валют завершена');
+}
 async function loadPairBalances(){
   if(!currentBaseCurrency||!currentQuoteCurrency) return;
   try{
@@ -1147,7 +1266,7 @@ async function saveTradeParams(){
     if(d.success){
       statusEl.textContent = '✓ Сохранено';
       statusEl.className = 'params-save-status';
-      setTimeout(()=>{ statusEl.textContent = ''; }, 3000);
+      setTimeout(()=>{ statusEl.textContent = ''; }, 1500);
       
       // Сохраняем также в UI state для восстановления после перезагрузки
       await UIStateManager.savePartial({
@@ -1654,7 +1773,7 @@ paramsInputIds.forEach(id => {
           await loadBreakEvenTable();
           if(statusEl) {
             statusEl.textContent = '✓ Обновлено';
-            setTimeout(() => { statusEl.textContent = ''; }, 2000);
+            setTimeout(() => { statusEl.textContent = ''; }, 1000);
           }
         } catch(e) {
           console.error('[PARAMS] Ошибка обновления таблицы:', e);
@@ -1691,7 +1810,10 @@ async function initApp(){
     // 6. Загружаем разрешения торговли и обновляем индикаторы на вкладках
     await loadTradingPermissions();
 
-    // 7. Подписываемся на все валюты (для прогрева WS), а затем на активную пару
+    // 7. Загружаем индикаторы для всех валют (шаги и диагностические решения)
+    await loadAllIndicators();
+
+    // 8. Подписываемся на все валюты (для прогрева WS), а затем на активную пару
     await subscribeToAllCurrencies();
 
     // 8. Загружаем данные для текущей пары (рынок, баланс, параметры, таблица)
@@ -1705,11 +1827,15 @@ async function initApp(){
     ]);
     await loadPairBalances(); // Повторный вызов для гарантии отрисовки баланса
 
-    setInterval(()=>{ loadMarketData(); },5000);
-    setInterval(()=>{ loadPairBalances(); },15000);
-    setInterval(()=>{ loadBreakEvenTable(); },6000);
-    setInterval(()=>{ loadPerBaseIndicators(); },7000);
-    setInterval(()=>{ loadTradingPermissions(); },20000);
+    setInterval(()=>{ loadMarketData(); },2500);
+    setInterval(()=>{ loadPairBalances(); },7500);
+    setInterval(()=>{ loadBreakEvenTable(); },3000);
+    setInterval(()=>{ loadPerBaseIndicators(); },3500);
+    setInterval(()=>{ loadTradingPermissions(); },10000);
+    // Периодически обновляем индикаторы для всех валют, чтобы табы обновлялись автоматически
+    setInterval(()=>{ try{ loadAllIndicators(); }catch(e){ console.error('periodic loadAllIndicators failed', e); } }, 5000);
+    // Единоразовый стартовый вызов (в дополнение к загрузке при инициализации)
+    try{ loadAllIndicators(); }catch(e){ console.error('initial loadAllIndicators failed', e); }
   }catch(e){
     console.error('[INIT] Ошибка инициализации:', e);
     logDbg('initApp exc '+e);
@@ -1816,7 +1942,7 @@ async function loadServerStatus(){
 }
 function startUptimeLoops(){
   loadServerStatus();
-  setInterval(loadServerStatus, 15000);
+  setInterval(loadServerStatus, 7500);
   setInterval(tickUptime, 1000);
 }
 
@@ -1849,6 +1975,46 @@ function updateTabsPermissionsUI(){
     ind.classList.toggle('off',!enabled);
     ind.title=enabled?'Торговля включена':'Торговля отключена';
     ind.onclick=(ev)=>{ev.stopPropagation();toggleTradingPermission(code,enabled)};
+    
+    // Устанавливаем рамку в зависимости от цен (нормализуем в числа)
+    const currentPriceRaw = currentPrices[code];
+    const sellPriceRaw = sellPrices[code];
+    const buyPriceRaw = buyPrices[code];
+    const currentPriceNum = currentPriceRaw !== undefined && currentPriceRaw !== null ? parseFloat(currentPriceRaw) : NaN;
+    const sellPriceNum = sellPriceRaw !== undefined && sellPriceRaw !== null ? parseFloat(sellPriceRaw) : NaN;
+    const buyPriceNum = buyPriceRaw !== undefined && buyPriceRaw !== null ? parseFloat(buyPriceRaw) : NaN;
+    let borderColor = '#ffeb3b'; // желтый по умолчанию
+    if (isFinite(currentPriceNum) && isFinite(sellPriceNum) && currentPriceNum >= sellPriceNum) {
+      borderColor = '#28a745'; // зеленый, если текущий курс >= курс продажи
+    } else if (isFinite(currentPriceNum) && isFinite(buyPriceNum) && currentPriceNum <= buyPriceNum) {
+      borderColor = '#dc3545'; // красный, если текущий курс <= курс покупки
+    }
+    el.style.border = `1px solid ${borderColor}`;
+    el.style.borderRadius = '4px';
+    
+    // Добавляем цифру активного шага для вкладок (если шаг известен) — показываем даже если торговля отключена
+    if (activeSteps[code] !== undefined && activeSteps[code] !== null) {
+      let stepEl = el.querySelector('.active-step');
+      if (!stepEl) {
+        stepEl = document.createElement('span');
+        stepEl.className = 'active-step';
+        stepEl.style.fontSize = '9px'; // уменьшенный размер шрифта
+        stepEl.style.position = 'absolute';
+        stepEl.style.bottom = '0px';
+        stepEl.style.right = '2px';
+        stepEl.style.color = '#fff';
+        stepEl.style.background = enabled ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.35)';
+        stepEl.style.padding = '1px 3px';
+        stepEl.style.borderRadius = '2px';
+        stepEl.style.zIndex = '10';
+        el.style.position = 'relative'; // Для позиционирования stepEl
+        el.appendChild(stepEl);
+      }
+      stepEl.textContent = activeSteps[code]; // показываем точное значение шага
+    } else {
+      const stepEl = el.querySelector('.active-step');
+      if (stepEl) stepEl.remove();
+    }
   });
 }
 function toggleTradingPermission(code,current){
@@ -1879,7 +2045,7 @@ async function handleServerRestart(){
     btn.disabled=true; btn.textContent='⏳';
     const r=await fetch('/api/server/restart',{method:'POST'});
     // Не показываем alert, просто ждём и перезагружаем страницу
-    setTimeout(()=>{ try{ location.reload(); }catch(_){/* noop */} }, 5000);
+    setTimeout(()=>{ try{ location.reload(); }catch(_){/* noop */} }, 2500);
   }catch(e){
     alert('Ошибка перезапуска: '+e);
     btn.textContent=prev; btn.disabled=false;
