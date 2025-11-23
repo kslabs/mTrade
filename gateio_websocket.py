@@ -447,6 +447,13 @@ class PairWebSocketManager:
         with self.lock:
             return self.data_cache.get(pair_formatted, None)
     
+    def get_pair_data(self, base_currency: str, quote_currency: str):
+        """Возвращает кэш данных по паре в формате BASE_QUOTE, используя существующий get_data."""
+        if not base_currency or not quote_currency:
+            return None
+        pair = f"{base_currency}_{quote_currency}".upper()
+        return self.get_data(pair)
+    
     def close_all(self):
         """Закрыть все WebSocket соединения"""
         with self.lock:

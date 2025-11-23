@@ -54,6 +54,7 @@ class GateAPIClient:
         
         if data:
             payload = json.dumps(data)
+            print(f"[DEBUG] _request: payload = {payload}")
         
         headers = {
             'Accept': 'application/json',
@@ -84,19 +85,46 @@ class GateAPIClient:
         """Получить баланс спот счета"""
         return self._request('GET', '/spot/accounts')
     
-    def create_spot_order(self, currency_pair: str, side: str, amount: str, price: str = None, order_type: str = "limit"):
-        """Создать спотовый ордер"""
+    def get_ticker(self, currency_pair: str):
+        """Получить текущий тикер для торговой пары"""
+        return self._request('GET', f'/spot/tickers', params={'currency_pair': currency_pair})
+    
+    def create_spot_order(self, currency_pair: str, side: str, amount: str, price: str = None, order_type: str = "limit", time_in_force: str = "gtc"):
+        """Создать спотовый ордер
+        Добавлено: поддержка time_in_force (gtc, fok, ioc)
+        Args:
+            currency_pair: Пара вида BASE_QUOTE
+            side: 'buy' или 'sell'
+            amount: Кол-во BASE (строка)
+            price: Лимитная цена (для limit)
+            order_type: 'limit' или 'market'
+            time_in_force: gtc | fok | ioc (для лимитных ордеров)
+        """
         order_data = {
             "currency_pair": currency_pair,
-            "side": side,  # buy или sell
+            "side": side,
             "amount": amount,
-            "type": order_type  # limit или market
+            "type": order_type
         }
         
-        if price and order_type == "limit":
-            order_data["price"] = price
+        # Для лимитных ордеров добавляем цену, time_in_force и account
+        if order_type == "limit":
+            if price:
+                order_data["price"] = price
+            # Валидируем time_in_force
+            tif = (time_in_force or "gtc").lower()
+            if tif not in ("gtc", "fok", "ioc"):
+                tif = "gtc"
+            order_data["time_in_force"] = tif
+            order_data["account"] = "spot"
+        # Для рыночных ордеров добавляем только account
+        else:
+            order_data["account"] = "spot"
         
-        return self._request('POST', '/spot/orders', data=order_data)
+        print(f"[DEBUG] create_spot_order: order_data = {order_data}")
+        result = self._request('POST', '/spot/orders', data=order_data)
+        print(f"[DEBUG] create_spot_order: result = {result}")
+        return result
     
     def get_spot_orders(self, currency_pair: str, status: str = "open"):
         """Получить список ордеров"""
@@ -109,6 +137,29 @@ class GateAPIClient:
     def cancel_spot_order(self, order_id: str, currency_pair: str):
         """Отменить ордер"""
         return self._request('DELETE', f'/spot/orders/{order_id}', params={"currency_pair": currency_pair})
+    
+    def cancel_all_open_orders(self, currency_pair: str):
+        """Отменить все открытые ордера для пары"""
+        try:
+            # Получаем список открытых ордеров
+            open_orders = self.get_spot_orders(currency_pair, status="open")
+            cancelled = []
+            
+            if isinstance(open_orders, list):
+                for order in open_orders:
+                    try:
+                        order_id = order.get('id')
+                        if order_id:
+                            result = self.cancel_spot_order(order_id, currency_pair)
+                            cancelled.append(order_id)
+                            print(f"[INFO] Отменён ордер {order_id}")
+                    except Exception as e:
+                        print(f"[WARNING] Не удалось отменить ордер {order.get('id')}: {e}")
+            
+            return {"success": True, "cancelled": cancelled, "count": len(cancelled)}
+        except Exception as e:
+            print(f"[ERROR] cancel_all_open_orders: {e}")
+            return {"success": False, "error": str(e)}
     
     # -------------------------------------------------------------------------
     # FUTURES TRADING
@@ -166,5 +217,40 @@ class GateAPIClient:
         try:
             params = {"currency_pair": currency_pair.upper()}
             return self._request('GET', '/spot/currency_pairs', params=params)
+        except Exception as e:
+            return {"error": str(e)}
+
+    # -------------------------------------------------------------------------
+    # CURRENCIES INFO (Информация о валютах)
+    # -------------------------------------------------------------------------
+    
+    def get_currencies(self):
+        """
+        Получить список всех доступных валют с Gate.io
+        Возвращает список валют с детальной информацией
+        """
+        try:
+            return self._request('GET', '/spot/currencies')
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def get_currency_details(self, currency: str):
+        """
+        Получить детальную информацию о конкретной валюте
+        Args:
+            currency: код валюты (например, BTC, ETH, USDT)
+        """
+        try:
+            return self._request('GET', f'/spot/currencies/{currency.upper()}')
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def get_currency_pairs(self):
+        """
+        Получить список всех торговых пар
+        Возвращает информацию о доступных торговых парах
+        """
+        try:
+            return self._request('GET', '/spot/currency_pairs')
         except Exception as e:
             return {"error": str(e)}

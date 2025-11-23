@@ -1,205 +1,1633 @@
 """
-Автотрейдер для mTrade (переработан для per-currency параметров)
+
+Автотрейдер для mTrade (реализация уточнённого алгоритма breakeven + all-or-nothing)
+
+
+
+Основная логика (per BASE):
+
+1. Старт цикла:
+
+   - Условие: включена автоторговля И валюта разрешена к торговле И НЕТ активного цикла
+
+   - Проверка баланса BASE: (баланс_BASE * цена) < "Покупка,$" строки 0 таблицы
+
+   - Проверка баланса QUOTE: (баланс_QUOTE + keep) >= "Покупка,$" строки 0
+
+   - Выполняем полную покупку объёма шага 0
+
+   - Фиксируем P0 (start_price)
+
+   - Активный row = 0
+
+2. Усреднение (покупка следующего шага):
+
+   - При падении текущей цены относительно последней покупки > ↓Δ,% следующего шага
+
+   - Проверяем ликвидность на уровне стакана "Ст." (orderbook_level в params)
+
+   - Покупаем полный объём шага (amount BASE = purchase_usd / price)
+
+   - Активный row увеличивается
+
+3. Продажа:
+
+   - Триггер: рост текущей цены от P0 >= tΔPsell,% активного шага
+
+   - Продаём все BASE (кроме объёма, необходимого для поддержания keep в QUOTE для комиссий)
+
+   - Сбрасываем состояние цикла
+
+4. Keep:
+
+   - keep хранится в QUOTE; при продаже удерживаем часть QUOTE
+
+   - при старте/усреднении убеждаемся, что остаток QUOTE после покупки >= keep
+
+5. Ордеры:
+
+   - Используем limit FOK; при отказе (нет полной ликвидности) пробуем IOC.
+
+   - "Всё или ничего" = если фактический исполненный объём < требуемого, считаем покупку не состоявшейся и НЕ записываем её.
+
+6. Логирование:
+
+   - Все попытки и результаты через trade_logger (buy/sell).
+
+
+
+Требуемые зависимости:
+
+- state_manager: параметры breakeven per currency (get_breakeven_params)
+
+- breakeven_calculator.calculate_breakeven_table
+
+- trade_logger.get_trade_logger()
+
+- ws_manager: orderbook / ticker
+
+- api_client_provider: функция возвращающая GateAPIClient (или None для SIM)
+
 """
 
-import random
+
+
 import time
+
+import json
+
+import os
+
 from threading import Thread
-from typing import Dict, List, Optional
+
+from typing import Dict, Optional
+
+from breakeven_calculator import calculate_breakeven_table
+
+from trade_logger import get_trade_logger
+
+from gate_api_client import GateAPIClient
+
+import threading
+
+from datetime import datetime
+
+
+
 
 
 class AutoTrader:
-    """Автоматический трейдер с поддержкой усреднения и продажи
-    Обновлено: использует индивидуальные параметры для каждой валюты
-    через state_manager (breakeven_params) и trading_permissions.
-    """
-    
+
     def __init__(self, api_client_provider, ws_manager, state_manager):
-        # api_client_provider: функция, возвращающая актуальный GateAPIClient или None
-        self.running = False
-        self._thread: Optional[Thread] = None
+
         self.api_client_provider = api_client_provider
+
         self.ws_manager = ws_manager
+
         self.state_manager = state_manager
-        self.buys: Dict[str, List[float]] = {}  # накопленные покупки (цены) по базе
+
+        self.running = False
+
+        self._thread: Optional[Thread] = None
+
+        self._sleep_interval = 0.5  # Уменьшено для более быстрой реакции
+
+        # Состояние по каждой базе
+
+        # cycles[BASE] = {
+
+        #   'active': bool,
+
+        #   'active_step': int,
+
+        #   'table': list[dict],
+
+        #   'last_buy_price': float,
+
+        #   'start_price': float,
+
+        #   'total_invested_usd': float,
+
+        #   'base_volume': float
+
+        # }
+
+        self.cycles: Dict[str, Dict] = {}
+
+        self.logger = get_trade_logger()
+
+        self._pair_info_cache: Dict[str, dict] = {}
+
+        self._cycles_state_file = 'autotrader_cycles_state.json'
+
+        # Статистика для API
+
         self.stats = {
-            'total_profit': 0.0,
-            'trades': 0,
-            'successful_trades': 0,
-            'failed_trades': 0,
-            'per_base': {},  # {BASE: {cycles, avg_buy, last_price}}
+
+            'total_cycles': 0,
+
+            'active_cycles': 0,
+
+            'total_buy_orders': 0,
+
+            'total_sell_orders': 0,
+
+            'last_update': time.time()
+
         }
-        self._sleep_interval = 5.0
+
+        # Загружаем сохранённое состояние циклов
+
+        self._load_cycles_state()
+
+        self._autosave_thread = threading.Thread(target=self._autosave_logs_loop, daemon=True)
+
+        self._autosave_thread.start()
+
+
 
     def start(self):
+
         if self.running:
+
             return False
+
         self.running = True
+
+        # Сброс флага логирования разрешений при перезапуске
+
+        self._permissions_logged = False
+
         self._thread = Thread(target=self._run, daemon=True)
+
         self._thread.start()
-        print("[AutoTrader] Запущен (per-currency)")
+
+        print("[AutoTrader] Запущен breakeven алгоритм")
+
+        # Показываем текущие разрешения при старте
+
+        perms = self.state_manager.get_trading_permissions()
+
+        enabled_currencies = [k for k, v in perms.items() if v]
+
+        disabled_currencies = [k for k, v in perms.items() if not v]
+
+        print(f"[AutoTrader] Валюты с разрешением торговли: {enabled_currencies}")
+
+        if disabled_currencies:
+
+            print(f"[AutoTrader] Валюты БЕЗ разрешения торговли: {disabled_currencies}")
+
         return True
+
+
 
     def stop(self):
+
         self.running = False
+
         print("[AutoTrader] Остановлен")
+
         return True
 
-    def _get_price(self, base: str, quote: str = 'USDT') -> float:
-        """Получить текущую цену из ws_manager либо вернуться к псевдо-данным"""
-        if self.ws_manager:
-            data = self.ws_manager.get_data(f"{base}_{quote}")
-            if data and data.get('ticker') and data['ticker'].get('last'):
+
+
+    # ------------------------ Сохранение/загрузка состояния ------------------------
+
+    def _save_cycles_state(self):
+
+        """Сохранить состояние циклов в файл."""
+
+        try:
+
+            # Фильтруем только активные циклы и важные данные
+
+            state_to_save = {}
+
+            for base, cycle in self.cycles.items():
+
+                if cycle.get('active'):
+
+                    state_to_save[base] = {
+
+                        'active': cycle['active'],
+
+                        'active_step': cycle['active_step'],
+
+                        'last_buy_price': cycle['last_buy_price'],
+
+                        'start_price': cycle['start_price'],
+
+                        'total_invested_usd': cycle['total_invested_usd'],
+
+                        'base_volume': cycle['base_volume'],
+
+                        'saved_at': time.time()
+
+                    }
+
+            
+
+            # Записываем в файл (пустой словарь, если нет активных циклов)
+
+            with open(self._cycles_state_file, 'w', encoding='utf-8') as f:
+
+                json.dump(state_to_save, f, indent=2)
+
+            
+
+            # Логируем сброшенные циклы
+
+            inactive_bases = [base for base, cycle in self.cycles.items() if not cycle.get('active')]
+
+            if inactive_bases:
+
+                print(f"[AutoTrader] 💾 Состояние сохранено. Неактивные циклы удалены из файла: {inactive_bases}")
+
+        except Exception as e:
+
+            print(f"[AutoTrader] ⚠️ Ошибка сохранения состояния: {e}")
+
+    
+
+    def _load_cycles_state(self):
+
+        """Загрузить сохранённое состояние циклов."""
+
+        try:
+
+            if not os.path.exists(self._cycles_state_file):
+
+                return
+
+            
+
+            with open(self._cycles_state_file, 'r', encoding='utf-8') as f:
+
+                saved_state = json.load(f)
+
+            
+
+            # Проверяем возраст сохранённого состояния (не старше 24 часов)
+
+            current_time = time.time()
+
+            restored_count = 0
+
+            
+
+            for base, saved_cycle in saved_state.items():
+
+                saved_at = saved_cycle.get('saved_at', 0)
+
+                age_hours = (current_time - saved_at) / 3600
+
+                
+
+                if age_hours > 24:
+
+                    print(f"[AutoTrader][{base}] ⏰ Состояние устарело ({age_hours:.1f}ч), пропускаем")
+
+                    continue
+
+                
+
+                # Восстанавливаем цикл
+
+                self.cycles[base] = {
+
+                    'active': saved_cycle['active'],
+
+                    'active_step': saved_cycle['active_step'],
+
+                    'table': [],  # таблица будет пересчитана ниже
+
+                    'last_buy_price': saved_cycle['last_buy_price'],
+
+                    'start_price': saved_cycle['start_price'],
+
+                    'total_invested_usd': saved_cycle['total_invested_usd'],
+
+                    'base_volume': saved_cycle['base_volume']
+
+                }
+
+                # КРИТИЧЕСКИ ВАЖНО: пересчитать таблицу для активного цикла
+
+                if saved_cycle['active']:
+
+                    params = self.state_manager.get_breakeven_params(base)
+
+                    price_for_table = saved_cycle['start_price'] if saved_cycle['start_price'] > 0 else saved_cycle['last_buy_price']
+
+                    table = calculate_breakeven_table(params, price_for_table)
+
+                    self.cycles[base]['table'] = table
+
+                    print(f"[AutoTrader][{base}] 📊 Таблица восстановлена для активного цикла: шагов={len(table)}")
+
+                restored_count += 1
+
+                print(f"[AutoTrader][{base}] ✅ Восстановлен цикл: step={saved_cycle['active_step']}, invested={saved_cycle['total_invested_usd']:.2f}, volume={saved_cycle['base_volume']:.8f}")
+
+                # Проверим консистентность: если цикл помечен как active, но баланс в аккаунте
+                # заметно меньше сохранённого base_volume — это несоответствие (пользователь мог перевести монеты).
+                # В таком случае помечаем цикл как неактивный чтобы автоторговля могла выполнить стартовую покупку.
                 try:
+                    if saved_cycle.get('active') and hasattr(self, 'api_client_provider') and callable(self.api_client_provider):
+                        api_client = self.api_client_provider()
+                        if api_client:
+                            bal = api_client.get_account_balance()
+                            current_base_balance = 0.0
+                            if isinstance(bal, list):
+                                for item in bal:
+                                    if item.get('currency','').upper() == base.upper():
+                                        try:
+                                            current_base_balance = float(item.get('available', 0))
+                                        except Exception:
+                                            current_base_balance = 0.0
+                            recorded_volume = float(saved_cycle.get('base_volume', 0) or 0)
+                            # Если фактический баланс меньше 80% записанного объёма — считаем неконсистентным
+                            if recorded_volume > 0 and current_base_balance < recorded_volume * 0.8:
+                                print(f"[AutoTrader][{base}] ⚠️ Несоответствие: saved_volume={recorded_volume:.8f}, current_balance={current_base_balance:.8f} — помечаем цикл НЕАКТИВНЫМ")
+                                self.cycles[base].update({
+                                    'active': False,
+                                    'active_step': -1,
+                                    'last_buy_price': 0.0,
+                                    'start_price': 0.0,
+                                    'total_invested_usd': 0.0,
+                                    'base_volume': 0.0
+                                })
+                except Exception as _e:
+                    print(f"[AutoTrader][{base}] ⚠️ Ошибка проверки консистентности цикла: {_e}")
+
+            
+
+            if restored_count > 0:
+
+                print(f"[AutoTrader] 📂 Восстановлено циклов: {restored_count}")
+
+        except Exception as e:
+
+            print(f"[AutoTrader] ⚠️ Ошибка загрузки состояния: {e}")
+
+
+
+    # ------------------------ Вспомогательные методы ------------------------
+
+    def _ensure_ws_subscription(self, base: str, quote: str):
+
+        """Гарантировать подписку WS на пару, если менеджер доступен."""
+
+        try:
+
+            if self.ws_manager:
+
+                self.ws_manager.create_connection(f"{base}_{quote}")
+
+        except Exception:
+
+            pass
+
+
+
+    def _get_market_price(self, base: str, quote: str) -> Optional[float]:
+
+        pair = f"{base}_{quote}".upper()
+
+        # Сначала пробуем получить цену из кэша ws_manager
+
+        if self.ws_manager:
+
+            data = self.ws_manager.get_data(pair)
+
+            if data and data.get('ticker') and data['ticker'].get('last'):
+
+                try:
+
                     return float(data['ticker']['last'])
+
+                except Exception:
+
+                    pass
+
+        # Если не удалось — только тогда делаем REST-запрос
+
+        try:
+
+            public_client = GateAPIClient(api_key=None, api_secret=None, network_mode='work')
+
+            tick = public_client._request('GET', '/spot/tickers', params={'currency_pair': pair})
+
+            if isinstance(tick, list) and tick:
+
+                last = tick[0].get('last')
+
+                if last is not None:
+
+                    return float(last)
+
+        except Exception as e:
+
+            # Логируем ошибку получения цены (важно для диагностики)
+
+            if not hasattr(self, '_price_error_logged'):
+
+                self._price_error_logged = {}
+
+            if pair not in self._price_error_logged:
+
+                print(f"[AutoTrader][{base}] ⚠️ Ошибка получения цены через REST API: {e}")
+
+                self._price_error_logged[pair] = True
+
+        return None
+
+
+
+    def _get_orderbook(self, base: str, quote: str) -> Optional[dict]:
+
+        pair = f"{base}_{quote}".upper()
+
+        # Сначала пробуем получить стакан из ws_manager
+
+        if self.ws_manager:
+
+            data = self.ws_manager.get_data(pair)
+
+            if data and data.get('orderbook'):
+
+                return data['orderbook']
+
+        # Если не удалось — можно добавить REST-запрос, если требуется
+
+        return None
+
+
+
+    def _recalc_table_if_needed(self, base: str, quote: str, current_price: float):
+
+        params = self.state_manager.get_breakeven_params(base)
+
+        cycle = self.cycles.get(base, {})
+
+        
+
+        # КРИТИЧЕСКИ ВАЖНО: Используем зафиксированный start_price из state_manager, если он есть
+
+        # Это гарантирует, что P0 в таблице будет соответствовать цене первой покупки
+
+        saved_start_price = params.get('start_price', 0)
+
+        
+
+        # Если start_price уже зафиксирован (есть активный или завершённый цикл), используем его
+
+        # Если start_price = 0 (нет активного цикла), используем текущую рыночную цену для превью
+
+        price_for_table = saved_start_price if saved_start_price > 0 else current_price
+
+        
+
+        # Пересчёт таблицы если её нет
+
+        if not cycle.get('table'):
+
+            table = calculate_breakeven_table(params, price_for_table)
+
+            cycle['table'] = table
+
+            # Устанавливаем start_price в цикле только если его там нет
+
+            if not cycle.get('start_price') or cycle.get('start_price') == 0:
+
+                cycle['start_price'] = table[0]['rate']
+
+            self.cycles[base] = cycle
+
+            print(f"[AutoTrader][{base}] 📊 Таблица рассчитана с P0={price_for_table:.8f} (saved_start_price={saved_start_price}, current={current_price:.8f})")
+
+
+
+    def _ensure_cycle_struct(self, base: str):
+
+        self.cycles.setdefault(base, {
+
+            'active': False,
+
+            'active_step': -1,
+
+            'table': [],
+
+            'last_buy_price': 0.0,
+
+            'start_price': 0.0,
+
+            'total_invested_usd': 0.0,
+
+            'base_volume': 0.0
+
+        })
+
+
+
+    def _place_limit_order_all_or_nothing(self, side: str, base: str, quote: str, amount_base: float, limit_price: float):
+
+        api_client = self.api_client_provider()
+
+        currency_pair = f"{base}_{quote}".upper()
+
+        if not api_client:
+
+            # SIMULATION: считаем исполнено полностью
+
+            print(f"[AutoTrader][{base}] ⚠️ СИМУЛЯЦИЯ: API клиент не доступен, ордер считается исполненным")
+
+            return {'success': True, 'filled': amount_base, 'simulated': True}
+
+        pi = self._get_pair_info(base, quote)
+        try:
+            amt_prec = int(pi.get('amount_precision', 8))
+        except Exception:
+            amt_prec = 8
+        try:
+            price_prec = int(pi.get('price_precision', 8))
+        except Exception:
+            price_prec = 8
+        print(f"[AutoTrader][{base}] 📤 Отправка {side.upper()} FOK-ордера: {amount_base:.{amt_prec}f} {base} по цене {limit_price:.{price_prec}f}")
+
+        # Только FOK, без fallback на IOC
+
+        try:
+
+            result_fok = api_client.create_spot_order(
+                currency_pair=currency_pair,
+                side=side,
+                amount=f"{amount_base:.{amt_prec}f}",
+                price=f"{limit_price:.{price_prec}f}",
+                order_type='limit',
+                time_in_force='fok'
+            )
+
+            filled = self._parse_filled_amount(result_fok)
+
+            if filled >= amount_base * 0.999:
+                print(f"[AutoTrader][{base}] ✅ FOK ордер исполнен: {filled:.{amt_prec}f} {base}")
+
+                return {'success': True, 'filled': filled, 'order': result_fok, 'tif': 'fok'}
+
+            else:
+
+                print(f"[AutoTrader][{base}] ❌ FOK не исполнен полностью: {filled:.{amt_prec}f}/{amount_base:.{amt_prec}f}")
+
+                return {'success': False, 'filled': filled, 'order': result_fok, 'tif': 'fok_partial'}
+
+        except Exception as e:
+
+            print(f"[AutoTrader][{base}] ❌ FOK ошибка: {e}")
+
+            return {'success': False, 'filled': 0.0, 'error': str(e)}
+
+
+
+    def _parse_filled_amount(self, order_result: dict) -> float:
+
+        if not isinstance(order_result, dict):
+
+            return 0.0
+
+        # Gate.io возвращает поля: amount, left, filled_total, etc.
+
+        try:
+
+            amount = float(order_result.get('amount', 0))
+
+            left = float(order_result.get('left', 0))
+
+            filled = amount - left if amount > 0 else float(order_result.get('filled_total', 0))
+
+            if filled < 0:
+
+                filled = 0.0
+
+            return filled
+
+        except Exception:
+
+            return 0.0
+
+
+
+    def _get_pair_info(self, base: str, quote: str) -> dict:
+
+        """Получить min_quote_amount/min_base_amount/precision (кешируется)."""
+
+        pair = f"{base}_{quote}".upper()
+
+        if pair in self._pair_info_cache:
+
+            return self._pair_info_cache[pair]
+
+        info = {"min_quote_amount": 0.0, "min_base_amount": 0.0, "amount_precision": 8, "price_precision": 8}
+
+        try:
+
+            public = GateAPIClient(api_key=None, api_secret=None, network_mode='work')
+
+            raw = public.get_currency_pair_details_exact(pair)
+
+            if isinstance(raw, dict) and str(raw.get('id','')).upper() == pair:
+
+                info["min_quote_amount"] = float(raw.get('min_quote_amount') or 0)
+                info["min_base_amount"] = float(raw.get('min_base_amount') or 0)
+                try:
+                    info['amount_precision'] = int(raw.get('amount_precision', info['amount_precision']))
                 except Exception:
                     pass
-        # fallback псевдо-цена
-        return 100.0 + random.uniform(-2, 2)
+                try:
+                    info['price_precision'] = int(raw.get('precision', info['price_precision']))
+                except Exception:
+                    pass
 
-    def _get_params(self, base: str) -> dict:
-        """Получить текущие параметры для базы"""
-        return self.state_manager.get_breakeven_params(base)
+            else:
 
-    def _start_new_cycle(self, base: str, price: float, quote: str = 'USDT'):
-        """Стартовая покупка новой позиции по базе"""
-        params = self._get_params(base)
-        start_volume = params.get('start_volume', 3.0)
-        self.buys.setdefault(base, [])
-        if self.buys[base]:  # уже есть активный цикл
+                # fallback через список
+
+                lst = public.get_currency_pair_details(pair)
+
+                if isinstance(lst, list):
+
+                    for it in lst:
+
+                        if str(it.get('id','')).upper() == pair:
+
+                            info["min_quote_amount"] = float(it.get('min_quote_amount') or 0)
+                            info["min_base_amount"] = float(it.get('min_base_amount') or 0)
+                            try:
+                                info['amount_precision'] = int(it.get('amount_precision', info['amount_precision']))
+                            except Exception:
+                                pass
+                            try:
+                                info['price_precision'] = int(it.get('precision', info['price_precision']))
+                            except Exception:
+                                pass
+
+                            break
+
+        except Exception:
+
+            pass
+
+        self._pair_info_cache[pair] = info
+
+        return info
+
+
+
+    # ------------------------ Логика цикла ------------------------
+
+    def _try_start_cycle(self, base: str, quote: str, current_price: float):
+
+        self._ensure_cycle_struct(base)
+
+        cycle = self.cycles[base]
+
+        
+
+        # Проверка 1: Цикл уже активен?
+
+        if cycle['active']:
+
             return
-        buy_amount_usd = start_volume
-        amount = str(buy_amount_usd / price) if price > 0 else '0.001'
-        buy_price = round(price * 0.995, 8)
-        api_client = self.api_client_provider()
-        if api_client:
+
+        
+
+        # Проверка 2: Пересчёт таблицы
+
+        self._recalc_table_if_needed(base, quote, current_price)
+
+        table = cycle['table']
+
+        if not table:
+
+            print(f"[AutoTrader][{base}] ❌ Стартовая закупка невозможна: таблица не рассчитана")
+
+            return
+
+        
+
+        first_row = table[0]
+
+        purchase_usd = float(first_row['purchase_usd'])
+
+        params = self.state_manager.get_breakeven_params(base)
+
+        keep = float(params.get('keep', 0.0))
+
+        
+
+        # Проверка 3: Баланс BASE валюты в пересчете на QUOTE
+
+        # Если баланс BASE (в USDT) >= purchase_usd → НЕ начинаем новый цикл
+
+        base_balance = 0.0
+
+        try:
+
+            api_client = self.api_client_provider()
+
+            if api_client:
+
+                balance = api_client.get_account_balance()
+
+                if isinstance(balance, list):
+
+                    for item in balance:
+
+                        if item.get('currency', '').upper() == base.upper():
+
+                            base_balance = float(item.get('available', 0))
+
+                            break
+
+        except Exception as e:
+
+            # В случае ошибки - продолжаем (может быть симуляция)
+
+            pass
+
+        
+
+        # Рассчитываем стоимость баланса BASE в QUOTE
+
+        base_balance_in_quote = base_balance * current_price
+
+        
+
+        # Если баланс BASE (в QUOTE) >= purchase_usd → цикл уже идёт или был прерван
+
+        if base_balance_in_quote >= purchase_usd:
+
+            # Логируем только раз в 10 минут
+
+            if not hasattr(self, '_balance_check_logged'):
+
+                self._balance_check_logged = {}
+
+            last_log = self._balance_check_logged.get(base, 0)
+
+            current_time = time.time()
+
+            if current_time - last_log > 600:  # 10 минут
+
+                print(f"[AutoTrader][{base}] ⏸️ Баланс BASE достаточен: {base_balance:.8f} {base} (~{base_balance_in_quote:.4f} {quote}) >= {purchase_usd:.4f} {quote}")
+
+                print(f"  💡 Стартовая покупка не требуется. Продайте монеты или дождитесь условий для усреднения.")
+
+                self._balance_check_logged[base] = current_time
+
+            return
+
+        
+
+        # Проверка 4: Минимальные квоты пары
+
+        pair_info = self._get_pair_info(base, quote)
+
+        min_q = float(pair_info.get('min_quote_amount') or 0)
+
+        min_b = float(pair_info.get('min_base_amount') or 0)
+
+        
+
+        print(f"[AutoTrader][{base}] 📊 Попытка стартовой закупки:")
+
+        print(f"  • Текущая цена: {current_price:.8f} {quote}")
+
+        print(f"  • Объём покупки: {purchase_usd:.4f} {quote}")
+
+        print(f"  • Keep резерв: {keep:.4f} {quote}")
+
+        print(f"  • Min quote: {min_q:.4f}, Min base: {min_b:.8f}")
+
+        
+
+        if purchase_usd < min_q:
+
+            print(f"  ⚠️ Объём покупки ({purchase_usd:.4f}) < min_quote ({min_q:.4f}), увеличиваем")
+
+            purchase_usd = min_q
+
+        
+
+        amount_base = purchase_usd / current_price if current_price > 0 else 0
+
+        if amount_base < min_b:
+
+            print(f"  ⚠️ Количество базы ({amount_base:.8f}) < min_base ({min_b:.8f}), увеличиваем")
+
+            amount_base = min_b
+
+            purchase_usd = amount_base * current_price
+
+        
+
+        print(f"  • Итоговая покупка: {amount_base:.8f} {base} за {purchase_usd:.4f} {quote}")
+
+        
+
+        # Проверка баланса QUOTE (реальная проверка через API)
+
+        quote_required = purchase_usd + keep
+
+        quote_available = 0.0
+
+        
+
+        try:
+
+            api_client = self.api_client_provider()
+
+            if api_client:
+
+                balance = api_client.get_account_balance()
+
+                if isinstance(balance, list):
+
+                    for item in balance:
+
+                        if item.get('currency', '').upper() == quote.upper():
+
+                            quote_available = float(item.get('available', 0))
+
+                            break
+
+                print(f"  • Баланс {quote}: {quote_available:.4f} (требуется: {quote_required:.4f})")
+
+            else:
+
+                # Режим симуляции - разрешаем покупку
+
+                quote_available = quote_required * 10
+
+                print(f"  • Режим СИМУЛЯЦИИ (нет API клиента)")
+
+        except Exception as e:
+
+            print(f"  ⚠️ Ошибка проверки баланса: {e}")
+
+            # В случае ошибки - пробуем всё равно (может это симуляция)
+
+            quote_available = quote_required * 10
+
+        
+
+        if quote_available < quote_required:
+
+            print(f"[AutoTrader][{base}] ❌ Недостаточно {quote}: нужно {quote_required:.4f}, доступно {quote_available:.4f}")
+
+            print(f"  💡 Пополните баланс {quote} или уменьшите параметр 'start_volume' для {base}")
+
+            return
+
+        
+
+        # Получаем цену ask из orderbook для гарантированного исполнения
+
+        orderbook = self._get_orderbook(base, quote)
+
+        buy_price = current_price  # по умолчанию текущая цена
+
+        
+
+        if orderbook and orderbook.get('asks'):
+
             try:
-                currency_pair = f"{base}_{quote}"
-                api_client.create_spot_order(
-                    currency_pair=currency_pair,
-                    side='buy',
-                    amount=amount,
-                    price=str(buy_price),
-                    order_type='limit'
-                )
-                print(f"[AutoTrader] NEW CYCLE BUY {base}: {buy_price}")
-                self.buys[base].append(buy_price)
-                self.stats['trades'] += 1
-                self.stats['successful_trades'] += 1
+
+                # Берём лучшую цену продавца (ask) для покупки
+
+                asks = orderbook['asks']
+
+                if asks and len(asks) > 0:
+
+                    best_ask = float(asks[0][0])
+
+                    buy_price = best_ask
+
+                    print(f"  • Цена покупки (ask): {buy_price:.8f} {quote}")
+
+            except Exception:
+
+                pass
+
+        
+
+        # Пересчитываем количество для цены ask
+        amount_base = purchase_usd / buy_price if buy_price > 0 else 0
+        try:
+            ap2 = int(pair_info.get('amount_precision', 8))
+        except Exception:
+            ap2 = 8
+        unit2 = 1.0 / (10 ** ap2)
+        if amount_base < min_b:
+            amount_base = min_b
+            purchase_usd = amount_base * buy_price
+        # округляем вверх до допустимой точности
+        amount_base = math.ceil(amount_base / unit2) * unit2
+        # Убедимся, что итоговая сумма >= минимальной квоты для пары
+        total2 = amount_base * buy_price
+        mq2 = float(min_q or 0)
+        while mq2 > 0 and total2 < mq2:
+            amount_base += unit2
+            total2 = amount_base * buy_price
+        purchase_usd = amount_base * buy_price
+
+        
+
+        print(f"  • Финальная покупка: {amount_base:.8f} {base} по цене {buy_price:.8f}")
+
+        print(f"[AutoTrader][{base}] 🔄 Отправка ордера на покупку...")
+
+        order_res = self._place_limit_order_all_or_nothing('buy', base, quote, amount_base, buy_price)
+
+        
+
+        if order_res.get('success'):
+
+            filled = order_res['filled']
+
+            invest = filled * buy_price
+
+            cycle.update({
+
+                'active': True,
+
+                'active_step': 0,
+
+                'last_buy_price': buy_price,
+
+                'start_price': buy_price,  # P0 фиксируем как цену покупки
+
+                'total_invested_usd': invest,
+
+                'base_volume': filled
+
+            })
+
+            
+
+            # КРИТИЧЕСКИ ВАЖНО: обновляем start_price в state_manager для таблицы безубыточности
+
+            try:
+
+                current_params = self.state_manager.get_breakeven_params(base)
+
+                print(f"[AutoTrader][{base}] 🔍 DEBUG: current_params ДО обновления: start_price={current_params.get('start_price', 'НЕТ')}")
+
+                current_params['start_price'] = buy_price
+
+                save_result = self.state_manager.set_breakeven_params(base, current_params)
+
+                print(f"[AutoTrader][{base}] 📊 Обновлён start_price в state_manager: {buy_price:.8f} (save_result={save_result})")
+
+                
+
+                # Проверяем, что сохранилось
+
+                verify_params = self.state_manager.get_breakeven_params(base)
+
+                print(f"[AutoTrader][{base}] 🔍 DEBUG: start_price ПОСЛЕ сохранения: {verify_params.get('start_price', 'НЕТ')}")
+
+                
+
+                # ВАЖНО: Пересчитываем таблицу с новым start_price
+
+                new_table = calculate_breakeven_table(current_params, buy_price)
+
+                cycle['table'] = new_table
+
+                print(f"[AutoTrader][{base}] 📊 Таблица пересчитана с новым P0: {buy_price:.8f}")
+
+                print(f"[AutoTrader][{base}] 🔍 DEBUG: P0 в таблице (row 0): {new_table[0]['rate']:.8f}")
+
             except Exception as e:
-                print(f"[AutoTrader] Ошибка стартовой покупки {base}: {e}")
-                self.stats['failed_trades'] += 1
+
+                print(f"[AutoTrader][{base}] ⚠️ Ошибка обновления start_price и пересчёта таблицы: {e}")
+
+                import traceback
+
+                print(traceback.format_exc())
+
+            
+
+            self.logger.log_buy(base, filled, buy_price, 0.0, 0.0, invest)
+
+            # Обновляем статистику
+
+            self.stats['total_buy_orders'] += 1
+
+            self.stats['total_cycles'] += 1
+
+            self.stats['last_update'] = time.time()
+
+            # Сохраняем состояние
+
+            self._save_cycles_state()
+
+            print(f"[AutoTrader][{base}] ✅ Старт цикла row=0 price={buy_price}, filled={filled:.8f}")
+
         else:
-            print(f"[AutoTrader] (SIM) NEW CYCLE BUY {base}: {buy_price}")
-            self.buys[base].append(buy_price)
-            self.stats['successful_trades'] += 1
-        self.stats['per_base'].setdefault(base, {'cycles': 0, 'avg_buy': 0, 'last_price': 0})
-        self.stats['per_base'][base]['cycles'] += 1
-        self.stats['per_base'][base]['avg_buy'] = buy_price
 
-    def _maybe_add_buy(self, base: str, price: float, quote: str = 'USDT'):
-        """Усреднение позиции"""
-        params = self._get_params(base)
-        if not self.buys.get(base):
-            return
-        max_stages = params.get('steps', 16)
-        if len(self.buys[base]) >= max_stages:
-            return
-        # простое вероятностное условие (заглушка стратегии)
-        if random.random() < 0.20:
-            start_volume = params.get('start_volume', 3.0)
-            amount = str(start_volume / price) if price > 0 else '0.001'
-            add_price = round(price * 0.995, 8)
-            api_client = self.api_client_provider()
-            if api_client:
-                try:
-                    currency_pair = f"{base}_{quote}"
-                    api_client.create_spot_order(
-                        currency_pair=currency_pair,
-                        side='buy',
-                        amount=amount,
-                        price=str(add_price),
-                        order_type='limit'
-                    )
-                    print(f"[AutoTrader] AVERAGE BUY {base}: {add_price}")
-                    self.buys[base].append(add_price)
-                    self.stats['successful_trades'] += 1
-                except Exception as e:
-                    print(f"[AutoTrader] Ошибка усреднения {base}: {e}")
-                    self.stats['failed_trades'] += 1
-            else:
-                print(f"[AutoTrader] (SIM) AVERAGE BUY {base}: {add_price}")
-                self.buys[base].append(add_price)
-                self.stats['successful_trades'] += 1
-            # обновление avg_buy
-            avg = sum(self.buys[base]) / len(self.buys[base])
-            self.stats['per_base'].setdefault(base, {'cycles': 0, 'avg_buy': 0, 'last_price': 0})
-            self.stats['per_base'][base]['avg_buy'] = avg
+            error_info = order_res.get('error', 'partial/none fill')
 
-    def _maybe_sell_cycle(self, base: str, price: float, quote: str = 'USDT'):
-        """Продажа при достижении целевого профита"""
-        params = self._get_params(base)
-        if not self.buys.get(base):
+            print(f"[AutoTrader][{base}] ❌ Старт цикла НЕ выполнен: {error_info}")
+
+
+
+    def _try_rebuy(self, base: str, quote: str, current_price: float):
+
+        cycle = self.cycles.get(base)
+
+        if not cycle or not cycle.get('active'):
+
             return
-        avg = sum(self.buys[base]) / len(self.buys[base])
-        pprof_pct = params.get('pprof', 0.6) / 100.0
-        target = avg * (1 + pprof_pct)
-        if price >= target:
-            sell_price = round(price, 8)
-            buy_amount = sum([float(b) for b in self.buys[base]])
-            net_profit = (sell_price - avg) * buy_amount * 0.998
-            api_client = self.api_client_provider()
-            if api_client:
-                try:
-                    currency_pair = f"{base}_{quote}"
-                    api_client.create_spot_order(
-                        currency_pair=currency_pair,
-                        side='sell',
-                        amount=str(buy_amount),
-                        price=str(sell_price),
-                        order_type='limit'
-                    )
-                    print(f"[AutoTrader] SELL {base}: {sell_price}, profit={net_profit}")
-                    self.stats['successful_trades'] += 1
-                except Exception as e:
-                    print(f"[AutoTrader] Ошибка продажи {base}: {e}")
-                    self.stats['failed_trades'] += 1
-                    return
+
+        table = cycle.get('table') or []
+
+        active_step = cycle['active_step']
+
+        next_step = active_step + 1
+
+        if next_step >= len(table):
+
+            return
+
+        last_buy = cycle['last_buy_price']
+
+        params_row = table[next_step]
+
+        decrease_step_pct = abs(params_row['decrease_step_pct'])  # положительное значение снижения
+
+        if last_buy <= 0:
+
+            return
+
+        drop_pct = (last_buy - current_price) / last_buy * 100.0
+
+        if drop_pct < decrease_step_pct:  # условие падения не достигнуто
+
+            return
+
+        # Проверяем ликвидность (упрощённо: наличие нужного объёма в bids/asks)
+
+        orderbook = self._get_orderbook(base, quote)
+
+        if not orderbook:
+
+            return
+
+        level = int(self.state_manager.get_breakeven_params(base).get('orderbook_level', 1))
+
+        asks = orderbook.get('asks') or []
+
+        if len(asks) < level:
+
+            return
+
+        level_price, level_amount = 0.0, 0.0
+
+        try:
+
+            # asks: [[price, amount], ...]
+
+            level_price = float(asks[level - 1][0])
+
+            level_amount = float(asks[level - 1][1])
+
+        except Exception:
+
+            return
+
+        purchase_usd = float(params_row['purchase_usd'])
+        # Учитываем минимальные квоты
+        pair_info = self._get_pair_info(base, quote)
+        min_q = float(pair_info.get('min_quote_amount') or 0)
+
+        min_b = float(pair_info.get('min_base_amount') or 0)
+
+        if purchase_usd < min_q:
+
+            purchase_usd = min_q
+
+        amount_needed = purchase_usd / current_price if current_price > 0 else 0
+
+        if amount_needed < min_b:
+
+            amount_needed = min_b
+
+        # Ликвидность на уровне
+
+        if level_amount < amount_needed * 0.95:
+
+            return
+
+        order_res = self._place_limit_order_all_or_nothing('buy', base, quote, amount_needed, level_price)
+
+        if order_res.get('success'):
+
+            filled = order_res['filled']
+
+            invest = filled * level_price
+
+            cycle['active_step'] = next_step
+
+            cycle['last_buy_price'] = level_price
+
+            cycle['total_invested_usd'] += invest
+
+            cycle['base_volume'] += filled
+
+            total_drop_pct = table[next_step]['cumulative_decrease_pct']
+
+            self.logger.log_buy(base, filled, level_price, decrease_step_pct, total_drop_pct, cycle['total_invested_usd'])
+
+            # Обновляем статистику
+
+            self.stats['total_buy_orders'] += 1
+
+            self.stats['last_update'] = time.time()
+
+            # Сохраняем состояние
+
+            self._save_cycles_state()
+
+            print(f"[AutoTrader] Rebuy {base} step={next_step} price={level_price}")
+
+        else:
+
+            print(f"[AutoTrader] Rebuy пропущен {base}: partial/none fill")
+
+
+
+    def _try_sell(self, base: str, quote: str, current_price: float):
+
+        cycle = self.cycles.get(base)
+
+        # Явная диагностика состояния цикла для DOGE (и других валют) перед продажей
+
+        if base.upper() == 'DOGE':
+
+            print(f"[AutoTrader][DOGE][DIAG] Состояние цикла: {cycle}")
+
+            if cycle:
+
+                print(f"[AutoTrader][DOGE][DIAG] active={cycle.get('active')}, active_step={cycle.get('active_step')}, last_buy_price={cycle.get('last_buy_price')}, base_volume={cycle.get('base_volume')}")
+
+                table = cycle.get('table') or []
+
+                print(f"[AutoTrader][DOGE][DIAG] таблица шагов: {table}")
+
+        # --- Доработка: подробная диагностика ---
+
+        def print_detailed(reason, extra=None):
+
+            print(f"[AutoTrader][{base}] ❌ Продажа невозможна: {reason}")
+
+            if cycle:
+
+                print(f"    Статус: active={cycle.get('active')}, active_step={cycle.get('active_step')}, base_volume={cycle.get('base_volume')}, last_buy_price={cycle.get('last_buy_price')}, start_price={cycle.get('start_price')}, total_invested_usd={cycle.get('total_invested_usd')}")
+
+                table = cycle.get('table') or []
+
+                print(f"    Таблица шагов: len={len(table)}, active_step={cycle.get('active_step')}, шаг={table[cycle.get('active_step',0)] if table and cycle.get('active_step',0)<len(table) else 'нет'}")
+
             else:
-                print(f"[AutoTrader] (SIM) SELL {base}: {sell_price}, profit={net_profit}")
-                self.stats['successful_trades'] += 1
-            self.stats['total_profit'] += net_profit
-            self.buys[base] = []  # цикл завершен
-            self.stats['per_base'].setdefault(base, {'cycles': 0, 'avg_buy': 0, 'last_price': 0})
-            self.stats['per_base'][base]['avg_buy'] = 0
+
+                print(f"    Цикл отсутствует для {base}")
+
+            if extra:
+
+                print(f"    Дополнительно: {extra}")
+
+        if not cycle or not cycle.get('active'):
+
+            reason = "Цикл неактивен или отсутствует"
+
+            self.logger.log_sell_diagnostics(
+
+                base, current_price, 0.0, cycle.get('base_volume', 0.0) if cycle else 0.0,
+
+                cycle.get('active_step', -1) if cycle else -1,
+
+                str(cycle.get('active')) if cycle else 'None',
+
+                cycle.get('last_buy_price', None) if cycle else None,
+
+                reason
+
+            )
+
+            print_detailed(reason, extra="Проверьте, была ли стартовая покупка и активирован ли цикл. Если статус на вебе 'Активен', но цикл неактивен — проверьте восстановление состояния и историю покупок.")
+
+            return
+
+        table = cycle.get('table') or []
+
+        active_step = cycle.get('active_step', -1)
+
+        if active_step < 0 or active_step >= len(table):
+
+            reason = f"Некорректный active_step={active_step}, таблица шагов={len(table)}"
+
+            self.logger.log_sell_diagnostics(
+
+                base, current_price, 0.0, cycle.get('base_volume', 0.0),
+
+                active_step, str(cycle.get('active')), cycle.get('last_buy_price', None), reason
+
+            )
+
+            print_detailed(reason, extra="Проверьте параметры таблицы безубыточности и восстановление цикла. Возможно, цикл был повреждён или восстановлен некорректно.")
+
+            return
+
+        row = table[active_step]
+
+        sell_level = row.get('rate')
+
+        print(f"[AutoTrader][{base}] DIAG: active_step={active_step}, current_price={current_price}, sell_level={sell_level}, last_buy_price={cycle.get('last_buy_price')}, base_volume={cycle.get('base_volume')}")
+
+        base_volume = cycle['base_volume']
+
+        if base_volume <= 0:
+
+            reason = "base_volume=0 (нет купленного объёма для продажи)"
+
+            self.logger.log_sell_diagnostics(
+
+                base, current_price, sell_level, base_volume,
+
+                active_step, str(cycle.get('active')), cycle.get('last_buy_price', None), reason
+
+            )
+
+            print_detailed(reason, extra="Проверьте историю покупок, исполнение FOK-ордеров и баланс. Продажа невозможна без купленного объёма.")
+
+            return
+
+        # Исправление: продаём, если текущая цена > sell_level
+
+        if current_price > sell_level:
+
+            start_price = cycle.get('start_price', 0.0) or 1.0
+
+            growth_pct = (current_price - start_price) / start_price * 100.0
+
+            avg_invest_price = cycle['total_invested_usd'] / cycle['base_volume'] if cycle['base_volume'] > 0 else start_price
+
+            pnl = (current_price - avg_invest_price) * base_volume
+
+            order_res = self._place_limit_order_all_or_nothing('sell', base, quote, base_volume, current_price)
+
+            # Только если ордер исполнен полностью (filled >= base_volume * 0.999), считаем продажу успешной
+
+            filled = order_res.get('filled', 0.0)
+
+            if order_res.get('success') and filled >= base_volume * 0.999:
+
+                self.logger.log_sell(base, filled, current_price, growth_pct, pnl)
+
+                self.stats['total_sell_orders'] += 1
+
+                self.stats['last_update'] = time.time()
+
+                print(f"[AutoTrader] Sell {base} step={active_step} price={current_price} pnl={pnl:.4f}")
+
+                print(f"[AutoTrader][{base}] 🔄 Цикл завершён! PnL: {pnl:.4f} USDT. Готов к новому циклу.")
+
+                self.cycles[base] = {
+
+                    'active': False,
+
+                    'active_step': -1,
+
+                    'table': table,
+
+                    'last_buy_price': 0.0,
+
+                    'start_price': 0.0,
+
+                    'total_invested_usd': 0.0,
+
+                    'base_volume': 0.0
+
+                }
+
+                try:
+
+                    current_params = self.state_manager.get_breakeven_params(base)
+
+                    current_params['start_price'] = 0.0
+
+                    self.state_manager.set_breakeven_params(base, current_params)
+
+                    print(f"[AutoTrader][{base}] 📊 start_price обнулён в state_manager, готов к новому циклу")
+
+                except Exception as e:
+
+                    print(f"[AutoTrader][{base}] ⚠️ Ошибка обнуления start_price: {e}")
+
+                self._save_cycles_state()
+
+            else:
+
+                reason = f"Ордер не исполнен полностью: filled={filled:.8f} из {base_volume:.8f}"
+
+                self.logger.log_sell_diagnostics(
+
+                    base, current_price, sell_level, base_volume,
+
+                    active_step, str(cycle.get('active')), cycle.get('last_buy_price', None), reason
+
+                )
+
+                print_detailed(reason, extra=f"Проверьте ликвидность, стакан, параметры ордера. FOK-ордер не исполнен полностью. filled={filled:.8f}, требуется={base_volume:.8f}")
+
+        else:
+
+            reason = f"Текущая цена ниже или равна уровню продажи ({current_price} <= {sell_level})"
+
+            self.logger.log_sell_diagnostics(
+
+                base, current_price, sell_level, base_volume,
+
+                active_step, str(cycle.get('active')), cycle.get('last_buy_price', None), reason
+
+            )
+
+            print_detailed(reason, extra=f"Ожидайте роста цены выше sell_level. Текущая цена: {current_price}, sell_level: {sell_level}, шаг: {active_step}")
+
+            return
+
+
+
+    def _autosave_logs_loop(self):
+
+        """
+
+        Фоновый поток: регулярное сохранение логов по всем валютам в отдельные файлы для анализа ошибок.
+
+        """
+
+        last_saved = {}  # {currency: timestamp}
+
+        while True:
+
+            try:
+
+                currencies = self.logger.get_currencies_with_logs()
+
+                now = datetime.now()
+
+                for currency in currencies:
+
+                    logs = self.logger.get_logs(currency=currency)
+
+                    # Фильтруем только новые записи (за последнюю минуту)
+
+                    ts_limit = (now.timestamp() - 60)
+
+                    new_logs = [log for log in logs if datetime.fromisoformat(log['timestamp']).timestamp() > ts_limit]
+
+                    if new_logs:
+
+                        fname = f"trade_logs/EXPORT_{currency}_{now.strftime('%Y%m%d_%H%M')}.jsonl"
+
+                        with open(fname, 'a', encoding='utf-8') as f:
+
+                            for entry in new_logs:
+
+                                f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+
+                        print(f"[AutoTrader][LOG_EXPORT] {currency}: сохранено {len(new_logs)} записей в {fname}")
+
+                time.sleep(60)
+
+            except Exception as e:
+
+                print(f"[AutoTrader][LOG_EXPORT] Ошибка автосохранения логов: {e}")
+
+                time.sleep(60)
+
+
+
+    # ------------------------ Основной цикл ------------------------
 
     def _run(self):
-        """Основной цикл автоторговли (пер-валютный)"""
+
+        quote = self.state_manager.get_active_quote_currency()
+
+        
+
+        # Проверка API клиента при первом запуске
+
+        if not hasattr(self, '_api_checked'):
+
+            api_client = self.api_client_provider()
+
+            if api_client:
+
+                print(f"[AutoTrader] ✅ API клиент инициализирован (реальная торговля)")
+
+            else:
+
+                print(f"[AutoTrader] ⚠️ API клиент не доступен (режим симуляции)")
+
+            self._api_checked = True
+
+        
+
         while self.running:
+
             try:
+
                 if not self.state_manager.get_auto_trade_enabled():
+
                     time.sleep(self._sleep_interval)
+
                     continue
-                perms = self.state_manager.get_trading_permissions()  # {BASE: bool}
+
+                perms = self.state_manager.get_trading_permissions()
+
+                if not isinstance(perms, dict) or len(perms) == 0:
+
+                    # Нет явных разрешений — ничего не делаем, чтобы не торговать случайно
+
+                    if not hasattr(self, '_no_perms_warned'):
+
+                        print(f"[AutoTrader] ⚠️ Нет разрешений на торговлю валютами")
+
+                        self._no_perms_warned = True
+
+                    time.sleep(self._sleep_interval)
+
+                    continue
+
+                
+
+                # Диагностика: показываем разрешения один раз при старте цикла
+
+                if not hasattr(self, '_permissions_logged'):
+
+                    enabled_list = [k for k, v in perms.items() if v]
+
+                    disabled_list = [k for k, v in perms.items() if not v]
+
+                    print(f"[AutoTrader] 🔄 Цикл запущен с разрешениями:")
+
+                    print(f"  • Включено: {enabled_list}")
+
+                    if disabled_list:
+
+                        print(f"  • Выключено: {disabled_list}")
+
+                    self._permissions_logged = True
+
+                
+
+                # Счетчик активных валют для диагностики
+
+                enabled_count = sum(1 for enabled in perms.values() if enabled)
+
+                processed_count = 0
+
+                
+
+                # Счётчик циклов (для периодического логирования)
+
+                if not hasattr(self, '_cycle_count'):
+
+                    self._cycle_count = 0
+
+                self._cycle_count += 1
+
+                log_details = (self._cycle_count % 10 == 1)  # Подробные логи раз в 10 циклов
+
+                
+
                 for base, enabled in perms.items():
+
                     if not enabled:
+
+                        # Валюта отключена - пропускаем
+
                         continue
+
                     base = base.upper()
-                    current_price = self._get_price(base)
-                    if current_price <= 0:
+
+                    processed_count += 1
+
+                    
+
+                    if log_details:
+
+                        print(f"[AutoTrader][{base}] Обработка: получение цены {base}_{quote}...")
+
+                    
+
+                    # гарантия подписки
+
+                    self._ensure_ws_subscription(base, quote)
+
+                    price = self._get_market_price(base, quote)
+
+                    
+
+                    if not price or price <= 0:
+
+                        # Нет цены — пропуск итерации по этой валюте
+
+                        if log_details:
+
+                            print(f"[AutoTrader][{base}] ⚠️ Цена не получена, пропуск")
+
                         continue
-                    # старт цикла если нет активных покупок
-                    if not self.buys.get(base):
-                        self._start_new_cycle(base, current_price)
-                    else:
-                        self._maybe_add_buy(base, current_price)
-                        self._maybe_sell_cycle(base, current_price)
-                    # обновляем last_price в статистике
-                    self.stats['per_base'].setdefault(base, {'cycles': 0, 'avg_buy': 0, 'last_price': 0})
-                    self.stats['per_base'][base]['last_price'] = current_price
-                time.sleep(self._sleep_interval)
-            except Exception as e:
-                print(f"[AutoTrader] Ошибка цикла: {e}")
+
+                    
+
+                    if log_details:
+
+                        print(f"[AutoTrader][{base}] Цена получена: {price:.8f} {quote}")
+
+                    
+
+                    # Диагностика состояния цикла и таблицы перед продажей
+
+                    cycle = self.cycles.get(base)
+
+                    if cycle:
+
+                        print(f"[AutoTrader][{base}] DIAG: active={cycle.get('active')}, active_step={cycle.get('active_step')}, last_buy_price={cycle.get('last_buy_price')}, base_volume={cycle.get('base_volume')}")
+
+                        table = cycle.get('table') or []
+
+                        if table:
+
+                            print(f"[AutoTrader][{base}] DIAG: таблица безубыточности (активный шаг): {table[cycle.get('active_step',0)] if cycle.get('active_step',0)<len(table) else 'нет'}")
+
+                    self._try_start_cycle(base, quote, price)
+
+                    self._try_rebuy(base, quote, price)
+
+                    self._try_sell(base, quote, price)
+
+                
+
+                # Итоговый отчёт (раз в 10 циклов)
+
+                if log_details:
+
+                    active_cycles = sum(1 for c in self.cycles.values() if c.get('active'))
+
+                    # Обновляем статистику активных циклов
+
+                    self.stats['active_cycles'] = active_cycles
+
+                    self.stats['last_update'] = time.time()
+
+                    print(f"[AutoTrader] 📈 Итого: обработано {processed_count} валют, активных циклов: {active_cycles}")
+
+                
+
                 time.sleep(self._sleep_interval)
 
+            except Exception as e:
+
+                print(f"[AutoTrader] Ошибка цикла: {e}")
+
+                time.sleep(self._sleep_interval)
+
+
+
 # Конец файла
+

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Индикатор исправлен - Обновите страницу</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 700px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 36px;
+            text-align: center;
+        }
+        .success {
+            font-size: 64px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .instruction {
+            background: rgba(255,255,255,0.1);
+            border-left: 4px solid #4caf50;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .instruction h3 {
+            margin-top: 0;
+            color: #4caf50;
+        }
+        .code {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            background: #4caf50;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            margin: 10px 5px;
+            transition: all 0.3s;
+        }
+        .button:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .center {
+            text-align: center;
+            margin-top: 30px;
+        }
+        .data-box {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .data-row:last-child {
+            border-bottom: none;
+        }
+        .label {
+            color: #aaa;
+        }
+        .value {
+            color: #4caf50;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success">✅</div>
+        <h1>Индикатор исправлен!</h1>
+        
+        <p style="text-align: center; font-size: 18px; margin-bottom: 30px;">
+            Графический индикатор теперь отображает все уровни цен
+        </p>
+
+        <div class="instruction">
+            <h3>🔄 Как обновить:</h3>
+            <ol>
+                <li>Откройте главную страницу mTrade</li>
+                <li>Нажмите <strong>Ctrl + Shift + R</strong> (жёсткая перезагрузка)</li>
+                <li>Готово! Индикатор должен показывать все значения</li>
+            </ol>
+        </div>
+
+        <div class="data-box">
+            <h3 style="margin-top: 0;">📊 Текущие данные (DOGE):</h3>
+            <div class="data-row">
+                <span class="label">Price (текущая):</span>
+                <span class="value">0.15625 USDT</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Sell (продажа):</span>
+                <span class="value">0.15581 USDT</span>
+            </div>
+            <div class="data-row">
+                <span class="label">BE (безубыток):</span>
+                <span class="value">0.15493 USDT</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Start (стартовая):</span>
+                <span class="value">0.15493 USDT</span>
+            </div>
+            <div class="data-row">
+                <span class="label">Buy (следующая покупка):</span>
+                <span class="value">0.15493 USDT</span>
+            </div>
+        </div>
+
+        <div class="instruction">
+            <h3>✨ Что исправлено:</h3>
+            <ul>
+                <li>Индикатор теперь получает данные из API</li>
+                <li>Все уровни цен отображаются корректно</li>
+                <li>Визуальные маркеры на шкале работают</li>
+                <li>Автообновление каждые 2 секунды</li>
+            </ul>
+        </div>
+
+        <div class="center">
+            <a href="http://localhost:5000" class="button" target="_blank">
+                🚀 Открыть mTrade
+            </a>
+            <a href="http://localhost:5000" class="button" onclick="window.close(); return false;">
+                ✅ Готово
+            </a>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px; font-size: 12px; opacity: 0.7;">
+            <p>💡 Если индикатор всё ещё показывает тире (-), попробуйте:</p>
+            <p><strong>F12 → Application → Storage → Clear site data</strong></p>
+        </div>
+    </div>
+</body>
+</html>
