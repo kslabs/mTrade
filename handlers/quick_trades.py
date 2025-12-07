@@ -143,33 +143,202 @@ def quick_buy_min_impl():
         amount_str = f"{amount:.{amount_precision}f}"
 
         diagnostic_info['error_stage'] = 'create_order'
-        if Config.load_network_mode() == 'test':
-            execution_price = best_ask
-            diagnostic_info['execution_price'] = execution_price
-            price_precision = int(pair_info.get('precision', 8))
-            price_str = f"{execution_price:.{price_precision}f}"
-            result = api_client.create_spot_order(currency_pair=pair, side='buy', amount=amount_str, price=price_str, order_type='limit')
-        else:
-            execution_price = best_ask
-            diagnostic_info['execution_price'] = execution_price
-            result = api_client.create_spot_order(currency_pair=pair, side='buy', amount=amount_str, order_type='market')
+        # Попытка 1: если автотрейдер запущен — использовать его стартовую логику
+        tried_autotrader = False
+        try:
+            import mTrade
+            at = getattr(mTrade, 'AUTO_TRADER', None)
+        except Exception:
+            at = None
 
+        execution_price = best_ask
+        diagnostic_info['execution_price'] = execution_price
+
+        if at:
+            tried_autotrader = True
+            try:
+                # Используем безопасный синхронный метод, который ждёт завершения async покупки
+                success = at.try_start_cycle_sync(base_currency, quote_currency, timeout=10.0)
+                if success:
+                    cycle = at.cycles.get(base_currency.upper())
+                    if cycle and float(cycle.get('base_volume', 0) or 0) > 0:
+                        filled_base = float(cycle.get('base_volume', 0) or 0)
+                        filled_spent = float(cycle.get('total_invested_usd', 0) or 0)
+                        details_out = {
+                            'pair': pair,
+                            'order_type': 'aggregated_start',
+                            'network_mode': Config.load_network_mode(),
+                            'best_ask': best_ask,
+                            'amount': filled_base,
+                            'execution_price': cycle.get('last_buy_price') or execution_price,
+                            'filled_usd': filled_spent
+                        }
+                        return jsonify({'success': True, 'order': None, 'amount': filled_base, 'price': details_out['execution_price'], 'execution_price': details_out['execution_price'], 'total': filled_spent, 'order_id': None, 'details': details_out})
+                # else — автотрейдер не купил (таймаут или ошибка), падаем к обычной логике
+            except Exception as e:
+                diagnostic_info['api_error'] = {'label': 'autotrader_exception', 'message': str(e)}
+
+        # ЗАЩИТА: Если автотрейдер запустил покупку, но она ещё не завершилась,
+        # НЕ делаем fallback, чтобы избежать дублей
+        if at:
+            try:
+                cycle = at.cycles.get(base_currency.upper(), {})
+                state = at._cycle_start_state.get(base_currency.upper(), 0)
+                # Если покупка в процессе (state=1) или цикл активен (state=2), НЕ делаем fallback
+                if state != 0:
+                    if state == 1:
+                        diagnostic_info['error_stage'] = 'autotrader_in_progress'
+                        return jsonify({'success': False, 'error': 'Покупка уже в процессе через автотрейдер', 'details': diagnostic_info}), 409
+                    elif state == 2:
+                        # Цикл уже активен - возвращаем текущее состояние
+                        filled_base = float(cycle.get('base_volume', 0) or 0)
+                        filled_spent = float(cycle.get('total_invested_usd', 0) or 0)
+                        return jsonify({'success': True, 'order': None, 'amount': filled_base, 'price': cycle.get('last_buy_price', 0), 'execution_price': cycle.get('last_buy_price', 0), 'total': filled_spent, 'order_id': None, 'details': {'pair': pair, 'order_type': 'already_active'}})
+            except Exception:
+                pass  # Игнорируем ошибки проверки состояния
+
+        # Если автотрейдер отсутствует или не купил — делаем прямой market (как fallback)
+        try:
+            result = api_client.create_spot_order(currency_pair=pair, side='buy', amount=amount_str, order_type='market')
+        except Exception as e:
+            # В редких случаях тестовый хост может не поддерживать market; логируем и пробуем лимит как fallback
+            diagnostic_info['api_error'] = {'label': 'create_market_failed', 'message': str(e)}
+            try:
+                price_precision = int(pair_info.get('precision', 8))
+                price_str = f"{execution_price:.{price_precision}f}"
+                result = api_client.create_spot_order(currency_pair=pair, side='buy', amount=amount_str, price=price_str, order_type='limit')
+            except Exception as e2:
+                diagnostic_info['error_stage'] = 'create_order_failed'
+                diagnostic_info['api_error'] = {'label': 'create_limit_fallback_failed', 'message': str(e2)}
+                return jsonify({'success': False, 'error': 'Ошибка создания ордера', 'details': diagnostic_info}), 500
+
+        # Если API вернул ошибку в теле (label) — попробуем специальные fallback-логики
         if isinstance(result, dict) and 'label' in result:
             error_msg = result.get('message', 'Неизвестная ошибка API')
             error_label = result.get('label', 'UNKNOWN_ERROR')
             diagnostic_info['error_stage'] = f'api_error_{error_label}'
             diagnostic_info['api_error'] = {'label': error_label, 'message': error_msg}
-            return jsonify({'success': False, 'error': f'[{error_label}] {error_msg}', 'details': diagnostic_info}), 400
+
+            # Специальный кейс: для market-buy некоторые хосты требуют указания суммы в котируемой валюте (quote).
+            # При получении INVALID_PARAM_VALUE попробуем повторить market-buy, передав amount=start_volume (в quote).
+            if error_label == 'INVALID_PARAM_VALUE':
+                try:
+                    diagnostic_info['retry_attempt'] = 'market_with_quote_amount'
+                    # Форматируем сумму в quote с приемлемой точностью
+                    quote_attempt_amount = f"{start_volume:.8f}"
+                    diagnostic_info['retry_amount'] = quote_attempt_amount
+                    retry_result = api_client.create_spot_order(currency_pair=pair, side='buy', amount=quote_attempt_amount, order_type='market')
+                    diagnostic_info['retry_result_preview'] = str(retry_result)[:400]
+                    # Если повторный вызов прошёл без label — используем его как основной результат
+                    if not (isinstance(retry_result, dict) and 'label' in retry_result):
+                        result = retry_result
+                    else:
+                        # Сохраним информацию об ошибке повторной попытки
+                        diagnostic_info['api_error_retry'] = {'label': retry_result.get('label'), 'message': retry_result.get('message')}
+                        # Продолжим дальше — ниже обработка вернёт ошибку пользователю
+                except Exception as e:
+                    diagnostic_info['api_error_retry'] = {'label': 'retry_exception', 'message': str(e)}
+
+                # Если повторная попытка не помогла — попробуем автотрейдер (если он доступен).
+                try:
+                    import mTrade
+                    at = getattr(mTrade, 'AUTO_TRADER', None)
+                except Exception:
+                    at = None
+
+                if (isinstance(result, dict) and 'label' in result) and at:
+                    try:
+                        diagnostic_info['retry_attempt_2'] = 'autotrader_start'
+                        # Сохраним текущие параметры и временно установим start_volume
+                        state_mgr = get_state_manager()
+                        orig_params = state_mgr.get_breakeven_params(base_currency)
+                        # Make a shallow copy to avoid mutating stored object unexpectedly
+                        params_copy = dict(orig_params)
+                        params_copy['start_volume'] = float(start_volume)
+                        state_mgr.set_breakeven_params(base_currency, params_copy)
+                        # Вызовем автотрейдер непосредственно
+                        at._try_start_cycle(base_currency, quote_currency)
+                        # Восстановим оригинальные параметры
+                        state_mgr.set_breakeven_params(base_currency, orig_params)
+                        # Проверим цикл на результат
+                        cycle = at.cycles.get(base_currency.upper())
+                        if cycle and float(cycle.get('base_volume', 0) or 0) > 0:
+                            filled_base = float(cycle.get('base_volume', 0) or 0)
+                            filled_spent = float(cycle.get('total_invested_usd', 0) or 0)
+                            details_out = {
+                                'pair': pair,
+                                'order_type': 'aggregated_start_via_quickbuy_fallback',
+                                'network_mode': Config.load_network_mode(),
+                                'best_ask': best_ask,
+                                'amount': filled_base,
+                                'execution_price': cycle.get('last_buy_price') or execution_price,
+                                'filled_usd': filled_spent
+                            }
+                            return jsonify({'success': True, 'order': None, 'amount': filled_base, 'price': details_out['execution_price'], 'execution_price': details_out['execution_price'], 'total': filled_spent, 'order_id': None, 'details': details_out})
+                        else:
+                            diagnostic_info['autotrader_fallback'] = 'no_fill'
+                    except Exception as e:
+                        diagnostic_info['autotrader_fallback_error'] = str(e)
+
+            # Если после всех попыток всё ещё ошибка — вернём её клиенту
+            if isinstance(result, dict) and 'label' in result:
+                return jsonify({'success': False, 'error': f'[{error_label}] {error_msg}', 'details': diagnostic_info}), 400
 
         if not isinstance(result, dict) or 'id' not in result:
             diagnostic_info['error_stage'] = 'no_order_id'
             diagnostic_info['api_response'] = str(result)[:200]
             return jsonify({'success': False, 'error': 'Ордер не создан (нет ID в ответе)', 'details': diagnostic_info}), 400
 
-        trade_logger = get_trade_logger()
-        trade_logger.log_buy(currency=base_currency, volume=amount, price=best_ask, delta_percent=0.0, total_drop_percent=0.0, investment=start_volume)
+        # Попытка извлечь фактически исполненный объём (base) из ответа биржи
+        filled_base = 0.0
+        try:
+            if isinstance(result, dict):
+                if 'deal_amount' in result:
+                    filled_base = float(result.get('deal_amount') or 0)
+                elif 'filled_amount' in result:
+                    filled_base = float(result.get('filled_amount') or 0)
+                elif 'filled_total' in result:
+                    filled_base = float(result.get('filled_total') or 0)
+                elif 'amount' in result and 'left' in result:
+                    try:
+                        filled_base = float(result.get('amount') or 0) - float(result.get('left') or 0)
+                    except Exception:
+                        filled_base = 0.0
+                elif result.get('status') in ('closed', 'finished') and 'amount' in result:
+                    # assume fully executed
+                    filled_base = float(result.get('amount') or 0)
+        except Exception:
+            filled_base = 0.0
 
-        return jsonify({'success': True, 'order': result, 'amount': amount, 'price': best_ask, 'execution_price': diagnostic_info['execution_price'], 'total': start_volume, 'order_id': result.get('id', 'unknown'), 'details': {'pair': pair}})
+        # Если нет исполнения — не считаем покупку успешной (во избежание ложных уведомлений)
+        if filled_base and filled_base > 0:
+            trade_logger = get_trade_logger()
+            trade_logger.log_buy(currency=base_currency, volume=filled_base, price=best_ask, delta_percent=0.0, total_drop_percent=0.0, investment=start_volume)
+
+            used_order_type = 'limit' if Config.load_network_mode() == 'test' else 'market'
+            details_out = {
+                'pair': pair,
+                'order_type': used_order_type,
+                'network_mode': Config.load_network_mode(),
+                'best_ask': best_ask,
+                'amount': filled_base,
+                'execution_price': diagnostic_info.get('execution_price'),
+                'order_id': result.get('id') if isinstance(result, dict) else None
+            }
+            return jsonify({'success': True, 'order': result, 'amount': filled_base, 'price': best_ask, 'execution_price': diagnostic_info['execution_price'], 'total': start_volume, 'order_id': result.get('id', 'unknown'), 'details': details_out})
+        else:
+            # Order created but not filled (or no execution info). Return informative failure so UI не показывает ложный успех.
+            details_out = {
+                'pair': pair,
+                'order_type': 'limit' if Config.load_network_mode() == 'test' else 'market',
+                'network_mode': Config.load_network_mode(),
+                'best_ask': best_ask,
+                'amount_requested': amount,
+                'filled': filled_base,
+                'order_id': result.get('id') if isinstance(result, dict) else None,
+            }
+            diagnostic_info['error_stage'] = 'not_filled'
+            return jsonify({'success': False, 'error': 'Order created but not executed (no fills)', 'order': result, 'details': details_out}), 200
 
     except Exception as e:
         diagnostic_info['error_stage'] = 'exception'
@@ -301,12 +470,99 @@ def quick_sell_all_impl():
             diagnostic_info['api_response'] = str(result)[:200]
             return jsonify({'success': False, 'error': 'Ордер не создан (нет ID в ответе)', 'details': diagnostic_info}), 400
 
-        trade_logger = get_trade_logger()
-        # TradeLogger.log_sell signature: (currency, volume, price, delta_percent, pnl)
-        # We don't have pnl calculation here (requires purchase history), so pass 0.0 for pnl and 0.0 for delta_percent.
-        trade_logger.log_sell(currency=base_currency, volume=amount, price=best_bid, delta_percent=0.0, pnl=0.0)
+        # Попытка извлечь исполненный объём
+        filled_base = 0.0
+        try:
+            if isinstance(result, dict):
+                if 'deal_amount' in result:
+                    filled_base = float(result.get('deal_amount') or 0)
+                elif 'filled_amount' in result:
+                    filled_base = float(result.get('filled_amount') or 0)
+                elif 'filled_total' in result:
+                    filled_base = float(result.get('filled_total') or 0)
+                elif 'amount' in result and 'left' in result:
+                    try:
+                        filled_base = float(result.get('amount') or 0) - float(result.get('left') or 0)
+                    except Exception:
+                        filled_base = 0.0
+                elif result.get('status') in ('closed', 'finished') and 'amount' in result:
+                    filled_base = float(result.get('amount') or 0)
+        except Exception:
+            filled_base = 0.0
 
-        return jsonify({'success': True, 'order': result, 'amount': amount, 'price': best_bid, 'execution_price': diagnostic_info['execution_price'], 'total': total, 'order_id': result.get('id', 'unknown'), 'details': {'pair': pair}})
+        if filled_base and filled_base > 0:
+            # Log the actual sell
+            trade_logger = get_trade_logger()
+            trade_logger.log_sell(currency=base_currency, volume=filled_base, price=best_bid, delta_percent=0.0, pnl=0.0)
+        else:
+            # If nothing filled — do not log as a completed sell
+            diagnostic_info['error_stage'] = 'not_filled'
+
+        # Если автотрейдер запущен — принудительно закроем цикл для этой валюты,
+        # чтобы ручная "sell all" не привела к немедленному автоматическому ребаю.
+        try:
+            import mTrade
+            import time as time_module
+            at = getattr(mTrade, 'AUTO_TRADER', None)
+            if at and hasattr(at, 'cycles'):
+                b = base_currency.upper()
+                # Если цикл присутствует — помечаем неактивным и обнуляем ключевые поля
+                if b in at.cycles:
+                    # ====== КРИТИЧЕСКИ ВАЖНО: Устанавливаем last_sell_time ДО сброса цикла ======
+                    # Это предотвратит немедленный запуск новой стартовой покупки
+                    current_time = time_module.time()
+                    
+                    at.cycles[b].update({
+                        'active': False,
+                        'active_step': -1,
+                        'last_buy_price': 0.0,
+                        'start_price': 0.0,
+                        'total_invested_usd': 0.0,
+                        'base_volume': 0.0,
+                        'pending_start': False,  # КРИТИЧНО: Сбрасываем флаг pending_start
+                        'last_sell_time': current_time,  # КРИТИЧНО: Устанавливаем метку времени продажи
+                        'last_start_attempt': 0  # Сбрасываем метку последней попытки старта
+                    })
+                    
+                    print(f"[MANUAL_SELL][{b}] Цикл сброшен после ручной продажи: active=False, last_sell_time={current_time}")
+                    
+                    try:
+                        # Обновим params в state_manager чтобы таблица не использовала старый start_price
+                        current_params = state_manager.get_breakeven_params(b)
+                        current_params['start_price'] = 0.0
+                        state_manager.set_breakeven_params(b, current_params)
+                    except Exception:
+                        pass
+                    try:
+                        # Сразу сохраним состояние автотрейдера
+                        if hasattr(at, '_save_cycles_state'):
+                            at._save_cycles_state()
+                            print(f"[MANUAL_SELL][{b}] Состояние автотрейдера сохранено")
+                    except Exception as e:
+                        print(f"[MANUAL_SELL][{b}] Ошибка сохранения состояния: {e}")
+                    try:
+                        if hasattr(at, '_set_last_diagnostic'):
+                            at._set_last_diagnostic(b, {'decision': 'manual_sell_all', 'timestamp': current_time, 'reason': 'user_initiated_sell_all'})
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[MANUAL_SELL_ERROR] Ошибка при сбросе цикла: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Дополняем детали для UI
+        used_order_type = 'limit' if Config.load_network_mode() == 'test' else 'market'
+        details_out = {
+            'pair': pair,
+            'order_type': used_order_type,
+            'network_mode': Config.load_network_mode(),
+            'best_bid': best_bid,
+            'amount': amount,
+            'execution_price': diagnostic_info.get('execution_price'),
+            'cancelled_orders': diagnostic_info.get('cancelled_orders', 0)
+        }
+
+        return jsonify({'success': True, 'order': result, 'amount': amount, 'price': best_bid, 'execution_price': diagnostic_info['execution_price'], 'total': total, 'order_id': result.get('id', 'unknown'), 'details': details_out})
 
     except Exception as e:
         diagnostic_info['error_stage'] = 'exception'

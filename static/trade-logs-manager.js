@@ -17,6 +17,7 @@ class TradeLogsManager {
         this.logs = [];
         this.refreshInterval = null;
         this.AUTO_REFRESH_INTERVAL = 5000; // 5 секунд
+        this.isPaused = false; // Флаг паузы обновления
     }
 
     /**
@@ -61,6 +62,7 @@ class TradeLogsManager {
         // Кнопки управления логами
         const btnRefresh = document.getElementById('btn-refresh-logs');
         const btnClear = document.getElementById('btn-clear-logs');
+        const btnPause = document.getElementById('btn-pause-logs');
 
         if (btnRefresh) {
             btnRefresh.addEventListener('click', () => this.refreshLogs());
@@ -68,6 +70,10 @@ class TradeLogsManager {
 
         if (btnClear) {
             btnClear.addEventListener('click', () => this.clearLogs());
+        }
+
+        if (btnPause) {
+            btnPause.addEventListener('click', () => this.togglePause());
         }
     }
 
@@ -97,8 +103,15 @@ class TradeLogsManager {
             if (paramsEditor) paramsEditor.style.display = 'block';
             if (saveBtn) saveBtn.style.display = 'inline-block';
 
-            // Остановить авто-обновление логов
+            // Остановить авто-обновление логов и сбросить паузу
             this.stopAutoRefresh();
+            this.isPaused = false;
+            const btnPause = document.getElementById('btn-pause-logs');
+            if (btnPause) {
+                btnPause.innerHTML = '⏸️ Пауза';
+                btnPause.classList.remove('btn-success');
+                btnPause.classList.add('btn-warning');
+            }
         } else {
             // Показать логи, скрыть таблицу и параметры
             if (btnBreakeven) btnBreakeven.classList.remove('active');
@@ -311,13 +324,44 @@ class TradeLogsManager {
     }
 
     /**
+     * Переключить паузу автообновления
+     */
+    togglePause() {
+        this.isPaused = !this.isPaused;
+        const btnPause = document.getElementById('btn-pause-logs');
+        
+        if (this.isPaused) {
+            // Остановить автообновление
+            this.stopAutoRefresh();
+            if (btnPause) {
+                btnPause.innerHTML = '▶️ Продолжить';
+                btnPause.classList.remove('btn-warning');
+                btnPause.classList.add('btn-success');
+            }
+            console.debug('[TradeLogsManager] Автообновление приостановлено');
+            if(window.uiDebugLog) window.uiDebugLog('Автообновление логов ПРИОСТАНОВЛЕНО');
+        } else {
+            // Запустить автообновление
+            this.startAutoRefresh();
+            if (btnPause) {
+                btnPause.innerHTML = '⏸️ Пауза';
+                btnPause.classList.remove('btn-success');
+                btnPause.classList.add('btn-warning');
+            }
+            console.debug('[TradeLogsManager] Автообновление возобновлено');
+            if(window.uiDebugLog) window.uiDebugLog('Автообновление логов ВОЗОБНОВЛЕНО');
+        }
+    }
+
+    /**
      * Запустить авто-обновление логов
      */
     startAutoRefresh() {
         if (this.refreshInterval) return;
+        if (this.isPaused) return; // Не запускать, если пауза активна
 
         this.refreshInterval = setInterval(() => {
-            if (this.currentView === 'logs') {
+            if (this.currentView === 'logs' && !this.isPaused) {
                 this.refreshLogs();
             }
         }, this.AUTO_REFRESH_INTERVAL);

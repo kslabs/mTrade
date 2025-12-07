@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест загрузки параметров</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        .test-section {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .test-section h2 {
+            color: #64B5F6;
+            margin-top: 0;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .log {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 5px;
+            padding: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .info {
+            color: #64B5F6;
+        }
+        .param-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .param-field {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .param-field label {
+            display: block;
+            color: #999;
+            font-size: 11px;
+            margin-bottom: 5px;
+        }
+        .param-field input {
+            width: 100%;
+            padding: 5px;
+            background: #333;
+            border: 1px solid #555;
+            color: #fff;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+        .clear-btn {
+            background: #f44336;
+        }
+        .clear-btn:hover {
+            background: #da190b;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Тест загрузки параметров торговли</h1>
+    
+    <div class="test-section">
+        <h2>Выбор валюты</h2>
+        <label>
+            Базовая валюта:
+            <select id="currencySelect" style="margin-left: 10px; padding: 5px;">
+                <option value="">-- Не выбрана --</option>
+                <option value="ETH">ETH</option>
+                <option value="BTC">BTC</option>
+                <option value="SOL">SOL</option>
+            </select>
+        </label>
+    </div>
+    
+    <div class="test-section">
+        <h2>Тесты API</h2>
+        <button onclick="testFetch()">Тест fetch()</button>
+        <button onclick="testLoadParams()">Загрузить параметры</button>
+        <button onclick="testFillForm()">Заполнить форму</button>
+        <button class="clear-btn" onclick="clearLog()">Очистить лог</button>
+        <div id="apiLog" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Форма параметров</h2>
+        <div class="param-grid">
+            <div class="param-field">
+                <label>Шагов:</label>
+                <input type="number" id="paramSteps" readonly />
+            </div>
+            <div class="param-field">
+                <label>Старт, $:</label>
+                <input type="number" id="paramStartVolume" readonly />
+            </div>
+            <div class="param-field">
+                <label>Цена (P0):</label>
+                <input type="number" id="paramStartPrice" readonly />
+            </div>
+            <div class="param-field">
+                <label>Pprof, %:</label>
+                <input type="number" id="paramPprof" readonly />
+            </div>
+            <div class="param-field">
+                <label>Kprof:</label>
+                <input type="number" id="paramKprof" readonly />
+            </div>
+            <div class="param-field">
+                <label>R:</label>
+                <input type="number" id="paramTargetR" readonly />
+            </div>
+            <div class="param-field">
+                <label>Rk:</label>
+                <input type="number" id="paramRk" readonly />
+            </div>
+            <div class="param-field">
+                <label>Множитель геометрии:</label>
+                <input type="number" id="paramGeomMultiplier" readonly />
+            </div>
+            <div class="param-field">
+                <label>Режим докупок:</label>
+                <input type="text" id="paramRebuyMode" readonly />
+            </div>
+            <div class="param-field">
+                <label>Keep:</label>
+                <input type="number" id="paramKeep" readonly />
+            </div>
+            <div class="param-field">
+                <label>Стакан:</label>
+                <input type="number" id="paramOrderbookLevel" readonly />
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const $ = id => document.getElementById(id);
+        const log = (msg, type = 'info') => {
+            const logEl = $('apiLog');
+            const time = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            logEl.innerHTML += `<span class="${className}">[${time}] ${msg}</span>\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(`[${type.toUpperCase()}]`, msg);
+        };
+        
+        const clearLog = () => {
+            $('apiLog').innerHTML = '';
+        };
+        
+        async function testFetch() {
+            log('='.repeat(60), 'info');
+            log('ТЕСТ: Проверка fetch API', 'info');
+            log('='.repeat(60), 'info');
+            
+            try {
+                log('Отправка запроса к /api/trade/params...', 'info');
+                const response = await fetch('/api/trade/params');
+                log(`Ответ получен: status=${response.status} ${response.statusText}`, 'success');
+                
+                const data = await response.json();
+                log(`Success: ${data.success}`, data.success ? 'success' : 'error');
+                log(`Данные: ${JSON.stringify(data, null, 2)}`, 'info');
+            } catch (e) {
+                log(`ОШИБКА: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+        
+        async function testLoadParams() {
+            log('='.repeat(60), 'info');
+            log('ТЕСТ: Загрузка параметров', 'info');
+            log('='.repeat(60), 'info');
+            
+            const currency = $('currencySelect').value;
+            log(`Текущая валюта: ${currency || '(не выбрана)'}`, 'info');
+            
+            try {
+                const url = currency 
+                    ? `/api/trade/params?base_currency=${currency}` 
+                    : '/api/trade/params';
+                
+                log(`URL: ${url}`, 'info');
+                log('Отправка запроса...', 'info');
+                
+                const response = await fetch(url);
+                log(`Ответ получен: status=${response.status}`, response.ok ? 'success' : 'error');
+                
+                if (!response.ok) {
+                    const text = await response.text();
+                    log(`ERROR: ${text}`, 'error');
+                    return null;
+                }
+                
+                const data = await response.json();
+                log(`Success: ${data.success}`, data.success ? 'success' : 'error');
+                
+                if (data.params) {
+                    log('Полученные параметры:', 'success');
+                    for (const [key, value] of Object.entries(data.params)) {
+                        log(`  - ${key}: ${value}`, 'info');
+                    }
+                    return data.params;
+                } else {
+                    log('⚠ Параметры отсутствуют в ответе', 'error');
+                    return null;
+                }
+            } catch (e) {
+                log(`ОШИБКА: ${e.message}`, 'error');
+                console.error(e);
+                return null;
+            }
+        }
+        
+        async function testFillForm() {
+            log('='.repeat(60), 'info');
+            log('ТЕСТ: Заполнение формы', 'info');
+            log('='.repeat(60), 'info');
+            
+            const params = await testLoadParams();
+            
+            if (!params) {
+                log('⚠ Не удалось загрузить параметры', 'error');
+                return;
+            }
+            
+            try {
+                log('Заполнение полей формы...', 'info');
+                
+                const fields = {
+                    'paramSteps': params.steps,
+                    'paramStartVolume': params.start_volume,
+                    'paramStartPrice': params.start_price,
+                    'paramPprof': params.pprof,
+                    'paramKprof': params.kprof,
+                    'paramTargetR': params.target_r,
+                    'paramRk': params.rk,
+                    'paramGeomMultiplier': params.geom_multiplier,
+                    'paramRebuyMode': params.rebuy_mode,
+                    'paramKeep': params.keep,
+                    'paramOrderbookLevel': params.orderbook_level
+                };
+                
+                for (const [id, value] of Object.entries(fields)) {
+                    const el = $(id);
+                    if (el) {
+                        el.value = value ?? 0;
+                        log(`✓ ${id} = ${value}`, 'success');
+                    } else {
+                        log(`✗ Элемент ${id} не найден!`, 'error');
+                    }
+                }
+                
+                log('Форма успешно заполнена!', 'success');
+            } catch (e) {
+                log(`ОШИБКА заполнения формы: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+        
+        // Автоматический тест при загрузке страницы
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Страница загружена', 'success');
+            log('Готов к тестированию', 'info');
+        });
+    </script>
+</body>
+</html>

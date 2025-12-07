@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-25T21:43:56.838776", "time": "21:43:56", "type": "sell", "currency": "SUI", "volume": 6.65, "volume_quote": 10.06012, "price": 1.5128, "delta_percent": 0.6654245408570675, "pnl": 0.06650000000000006, "total_pnl": 0.6822628965517235, "total_invested": -43.15464399999999}
+{"timestamp": "2025-11-25T21:44:27.586065", "time": "21:44:27", "type": "buy", "currency": "SUI", "volume": 6.61, "volume_quote": 10.002252, "price": 1.5131999999999999, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.002252, "total_invested": -33.15239199999999}

@@ -1,8 +1,7 @@
 ﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
-    <!-- VERSION: 2025-11-10-21:00 - REFACT                    <button id="resetCycleBtn" class="server-btn-small" style="background:#ff9800;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс цикла">&#x23EE;</button>
-                    <button id="resetSessionBtn" class="server-btn-small" style="background:#9c27b0;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Сброс сессии (скоро)">&#x1F501;</button>CSS/JS SEPARATED) {{ cache_buster }} -->
+    <!-- VERSION: 2025-01-14-23:00 - NO TIMING BUTTON - ONLY 2 BUTTONS (BREAKEVEN + LOGS) {{ cache_buster }} -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -11,7 +10,7 @@
     <title>Gate.io Multi-Trading Platform [{{ cache_buster }}]</title>
     
     <!-- External CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=no_shadow_fix">
 </head>
 <body>
 <div class="container">
@@ -92,6 +91,7 @@
                 <div style="display:flex;align-items:center;gap:8px;">
                     <button id="buyMinOrderBtn" class="server-btn-small control-large" style="background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Купить минимальный ордер">&#x1F6D2;</button>
                     <button id="sellAllBtn" class="server-btn-small control-large" style="background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Продать всё">💰</button>
+                    <button id="resumeCycleBtn" class="server-btn-small control-large" style="background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Старт цикла">▶</button>
                     <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
                     <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (скоро)">&#x1F501;</button>
                     <span style="font-size:11px;color:#888;">Баланс:</span>
@@ -190,6 +190,10 @@
                         <div class="stat-row">
                             <span class="label">Объём базы:</span>
                             <span class="value" id="autotradeBaseVolume">-</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Торговля:</span>
+                            <span class="value" id="tradeIndicator" style="font-weight:bold;">⏸️ Ожидание</span>
                         </div>
                     </div>
                 </div>
@@ -302,6 +306,7 @@
                 </div>
                 <div class="logs-toolbar" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
                     <button id="btn-refresh-logs" class="btn-secondary" style="padding:4px 8px;font-size:12px;">🔄 Обновить</button>
+                    <button id="btn-pause-logs" class="btn-warning" style="padding:4px 8px;font-size:12px;">⏸️ Пауза</button>
                     <button id="btn-clear-logs" class="btn-danger" style="padding:4px 8px;font-size:12px;">🗑️ Очистить</button>
                     <div class="logs-stats" style="margin-left:auto;font-size:12px;color:#999;">
                         <span id="logs-count">0</span> записей

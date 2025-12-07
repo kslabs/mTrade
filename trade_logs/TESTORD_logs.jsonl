@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-22T15:40:56.843766", "time": "15:40:56", "type": "buy", "currency": "TESTORD", "volume": 1.0, "volume_quote": 100.0, "price": 100.0, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 100.0, "total_invested": 100.0}
+{"timestamp": "2025-11-22T15:40:56.844618", "time": "15:40:56", "type": "sell", "currency": "TESTORD", "volume": 1.0, "volume_quote": 110.0, "price": 110.0, "delta_percent": 0.0, "pnl": 10.0, "total_pnl": 10.0, "total_invested": -10.0}

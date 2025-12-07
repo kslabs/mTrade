@@ -1,0 +1,16 @@
+# ⚠️ ВАЖНО: ПЕРЕЗАПУСТИТЕ СЕРВЕР!
+
+print("=" * 70)
+print("⚠️  ПЕРЕЗАПУСТИТЕ СЕРВЕР ПЕРЕД ТЕСТИРОВАНИЕМ!")
+print("=" * 70)
+print()
+print("1. Остановите текущий сервер (Ctrl+C в консоли)")
+print("2. Запустите заново: python mTrade.py")
+print("3. Запустите этот тест снова")
+print()
+print("Изменения:")
+print("✅ Заменён DualProcessAutoTrader на DualThreadAutoTrader")
+print("✅ Multiprocessing → Threading (работает на Windows!)")
+print("✅ Исправлена синтаксическая ошибка")
+print()
+print("=" * 70)

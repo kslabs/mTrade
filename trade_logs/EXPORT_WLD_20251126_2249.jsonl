@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-26T22:48:39.963687", "time": "22:48:39", "type": "sell", "currency": "WLD", "volume": 35.612, "volume_quote": 23.464746800000004, "price": 0.6589, "delta_percent": 0.0, "pnl": 0.12474439936039299, "total_pnl": 0.12474439936039299, "total_invested": -23.464746800000004}
+{"timestamp": "2025-11-26T22:49:10.593182", "time": "22:49:10", "type": "buy", "currency": "WLD", "volume": 15.177, "volume_quote": 10.0001253, "price": 0.6589, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.0001253, "total_invested": -13.464621500000003}

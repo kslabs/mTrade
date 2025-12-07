@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T15:02:44.186445", "time": "15:02:44", "type": "buy", "currency": "BNB", "volume": 9.3434, "volume_quote": 87.29912356000001, "price": 9.3434, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 87.29912356000001, "total_invested": 1099.4269776600001}
+{"timestamp": "2025-11-23T15:02:48.240235", "time": "15:02:48", "type": "sell", "currency": "BNB", "volume": 0.011, "volume_quote": 9.338999999999999, "price": 849.0, "delta_percent": 8986.627994092087, "pnl": 9.2362226, "total_pnl": 129.2650392, "total_invested": 1090.0879776600002}

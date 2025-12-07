@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T14:30:37.670105", "time": "14:30:37", "type": "buy", "currency": "ETH", "volume": 9.905525, "volume_quote": 98.11942552562502, "price": 9.905525, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 98.11942552562502, "total_invested": 186.26533581985}
+{"timestamp": "2025-11-23T14:30:41.212907", "time": "14:30:41", "type": "sell", "currency": "ETH", "volume": 0.0035, "volume_quote": 9.904545, "price": 2829.87, "delta_percent": 28468.601866130262, "pnl": 9.8698756625, "total_pnl": 19.73524931, "total_invested": 176.36079081985}

@@ -24,7 +24,7 @@
     "symbol": "◬"
   },
   {
-    "code": "XLM",
+    "code": "TAO",
     "symbol": "*"
   },
   {
@@ -36,15 +36,31 @@
     "symbol": "Ⓑ"
   },
   {
-    "code": "AVAX",
+    "code": "WLD",
     "symbol": "▲"
   },
   {
-    "code": "DOT",
+    "code": "ANIME",
     "symbol": "●"
   },
   {
     "code": "GT",
     "symbol": "GT"
+  },
+  {
+    "code": "XRP5L",
+    "symbol": "⬢"
+  },
+  {
+    "code": "BTC",
+    "symbol": "₿"
+  },
+  {
+    "code": "SUI",
+    "symbol": "◇"
+  },
+  {
+    "code": "ICP",
+    "symbol": "⬡"
   }
 ]

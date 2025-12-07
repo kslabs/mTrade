@@ -152,45 +152,38 @@ def reset_autotrader_cycle_impl():
             return jsonify({"success": False, "error": "Автотрейдер не инициализирован"}), 500
 
         if base_currency in app_main.AUTO_TRADER.cycles:
-            old_cycle = app_main.AUTO_TRADER.cycles[base_currency].copy()
-            app_main.AUTO_TRADER.cycles[base_currency] = {
-                'active': False,
-                'active_step': -1,
-                'table': old_cycle.get('table', []),
-                'last_buy_price': 0.0,
-                'start_price': 0.0,
-                'total_invested_usd': 0.0,
-                'base_volume': 0.0
-            }
-            try:
-                app_main.AUTO_TRADER._save_cycles_state()
-            except Exception:
-                pass
-
-            return jsonify({
-                "success": True,
-                "message": f"Цикл {base_currency} успешно сброшен.",
-                "old_state": {
-                    "active": old_cycle.get('active'),
-                    "step": old_cycle.get('active_step'),
-                    "invested": old_cycle.get('total_invested_usd')
-                }
-            })
+            # Используем правильный API AutoTraderV2 для сброса цикла
+            lock = app_main.AUTO_TRADER._get_lock(base_currency)
+            with lock:
+                # Сохраняем старое состояние для отчёта
+                old_info = app_main.AUTO_TRADER.get_cycle_info(base_currency)
+                
+                # Сбрасываем цикл
+                cycle_obj = app_main.AUTO_TRADER.cycles[base_currency]
+                cycle_obj.reset()
+                
+                print(f"[RESET_CYCLE][{base_currency}] Цикл сброшен через handlers/autotrade.py")
+                
+                return jsonify({
+                    "success": True,
+                    "message": f"Цикл {base_currency} успешно сброшен.",
+                    "old_state": old_info if old_info else {
+                        "active": False,
+                        "step": -1,
+                        "invested": 0.0
+                    }
+                })
         else:
-            app_main.AUTO_TRADER.cycles[base_currency] = {
-                'active': False,
-                'active_step': -1,
-                'table': [],
-                'last_buy_price': 0.0,
-                'start_price': 0.0,
-                'total_invested_usd': 0.0,
-                'base_volume': 0.0
-            }
-            try:
-                app_main.AUTO_TRADER._save_cycles_state()
-            except Exception:
-                pass
-            return jsonify({"success": True, "message": f"Цикл {base_currency} готов к запуску."})
+            # Создаём новый цикл и сразу сбрасываем
+            lock = app_main.AUTO_TRADER._get_lock(base_currency)
+            with lock:
+                app_main.AUTO_TRADER._ensure_cycle(base_currency)
+                cycle_obj = app_main.AUTO_TRADER.cycles[base_currency]
+                cycle_obj.reset()
+                
+                print(f"[RESET_CYCLE][{base_currency}] Новый цикл создан и сброшен через handlers/autotrade.py")
+                
+                return jsonify({"success": True, "message": f"Цикл {base_currency} готов к запуску."})
     except Exception as e:
         import traceback
         traceback.print_exc()

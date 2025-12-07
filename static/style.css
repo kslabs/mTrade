@@ -28,6 +28,17 @@
         }
         .server-btn-small.shutdown {background:#f44336;color:#fff}
         .server-btn-small.shutdown:hover {background:#d32f2f}
+        /* Control buttons (Buy, Sell, Reset) - same size as restart button */
+        .control-large {
+            width: 36px !important;
+            height: 36px !important;
+            padding: 0 !important;
+            font-size: 20px !important;
+            line-height: 1 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
         .toggle-switch {position:relative;width:60px;height:30px;background:#1a1a1a;border-radius:15px;cursor:pointer;transition:background .3s;border:2px solid #3a3a3a}
         .toggle-switch.active {background:#4CAF50}
         .toggle-slider {position:absolute;top:3px;left:3px;width:24px;height:24px;background:#fff;border-radius:50%;transition:transform .3s;box-shadow:0 2px 5px rgba(0,0,0,.4)}
@@ -290,6 +301,11 @@
         .perm-toggle {display:inline-block;width:14px;height:14px;border-radius:50%;margin-left:6px;position:relative;cursor:pointer;box-shadow:0 0 0 1px #555,inset 0 0 4px rgba(0,0,0,.6)}
         .perm-toggle.on {background:#4CAF50}
         .perm-toggle.off {background:#f44336}
+        .perm-indicator {width:18px;height:18px;border-radius:50%;position:absolute;top:2px;right:2px;box-shadow:0 0 0 2px #222,inset 0 0 6px rgba(0,0,0,.6);cursor:pointer;transition:transform .2s,box-shadow .2s}
+        .perm-indicator.on {background:#4CAF50}
+        .perm-indicator.off {background:#f44336}
+        .perm-indicator:hover {transform:scale(1.15);box-shadow:0 0 0 2px #4CAF50,inset 0 0 8px rgba(0,0,0,.4)}
+        .perm-indicator.off:hover {box-shadow:0 0 0 2px #f44336,inset 0 0 8px rgba(0,0,0,.4)}
         .base-currency-tabs {background:#2a2a2a;border-radius:8px;padding:10px;margin-bottom:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a;display:flex;gap:8px;overflow-x:auto}
         .base-currency-tabs {padding:8px 10px} /* меньше высота контейнера */
         .tab-item { /* уплотнено + место под индикатор разрешения */
@@ -306,9 +322,11 @@
         .tab-item .symbol-label {display:inline;margin:0;font-size:11px;color:#bbb;font-weight:500;line-height:1;position:static}
         .currency-gear-btn {padding:8px 12px;background:#1a1a1a;border:1px solid #3a3a3a;color:#ccc;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
         .currency-gear-btn:hover {background:#2f2f2f;color:#fff}
-        .perm-indicator {width:10px;height:10px;border-radius:50%;position:absolute;top:4px;right:4px;box-shadow:0 0 0 1px #222,inset 0 0 4px rgba(0,0,0,.6);cursor:pointer}
+        .perm-indicator {width:18px;height:18px;border-radius:50%;position:absolute;top:2px;right:2px;box-shadow:0 0 0 2px #222,inset 0 0 6px rgba(0,0,0,.6);cursor:pointer;transition:transform .2s,box-shadow .2s}
         .perm-indicator.on {background:#4CAF50}
         .perm-indicator.off {background:#f44336}
+        .perm-indicator:hover {transform:scale(1.15);box-shadow:0 0 0 2px #4CAF50,inset 0 0 8px rgba(0,0,0,.4)}
+        .perm-indicator.off:hover {box-shadow:0 0 0 2px #f44336,inset 0 0 8px rgba(0,0,0,.4)}
         #currencyManagerModal {position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.65);z-index:1000}
         #currencyManagerModal .modal-inner {background:#222;border:1px solid #3a3a3a;border-radius:10px;padding:18px;max-width:580px;width:92%;max-height:80vh;overflow:auto;box-shadow:0 6px 24px rgba(0,0,0,.6)}
         #currencyManagerModal h4 {margin:0 0 12px;font-size:15px;color:#4CAF50;font-weight:600}
@@ -348,16 +366,37 @@
         .base-currency-tabs .tab-item .code-label{font-weight:600}
         .base-currency-tabs .tab-item .symbol-label{display:inline!important;margin:0!important;font-size:11px;color:#bbb;font-weight:500}
         .base-currency-tabs .tab-item .symbol-label:empty{display:none!important}
-        .base-currency-tabs .tab-item .perm-indicator{right:4px;top:4px;z-index:2}
+        .base-currency-tabs .tab-item .perm-indicator{right:2px;top:1px;z-index:2;width:16px;height:16px}
+        /* Индикатор активного шага на вкладке */
+        .base-currency-tabs .tab-item .step-indicator{
+            position:absolute;
+            bottom:1px;
+            right:1px;
+            background:transparent;
+            color:#fff;
+            font-size:11px;
+            font-weight:700;
+            padding:0 2px;
+            border-radius:0;
+            line-height:1;
+            z-index:3;
+            box-shadow:none;
+            pointer-events:none;
+            text-shadow:0 0 3px rgba(0,0,0,0.8);
+        }
+        .base-currency-tabs .tab-item.active .step-indicator{
+            color:#fff;
+            text-shadow:0 0 4px rgba(0,0,0,0.9);
+        }
         /* Акцент активной вкладки и индикатора разрешения */
         .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important}
         .base-currency-tabs .tab-item.active .symbol-label {color:#eaffea!important}
-        .base-currency-tabs .tab-item .perm-indicator {border:1px solid #111}
-        .base-currency-tabs .tab-item.active .perm-indicator.on {box-shadow:0 0 0 1px #0d3,inset 0 0 4px rgba(0,0,0,.4)}
-        /* Усиленный стиль кнопок выбора валюты */
-        .base-currency-tabs .tab-item {background:#1a1a1a;border:1px solid #3a3a3a;color:#ccc;font-weight:600;min-width:64px;border-radius:6px;cursor:pointer;user-select:none}
-        .base-currency-tabs .tab-item:hover {background:#2f2f2f;color:#fff}
-        .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important}
+        .base-currency-tabs .tab-item .perm-indicator {border:2px solid #111}
+        .base-currency-tabs .tab-item.active .perm-indicator.on {box-shadow:0 0 0 2px #0d3,inset 0 0 6px rgba(0,0,0,.4)}
+        /* Усиленный стиль кнопок выбора валюты - оптимальный бордер 2px */
+        .base-currency-tabs .tab-item {background:#1a1a1a;border:2px solid #4CAF50;color:#ccc;font-weight:700;min-width:70px;border-radius:6px;cursor:pointer;user-select:none}
+        .base-currency-tabs .tab-item:hover {background:#2f2f2f;color:#fff;border:2px solid #66BB6A}
+        .base-currency-tabs .tab-item.active {background:#4CAF50!important;color:#fff!important;border:2px solid #4CAF50!important}
         /* --- Server controls overrides --- */
         .server-btn-small.restart { /* 2x larger icon and centered */
             width:36px; height:36px; padding:0;
@@ -621,9 +660,10 @@
         }
 
         .symbol-item.selected {
-            background: #1e4620;
-            border-color: #4CAF50;
-            box-shadow: 0 0 12px rgba(76, 175, 80, 0.3);
+            /* Removed all visual distinction - selected button looks identical to unselected */
+            background: #1a1a1a !important;
+            border: 2px solid #3a3a3a !important;
+            box-shadow: none !important;
         }
 
         .symbol-char {
@@ -749,17 +789,6 @@
     background: #2a2a2a;
     border: 1px solid #3a3a3a;
     margin-bottom: 15px;
-}
-/* Дополнительный класс для крупных иконок в быстрых действиях (Купить/Продать/Сбросы) */
-.server-btn-small.control-large {
-    width:36px;
-    height:36px;
-    padding:0;
-    font-size:22px;
-    line-height:1;
-    display:flex;
-    align-items:center;
-    justify-content:center;
 }
 
 .cycle-header {
@@ -890,4 +919,116 @@
 /* Плавный переход для подсветки активной строки в таблице безубыточности */
 table tbody tr {
     transition: background-color 0.3s ease, border-left 0.3s ease, font-weight 0.3s ease;
+}
+
+/* === УСИЛЕНИЕ ВИЗУАЛА: Номер шага в таблице безубыточности === */
+/* Заголовок колонки номера шага - ОТКЛЮЧЕНО */
+/*
+#breakEvenTable thead th:first-child {
+    background: #1a4d1a !important;
+    color: #00ff00 !important;
+    font-size: 14px !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    min-width: 50px !important;
+    border-right: 3px solid #4CAF50 !important;
+    text-shadow: 0 0 8px rgba(0,255,0,0.7) !important;
+    padding: 8px !important;
+}
+*/
+
+/* Стили для первого столбца таблицы отключены - возврат к стандартному виду */
+/* 
+#breakEvenTable tbody td:first-child {
+    background: linear-gradient(135deg, #1a4d1a 0%, #2e7d32 100%) !important;
+    color: #00ff00 !important;
+    font-size: 18px !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    min-width: 50px !important;
+    border-right: 3px solid #4CAF50 !important;
+    text-shadow: 0 0 10px rgba(0,255,0,0.8), 0 0 20px rgba(0,255,0,0.4) !important;
+    padding: 10px 8px !important;
+    letter-spacing: 1px !important;
+    font-family: 'Arial Black', 'Arial', sans-serif !important;
+}
+
+#breakEvenTable tbody tr[style*="2a4a2a"] td:first-child,
+#breakEvenTable tbody tr[style*="background:#2a4a2a"] td:first-child,
+#breakEvenTable tbody tr[style*="background: #2a4a2a"] td:first-child {
+    background: linear-gradient(135deg, #2e7d32 0%, #4CAF50 100%) !important;
+    color: #ffffff !important;
+    font-size: 20px !important;
+    box-shadow: 0 0 15px rgba(76,175,80,1), inset 0 0 10px rgba(255,255,255,0.2) !important;
+    border: 2px solid #fff !important;
+    animation: pulse-glow 2s ease-in-out infinite !important;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 15px rgba(76,175,80,0.8), inset 0 0 10px rgba(255,255,255,0.2); }
+    50% { box-shadow: 0 0 25px rgba(76,175,80,1), inset 0 0 15px rgba(255,255,255,0.3); }
+}
+
+.step-number-cell {
+    background: linear-gradient(135deg, #1a4d1a 0%, #2e7d32 100%) !important;
+    color: #00ff00 !important;
+    font-size: 18px !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    min-width: 50px !important;
+    border-right: 3px solid #4CAF50 !important;
+    text-shadow: 0 0 10px rgba(0,255,0,0.8), 0 0 20px rgba(0,255,0,0.4) !important;
+    padding: 10px 8px !important;
+    letter-spacing: 1px !important;
+    font-family: 'Arial Black', 'Arial', sans-serif !important;
+}
+*/
+
+/* Стили для кнопок управления логами */
+.btn-secondary {
+    background: #5a5a5a;
+    color: #fff;
+    border: 1px solid #3a3a3a;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background: #6a6a6a;
+}
+
+.btn-warning {
+    background: #ffa500;
+    color: #fff;
+    border: 1px solid #ff8c00;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-warning:hover {
+    background: #ff8c00;
+}
+
+.btn-success {
+    background: #4CAF50;
+    color: #fff;
+    border: 1px solid #45a049;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-success:hover {
+    background: #45a049;
+}
+
+.btn-danger {
+    background: #f44336;
+    color: #fff;
+    border: 1px solid #d32f2f;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-danger:hover {
+    background: #d32f2f;
 }
