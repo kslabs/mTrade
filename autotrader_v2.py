@@ -52,6 +52,7 @@ class TradingCycle:
     cycle_started_at: float = 0.0
     last_action_at: float = 0.0
     last_buy_attempt_at: float = 0.0  # НОВОЕ: Время последней попытки покупки (для защиты от дублирования)
+    last_sell_at: float = 0.0  # НОВОЕ: Время последней продажи (для задержки перед новым циклом)
     
     # Флаг ручной паузы (для блокировки автостарта после ручного сброса)
     manual_pause: bool = False
@@ -453,15 +454,14 @@ class AutoTraderV2:
                         
                         # ШАГ 3: Принимаем решение и выполняем действия
                         if is_active:
-                            print(f"[{base}] Цикл АКТИВЕН (step={active_step})")
+                            print(f"[{base}] 🟢 Цикл АКТИВЕН (step={active_step}) → вызываем _try_sell")
                             
-                            # Цикл АКТИВЕН и есть монеты → торгуем
-                            # TODO: self._try_sell(base, quote, price)
-                            # TODO: self._try_rebuy(base, quote, price)
+                            # Цикл АКТИВЕН → пытаемся продать
+                            self._try_sell(base, quote, price)
+                            print(f"[{base}] 🟢 _try_sell завершён")
                             
-                            # ВАЖНО: НЕ проверяем баланс сразу после активации!
-                            # Проверка баланса вынесена отдельно и вызывается только когда нужно
-                            pass
+                            # TODO: После реализации ребая добавить:
+                            # self._try_rebuy(base, quote, price)
                         else:
                             # Цикл НЕ АКТИВЕН
                             if is_paused:
@@ -594,7 +594,14 @@ class AutoTraderV2:
                     print(f"[{base}] [SKIP] Цикл уже активен (state={cycle.state.value}, cycle_id={cycle.cycle_id})")
                     return
                 
-                # Проверка 2: Покупка уже в процессе?
+                # НОВАЯ Проверка 2: Задержка после продажи (60 секунд)
+                if hasattr(cycle, 'last_sell_at') and cycle.last_sell_at > 0:
+                    time_since_sell = time.time() - cycle.last_sell_at
+                    if time_since_sell < 60:
+                        print(f"[{base}] [SKIP] Задержка после продажи ({time_since_sell:.1f}s < 60s)")
+                        return
+                
+                # Проверка 3: Покупка уже в процессе?
                 if not hasattr(cycle, '_buying_in_progress'):
                     cycle._buying_in_progress = False
                 
@@ -690,6 +697,19 @@ class AutoTraderV2:
                 print(f"[{base}]   Цена: {executed_price}")
                 print(f"[{base}]   Стоимость: {executed_cost} {quote}")
                 
+                # КРИТИЧЕСКИ ВАЖНО: Пересчитываем таблицу с РЕАЛЬНОЙ ценой покупки!
+                # Если цена изменилась между расчётом и покупкой, таблица будет неверной
+                print(f"[{base}] [DEBUG] Пересчитываем таблицу с реальной ценой покупки {executed_price}...")
+                table_with_real_price = calculate_breakeven_table(params, current_price=executed_price)
+                print(f"[{base}] [DEBUG] Таблица пересчитана, target_delta_pct = {table_with_real_price[0].get('target_delta_pct')}%")
+                
+                # 🔴 КРИТИЧЕСКИ ВАЖНО: Обновляем start_price в параметрах!
+                # Это гарантирует, что при следующем цикле таблица будет рассчитана с правильной ценой
+                print(f"[{base}] [DEBUG] Обновляем start_price в параметрах: {executed_price}...")
+                params['start_price'] = executed_price
+                self.state_manager.set_breakeven_params(base, params)
+                print(f"[{base}] [DEBUG] start_price обновлён и сохранён!")
+                
                 # ШАГ 3: Активируем цикл И сохраняем состояние (под lock, быстро!)
                 print(f"[{base}] [DEBUG] Начинаем активацию цикла...")
                 cycle_id = 0
@@ -704,7 +724,7 @@ class AutoTraderV2:
                         base_volume=executed_amount,
                         invested_usd=executed_cost
                     )
-                    cycle.table = table
+                    cycle.table = table_with_real_price  # Используем пересчитанную таблицу!
                     cycle._buying_in_progress = False
                     cycle_id = cycle.cycle_id
                     
@@ -739,11 +759,226 @@ class AutoTraderV2:
             print(f"[{base}] [ERROR] Ошибка в _try_start_cycle: {e}")
     
     def _clear_buying_flag(self, base: str):
-        """Снять флаг 'покупка в процессе'"""
+        """Снять флаг 'продажа в процессе'"""
         lock = self._get_lock(base)
         with lock:
             if base in self.cycles:
                 self.cycles[base]._buying_in_progress = False
+    
+    def _try_sell(self, base: str, quote: str, price: float):
+        """
+        Попытка продать все монеты, если цена достигла цели
+        
+        ПРАВИЛЬНАЯ АРХИТЕКТУРА:
+        1. Все API запросы БЕЗ lock
+        2. Только изменение состояния ПОД lock (быстро)
+        
+        ЛОГИКА:
+        1. Проверяем, что цикл активен
+        2. Получаем целевую цену продажи из таблицы
+        3. Если текущая цена >= целевой → продаём
+        4. После продажи сбрасываем цикл в IDLE
+        """
+        # 🔴 ЯВНАЯ МЕТКА — КОД ОБНОВЛЁН 08.12.2025 07:30
+        print(f"[{base}] 🔴 _try_sell вызван | КОД ВЕРСИЯ: 2025-12-08_07:30 | Цена: {price}")
+        
+        try:
+            # ШАГ 1: Проверяем состояние цикла (под lock, быстро)
+            lock = self._get_lock(base)
+            
+            with lock:
+                self._ensure_cycle(base)
+                cycle = self.cycles[base]
+                
+                # Проверка 1: Цикл активен?
+                if not cycle.is_active():
+                    return
+                
+                # Проверка 2: Есть ли таблица и текущий шаг?
+                if not cycle.table or cycle.active_step < 0 or cycle.active_step >= len(cycle.table):
+                    print(f"[{base}] [WARN] Нет таблицы или некорректный шаг ({cycle.active_step})")
+                    return
+                
+                # Проверка 3: Продажа уже в процессе?
+                if not hasattr(cycle, '_selling_in_progress'):
+                    cycle._selling_in_progress = False
+                
+                if cycle._selling_in_progress:
+                    print(f"[{base}] [SKIP] Продажа уже в процессе (_selling_in_progress=True)")
+                    return
+                
+                # Копируем нужные данные
+                current_step = cycle.table[cycle.active_step]
+                breakeven_price = current_step.get('breakeven_price', 0)
+                rate = current_step.get('rate', 0)  # Расчетный курс на текущем шаге
+                target_delta_pct = current_step.get('target_delta_pct', 0)
+                base_volume = cycle.base_volume
+                start_price = cycle.start_price
+            
+            # ШАГ 2: Вычисляем целевую цену продажи (БЕЗ lock)
+            if not breakeven_price or breakeven_price <= 0:
+                print(f"[{base}] [WARN] Некорректная цена безубыточности: {breakeven_price}")
+                return
+            
+            if not rate or rate <= 0:
+                print(f"[{base}] [WARN] Некорректный расчетный курс: {rate}")
+                return
+            
+            # ИСПРАВЛЕНО: target_delta_pct рассчитан относительно rate (расчетного курса шага).
+            # Формула в breakeven_calculator.py: target_delta_pct = breakeven_pct + pprof - (step * kprof)
+            # Где breakeven_pct = ((breakeven_price - rate) / rate) * 100 - это рост от rate до breakeven
+            # Поэтому целевая цена = rate * (1 + target_delta_pct / 100)
+            target_sell_price = rate * (1 + target_delta_pct / 100.0)
+            
+            # Дополнительная защита: не продавать ниже цены безубыточности
+            if target_sell_price < breakeven_price:
+                print(f"[{base}] [WARN] Целевая цена ({target_sell_price}) ниже безубыточности ({breakeven_price}), используем безубыточность")
+                target_sell_price = breakeven_price
+            
+            print(f"[{base}] Проверка продажи:")
+            print(f"  Текущая цена: {price}")
+            print(f"  Расчетный курс шага (rate): {rate}")
+            print(f"  Цена безубыточности: {breakeven_price}")
+            print(f"  Целевая дельта (от rate): +{target_delta_pct:.2f}%")
+            print(f"  Целевая цена продажи: {target_sell_price:.8f}")
+            print(f"  Объём для продажи: {base_volume} {base}")
+            
+            # Проверка условия продажи
+            if price < target_sell_price:
+                print(f"[{base}] [SKIP] Цена еще не достигла цели ({price} < {target_sell_price})")
+                return
+            
+            # ШАГ 3: АТОМАРНО устанавливаем флаг продажи (под lock, быстро)
+            with lock:
+                cycle = self.cycles[base]
+                
+                # Повторная проверка состояния (могло измениться)
+                if not cycle.is_active():
+                    return
+                
+                cycle._selling_in_progress = True
+                print(f"[{base}] [LOCK] Флаг _selling_in_progress установлен, начинаем продажу...")
+            
+            # ШАГ 4: Все API запросы БЕЗ lock
+            try:
+                api_client = self.api_client_provider()
+                if not api_client:
+                    self._clear_selling_flag(base)
+                    return
+                
+                currency_pair = f"{base}_{quote}".upper()
+                
+                # Проверяем открытые SELL ордера
+                try:
+                    open_orders = api_client.get_spot_orders(currency_pair, status="open")
+                    sell_orders = [o for o in open_orders if o.get('side') == 'sell']
+                    if sell_orders:
+                        print(f"[{base}] [SKIP] Есть открытые SELL ордера ({len(sell_orders)})")
+                        self._clear_selling_flag(base)
+                        return
+                except Exception as e:
+                    print(f"[{base}] [WARN] Ошибка проверки открытых ордеров: {e}")
+                    self._clear_selling_flag(base)
+                    return
+                
+                # Получаем актуальный баланс
+                all_balances = api_client.get_account_balance()
+                balance_base = next((b for b in all_balances if b.get('currency') == base), None)
+                available_base = float(balance_base.get('available', 0)) if balance_base else 0.0
+                
+                if available_base <= 0:
+                    print(f"[{base}] [WARN] Недостаточно монет для продажи ({available_base})")
+                    self._clear_selling_flag(base)
+                    return
+                
+                print(f"[{base}] 🔵 Создание MARKET SELL: {available_base} {base}")
+                
+                # Создаём MARKET ордер на продажу
+                order = api_client.create_spot_order(
+                    currency_pair=currency_pair,
+                    side='sell',
+                    order_type='market',
+                    amount=str(available_base)
+                )
+                
+                order_id = order.get('id')
+                print(f"[{base}] [OK] MARKET SELL ордер создан: {order_id}")
+                
+                # Проверяем исполнение
+                time.sleep(0.5)
+                order_status = api_client.get_spot_order(order_id, currency_pair)
+                
+                if order_status.get('status') != 'closed':
+                    print(f"[{base}] [WARN] Ордер на продажу не исполнен")
+                    self._clear_selling_flag(base)
+                    return
+                
+                executed_price = float(order_status.get('avg_deal_price', price))
+                executed_amount = float(order_status.get('filled_amount', available_base))
+                executed_total = float(order_status.get('filled_total', 0))
+                
+                print(f"[{base}] ✅ ПРОДАЖА ИСПОЛНЕНА!")
+                print(f"[{base}]   Объём: {executed_amount} {base}")
+                print(f"[{base}]   Цена: {executed_price}")
+                print(f"[{base}]   Получено: {executed_total} {quote}")
+                
+                # Вычисляем профит
+                with lock:
+                    cycle = self.cycles[base]
+                    total_invested = cycle.total_invested_usd
+                    profit = executed_total - total_invested
+                    profit_pct = (profit / total_invested * 100.0) if total_invested > 0 else 0.0
+                    
+                    # Вычисляем рост от стартовой цены
+                    growth_pct = ((executed_price - start_price) / start_price * 100.0) if start_price > 0 else 0.0
+                
+                print(f"[{base}] 💰 ПРОФИТ: {profit:.2f} {quote} ({profit_pct:+.2f}%)")
+                print(f"[{base}] 📈 РОСТ: {growth_pct:+.2f}% от стартовой цены")
+                
+                # ШАГ 5: Сбрасываем цикл и сохраняем состояние (под lock, быстро!)
+                with lock:
+                    cycle = self.cycles[base]
+                    cycle.reset()  # Сброс в IDLE (автоматически увеличит total_cycles_count)
+                    cycle._selling_in_progress = False
+                    cycle.last_sell_at = time.time()  # ВАЖНО: Устанавливаем метку времени продажи
+                    
+                    print(f"[{base}] 🎉 ЦИКЛ ЗАВЕРШЁН! Всего циклов: {cycle.total_cycles_count}, last_sell_at={cycle.last_sell_at}")
+                    
+                    # Сохраняем состояние
+                    self._save_state(base)
+                
+                # ШАГ 6: Логируем продажу в файл (БЕЗ lock)
+                try:
+                    self.logger.log_sell(
+                        currency=base,
+                        volume=executed_amount,
+                        price=executed_price,
+                        delta_percent=growth_pct,
+                        pnl=profit
+                    )
+                    print(f"[{base}] [OK] Продажа записана в лог")
+                except Exception as log_error:
+                    print(f"[{base}] [WARN] Ошибка записи в лог: {log_error}")
+                    import traceback
+                    traceback.print_exc()
+                
+            except Exception as e:
+                print(f"[{base}] [ERROR] Ошибка выполнения продажи: {e}")
+                import traceback
+                traceback.print_exc()
+                self._clear_selling_flag(base)
+                
+        except Exception as e:
+            print(f"[{base}] [ERROR] Ошибка в _try_sell: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _clear_selling_flag(self, base: str):
+        """Снять флаг 'продажа в процессе'"""
+        lock = self._get_lock(base)
+        with lock:
+            if base in self.cycles:
+                self.cycles[base]._selling_in_progress = False
     
     # ============================================================================
     # API ДЛЯ ВЕБ-ИНТЕРФЕЙСА
@@ -787,3 +1022,32 @@ class AutoTraderV2:
             }
             print(f"[DEBUG] get_cycle_info({base}): state={result['state']}, active={result['active']}, cycle_id={result['cycle_id']}")
             return result
+    
+    def force_reset_cycle(self, base: str, reason: str = "manual_action"):
+        """Принудительный сброс цикла при ручной продаже
+        
+        Используется когда продажа происходит через веб-интерфейс,
+        чтобы корректно сбросить состояние цикла и предотвратить
+        немедленные повторные покупки.
+        """
+        lock = self._get_lock(base)
+        with lock:
+            self._ensure_cycle(base)
+            cycle = self.cycles[base]
+            
+            if cycle.is_active():
+                print(f"[{base}] 🔴 ПРИНУДИТЕЛЬНЫЙ СБРОС ЦИКЛА (причина: {reason})")
+                print(f"[{base}]   Цикл ID: {cycle.cycle_id}")
+                print(f"[{base}]   Инвестировано: {cycle.total_invested_usd} USDT")
+            
+            # Сбрасываем цикл (manual=False чтобы НЕ блокировать автостарт)
+            cycle.reset(manual=False)
+            
+            # КРИТИЧЕСКИ ВАЖНО: Устанавливаем метку времени продажи
+            # Это предотвратит немедленную новую покупку
+            cycle.last_sell_at = time.time()
+            
+            print(f"[{base}] ✅ Цикл сброшен, last_sell_at={cycle.last_sell_at}")
+            
+            # Сохраняем состояние
+            self._save_state(base)

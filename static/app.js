@@ -1270,6 +1270,45 @@ async function loadBreakEvenTable(){
       currentBaseCurrency = 'WLD'; // Принудительная установка дефолтной валюты
     }
     
+    // 🔴 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Сначала проверяем, есть ли активный цикл с таблицей
+    // Если цикл активен - используем СОХРАНЁННУЮ таблицу из /api/trade/indicators
+    // Это предотвращает пересчёт таблицы с текущей ценой!
+    try {
+      // ✅ ИСПРАВЛЕНИЕ: Передаём include_table=1 для получения таблицы
+      const indicatorsResp = await fetch(`/api/trade/indicators?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}&include_table=1`);
+      const indicatorsData = await indicatorsResp.json();
+      
+      // ✅ ИСПРАВЛЕНИЕ: Правильный путь к данным - autotrade_levels, а не indicators.cycle
+      if (indicatorsData.success && indicatorsData.autotrade_levels) {
+        const levels = indicatorsData.autotrade_levels;
+        
+        if (levels.active_cycle && levels.table && levels.table.length > 0) {
+          // ✅ Цикл активен и таблица есть - используем её!
+          console.log(`[BREAKEVEN] ✅ Используем сохранённую таблицу цикла (${levels.table.length} шагов, P0=${levels.table[0].rate}, start_price=${levels.start_price})`);
+          
+          // 🔴 КРИТИЧЕСКИ ВАЖНО: Обновляем поле start_price в форме!
+          // Это гарантирует, что пользователь видит актуальный P0 для активного цикла
+          const startPriceField = $('paramStartPrice');
+          if (startPriceField && levels.start_price) {
+            startPriceField.value = levels.start_price;
+            console.log(`[BREAKEVEN] 📝 Поле start_price обновлено: ${levels.start_price}`);
+          }
+          
+          renderBreakEvenTable(levels.table);
+          return; // Выходим, не делаем пересчёт!
+        } else {
+          console.log(`[BREAKEVEN] Цикл неактивен (active=${levels.active_cycle}) или таблица отсутствует (table=${levels.table ? levels.table.length : 'null'})`);
+        }
+      }
+    } catch (e) {
+      console.warn('[BREAKEVEN] Не удалось проверить indicators:', e);
+      // Продолжаем выполнение - попробуем пересчитать таблицу
+    }
+    
+    // Если дошли сюда - цикл НЕ активен или таблица отсутствует
+    // Пересчитываем таблицу с текущими параметрами
+    console.log('[BREAKEVEN] Цикл неактивен или таблица отсутствует - пересчитываем с текущими параметрами');
+    
     // Читаем текущие значения из полей формы (для мгновенного предпросмотра)
     const currentParams = {
       steps: parseInt($('paramSteps')?.value) || 16,
