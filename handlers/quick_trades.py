@@ -490,13 +490,23 @@ def quick_sell_all_impl():
         except Exception:
             filled_base = 0.0
 
-        if filled_base and filled_base > 0:
-            # Log the actual sell
-            trade_logger = get_trade_logger()
-            trade_logger.log_sell(currency=base_currency, volume=filled_base, price=best_bid, delta_percent=0.0, pnl=0.0)
-        else:
-            # If nothing filled — do not log as a completed sell
-            diagnostic_info['error_stage'] = 'not_filled'
+        # КРИТИЧНО: Всегда логируем продажу, даже если filled_base=0
+        # Используем amount (заказанный объем), если filled_base не определен
+        volume_to_log = filled_base if filled_base > 0 else amount
+        trade_logger = get_trade_logger()
+        
+        # 🔴 МАРКЕР: Это РУЧНАЯ продажа через веб-интерфейс "Sell All"
+        print(f"[TRADE_LOG] 🔴[MANUAL_SELL_ALL] Ручная продажа через веб-интерфейс: {base_currency}, volume={volume_to_log}, price={best_bid}")
+        
+        trade_logger.log_sell(
+            currency=base_currency, 
+            volume=volume_to_log, 
+            price=best_bid, 
+            delta_percent=0.0,  # Фиксированная дельта для ручных продаж
+            pnl=0.0,            # Фиксированный PnL для ручных продаж
+            source="MANUAL"     # 🔴 МАРКЕР РУЧНОЙ ПРОДАЖИ
+        )
+        print(f"[TRADE_LOG] 🔴[MANUAL_SELL_ALL] Продажа залогирована в файл")
 
         # Если автотрейдер запущен — принудительно закроем цикл для этой валюты,
         # чтобы ручная "sell all" не привела к немедленному автоматическому ребаю.

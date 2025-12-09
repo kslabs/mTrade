@@ -424,6 +424,17 @@ def handle_sell_all(data: Dict, current_network_mode: str) -> Tuple:
             delta_percent=0.0,
             pnl=0.0,
         )
+        
+        # 🔥 КРИТИЧЕСКИ ВАЖНО: Сбросить цикл автотрейдера после ручной продажи!
+        # Иначе автотрейдер думает, что цикл всё ещё активен и начинает новые покупки
+        try:
+            from mTrade import AUTO_TRADER
+            if AUTO_TRADER:
+                print(f"[INFO] quick_sell_all: Сбрасываем цикл автотрейдера для {base_currency}...")
+                AUTO_TRADER.force_reset_cycle(base_currency, reason="manual_sell")
+                print(f"[INFO] quick_sell_all: Цикл автотрейдера сброшен")
+        except Exception as reset_error:
+            print(f"[WARNING] quick_sell_all: Не удалось сбросить цикл автотрейдера: {reset_error}")
 
         return jsonify({
             'success': True,

@@ -816,6 +816,17 @@ class AutoTraderV2:
                 start_price = cycle.start_price
             
             # ШАГ 2: Вычисляем целевую цену продажи (БЕЗ lock)
+            
+            # 🔴 КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ ДЛЯ ДИАГНОСТИКИ
+            print(f"[{base}] 🔴 ========== ДИАГНОСТИКА ПЕРЕД ПРОДАЖЕЙ ==========")
+            print(f"[{base}]   rate (из таблицы): {rate}")
+            print(f"[{base}]   target_delta_pct (из таблицы): {target_delta_pct}")
+            print(f"[{base}]   breakeven_price (из таблицы): {breakeven_price}")
+            print(f"[{base}]   start_price (цена покупки): {start_price}")
+            print(f"[{base}]   price (текущая цена): {price}")
+            print(f"[{base}]   base_volume: {base_volume}")
+            print(f"[{base}]   active_step: {cycle.active_step}")
+            
             if not breakeven_price or breakeven_price <= 0:
                 print(f"[{base}] [WARN] Некорректная цена безубыточности: {breakeven_price}")
                 return
@@ -824,29 +835,69 @@ class AutoTraderV2:
                 print(f"[{base}] [WARN] Некорректный расчетный курс: {rate}")
                 return
             
-            # ИСПРАВЛЕНО: target_delta_pct рассчитан относительно rate (расчетного курса шага).
-            # Формула в breakeven_calculator.py: target_delta_pct = breakeven_pct + pprof - (step * kprof)
-            # Где breakeven_pct = ((breakeven_price - rate) / rate) * 100 - это рост от rate до breakeven
-            # Поэтому целевая цена = rate * (1 + target_delta_pct / 100)
-            target_sell_price = rate * (1 + target_delta_pct / 100.0)
+            # 🔴 КРИТИЧЕСКИ ВАЖНО: target_delta_pct рассчитывается для ПЕРВОГО шага (step=0)
+            # и показывает минимальный процент роста для получения профита
+            # 
+            # ПРАВИЛЬНАЯ ФОРМУЛА:
+            # target_sell_price = start_price * (1 + target_delta_pct / 100)
+            #
+            # ГДЕ:
+            # - start_price = РЕАЛЬНАЯ цена покупки (из executed_price)
+            # - target_delta_pct = минимальная дельта для профита (из таблицы)
+            #
+            # НЕПРАВИЛЬНО было использовать rate вместо start_price!
+            target_sell_price = start_price * (1 + target_delta_pct / 100.0)
             
-            # Дополнительная защита: не продавать ниже цены безубыточности
+            # 🔴 КРИТИЧЕСКАЯ ПРОВЕРКА №1: target_sell_price ДОЛЖНА быть выше start_price!
+            # Это проверка на ошибку в расчётах или таблице
+            if target_sell_price <= start_price:
+                print(f"[{base}] 🚨 КРИТИЧЕСКАЯ ОШИБКА: target_sell_price <= start_price!")
+                print(f"[{base}]   target_sell_price: {target_sell_price:.8f}")
+                print(f"[{base}]   start_price (цена покупки): {start_price:.8f}")
+                print(f"[{base}]   target_delta_pct (из таблицы): {target_delta_pct:.2f}%")
+                print(f"[{base}] 🚨 ПРОДАЖА ОТМЕНЕНА - целевая цена не выше цены покупки!")
+                return  # БЛОКИРУЕМ продажу!
+            
+            # 🔴 КРИТИЧЕСКАЯ ПРОВЕРКА №2: target_sell_price ДОЛЖНА быть >= breakeven_price!
+            # Если целевая цена ниже безубыточности - это ошибка таблицы!
+            # НЕЛЬЗЯ заменять target_sell_price на breakeven_price, т.к. это нарушает логику целевой дельты
             if target_sell_price < breakeven_price:
-                print(f"[{base}] [WARN] Целевая цена ({target_sell_price}) ниже безубыточности ({breakeven_price}), используем безубыточность")
-                target_sell_price = breakeven_price
+                print(f"[{base}] 🚨 КРИТИЧЕСКАЯ ОШИБКА: target_sell_price < breakeven_price!")
+                print(f"[{base}]   target_sell_price: {target_sell_price:.8f}")
+                print(f"[{base}]   breakeven_price: {breakeven_price:.8f}")
+                print(f"[{base}]   start_price: {start_price:.8f}")
+                print(f"[{base}]   target_delta_pct: {target_delta_pct:.2f}%")
+                print(f"[{base}] 🚨 ПРОДАЖА ОТМЕНЕНА - ошибка в таблице безубыточности!")
+                print(f"[{base}] 🚨 Требуется пересчёт таблицы с правильными параметрами!")
+                return  # БЛОКИРУЕМ продажу!
             
-            print(f"[{base}] Проверка продажи:")
-            print(f"  Текущая цена: {price}")
-            print(f"  Расчетный курс шага (rate): {rate}")
-            print(f"  Цена безубыточности: {breakeven_price}")
-            print(f"  Целевая дельта (от rate): +{target_delta_pct:.2f}%")
+            print(f"[{base}]   target_sell_price (вычислено): {target_sell_price:.8f}")
+            print(f"[{base}] 🔴 ===============================================")
+            
+            print(f"[{base}] 🟦 [SELL_CHECK_POINT_1] Проверка продажи:")
+            print(f"  Текущая цена: {price:.8f}")
+            print(f"  Расчетный курс шага (rate): {rate:.8f}")
+            print(f"  Цена безубыточности: {breakeven_price:.8f}")
+            print(f"  Целевая дельта (от start_price): +{target_delta_pct:.2f}%")
             print(f"  Целевая цена продажи: {target_sell_price:.8f}")
             print(f"  Объём для продажи: {base_volume} {base}")
             
-            # Проверка условия продажи
+            # 🔴🔴🔴 КРИТИЧЕСКАЯ ПРОВЕРКА УСЛОВИЯ ПРОДАЖИ 🔴🔴🔴
+            print(f"[{base}] 🔴🔴🔴 ========== КРИТИЧЕСКАЯ ТОЧКА РЕШЕНИЯ ==========")
+            print(f"[{base}] 🔴 price (текущая из параметра): {price:.10f}")
+            print(f"[{base}] � target_sell_price (вычислено): {target_sell_price:.10f}")
+            print(f"[{base}] 🔴 start_price (цена покупки):  {start_price:.10f}")
+            print(f"[{base}] 🔴 Разница (price - target):    {(price - target_sell_price):.10f}")
+            print(f"[{base}] 🔴 target_delta_pct из таблицы: {target_delta_pct:.4f}%")
+            print(f"[{base}] �🟦 [SELL_CHECK_POINT_2] Проверка: {price:.10f} >= {target_sell_price:.10f} ?")
+            
             if price < target_sell_price:
-                print(f"[{base}] [SKIP] Цена еще не достигла цели ({price} < {target_sell_price})")
+                print(f"[{base}] 🟦 [SELL_BLOCKED] Цена НЕ достигла цели ({price:.8f} < {target_sell_price:.8f})")
+                print(f"[{base}] 🟦 [SELL_BLOCKED] Требуется рост ещё на {((target_sell_price - price) / price * 100):.2f}%")
                 return
+            
+            print(f"[{base}] 🟢 [SELL_APPROVED] Условие выполнено! {price:.8f} >= {target_sell_price:.8f}")
+            print(f"[{base}] 🟢 [SELL_APPROVED] Фактический рост: {((price - start_price) / start_price * 100):.2f}%")
             
             # ШАГ 3: АТОМАРНО устанавливаем флаг продажи (под lock, быстро)
             with lock:
@@ -891,36 +942,153 @@ class AutoTraderV2:
                     self._clear_selling_flag(base)
                     return
                 
-                print(f"[{base}] 🔵 Создание MARKET SELL: {available_base} {base}")
+                # 🔴 КРИТИЧЕСКИ ВАЖНО: Повторная проверка цены перед продажей!
+                # За время проверки ордеров и баланса цена могла уйти ниже целевой
+                current_price_before_sell = self._get_market_price(base, quote)
+                if not current_price_before_sell:
+                    print(f"[{base}] [WARN] Не удалось получить цену перед продажей")
+                    self._clear_selling_flag(base)
+                    return
                 
-                # Создаём MARKET ордер на продажу
+                print(f"[{base}] 🔴 ПОВТОРНАЯ ПРОВЕРКА ЦЕНЫ:")
+                print(f"[{base}]   current_price_before_sell: {current_price_before_sell:.8f}")
+                print(f"[{base}]   target_sell_price: {target_sell_price:.8f}")
+                print(f"[{base}]   start_price (цена покупки): {start_price:.8f}")
+                print(f"[{base}]   Минимальная дельта для продажи: {((target_sell_price - start_price) / start_price * 100.0):.2f}%")
+                
+                # Проверяем, что цена всё ещё выше целевой
+                if current_price_before_sell < target_sell_price:
+                    print(f"[{base}] [SKIP] ⚠️ Цена упала ниже целевой во время подготовки!")
+                    print(f"[{base}]   Было: {price:.8f} >= {target_sell_price:.8f} ✅")
+                    print(f"[{base}]   Сейчас: {current_price_before_sell:.8f} < {target_sell_price:.8f} ❌")
+                    print(f"[{base}]   Продажа отменена для соответствия таблице безубыточности")
+                    self._clear_selling_flag(base)
+                    return
+                
+                # 🔴 ЛОГИРОВАНИЕ ПАРАМЕТРОВ ЗАПРОСА НА ПРОДАЖУ
+                print(f"[{base}] 🔵 ========== ПАРАМЕТРЫ ЗАПРОСА НА ПРОДАЖУ ==========")
+                print(f"[{base}] 🔵 [SELL_EXECUTION_FROM_TRY_SELL] ← Продажа из функции _try_sell")
+                print(f"[{base}]   currency_pair: {currency_pair}")
+                print(f"[{base}]   side: sell")
+                print(f"[{base}]   order_type: LIMIT (гарантия минимальной цены!)")
+                print(f"[{base}]   amount: {available_base} {base}")
+                print(f"[{base}]   price (LIMIT): {target_sell_price:.8f} {quote}")
+                print(f"[{base}]   ---")
+                print(f"[{base}]   Текущая цена рынка: {current_price_before_sell:.8f}")
+                print(f"[{base}]   Целевая цена продажи: {target_sell_price:.8f}")
+                print(f"[{base}]   Цена покупки (start_price): {start_price:.8f}")
+                print(f"[{base}]   Ожидаемая дельта: {((current_price_before_sell - start_price) / start_price * 100.0):.2f}%")
+                print(f"[{base}]   Требуемая дельта (из таблицы): {target_delta_pct:.2f}%")
+                print(f"[{base}]   Ожидаемая выручка: >={available_base * target_sell_price:.4f} {quote}")
+                print(f"[{base}] 🔵 =====================================================")
+                
+                # 🔴 КРИТИЧЕСКИ ВАЖНО: Используем LIMIT-ордер с time_in_force='fok'
+                # FOK (Fill-Or-Kill) = Всё или ничего:
+                #   • Если ордер может быть исполнен ПОЛНОСТЬЮ и СРАЗУ → исполняется
+                #   • Если НЕ может быть исполнен полностью → ОТМЕНЯЕТСЯ
+                #   • Результат известен через 1-2 секунды
+                # LIMIT гарантирует цену >= target_sell_price
+                # FOK гарантирует, что ордер не зависнет в книге заявок
+                print(f"[{base}] 🟢 Создаём LIMIT FOK-ордер с минимальной ценой {target_sell_price:.8f}")
+                print(f"[{base}]    FOK = Fill-Or-Kill: продаст ВСЁ сразу или отменит ордер")
                 order = api_client.create_spot_order(
                     currency_pair=currency_pair,
                     side='sell',
-                    order_type='market',
-                    amount=str(available_base)
+                    order_type='limit',
+                    amount=str(available_base),
+                    price=str(target_sell_price),
+                    time_in_force='fok'  # 🔴 Fill-Or-Kill: всё или ничего!
                 )
                 
                 order_id = order.get('id')
-                print(f"[{base}] [OK] MARKET SELL ордер создан: {order_id}")
+                print(f"[{base}] ✅ ========== РЕЗУЛЬТАТ СОЗДАНИЯ ОРДЕРА ==========")
+                print(f"[{base}]   Order ID: {order_id}")
+                print(f"[{base}] ✅ ==================================================")
                 
-                # Проверяем исполнение
-                time.sleep(0.5)
-                order_status = api_client.get_spot_order(order_id, currency_pair)
+                # 🔴 FOK-ордер исполняется или отменяется СРАЗУ (1-2 секунды)
+                # Проверяем статус: должен быть 'closed' (исполнен) или 'cancelled' (отменён)
+                max_attempts = 3  # Достаточно 3 попыток для FOK
+                check_interval = 1.0  # Проверка каждую секунду
+                order_real_status = 'unknown'
                 
-                if order_status.get('status') != 'closed':
-                    print(f"[{base}] [WARN] Ордер на продажу не исполнен")
+                print(f"[{base}] ⏳ Проверка FOK-ордера (максимум {max_attempts} секунды)...")
+                
+                for attempt in range(1, max_attempts + 1):
+                    time.sleep(check_interval)
+                    
+                    try:
+                        order_status = api_client.get_spot_order(order_id, currency_pair)
+                        order_real_status = order_status.get('status', 'unknown')
+                        
+                        print(f"[{base}] 🔍 Попытка {attempt}/{max_attempts}: статус = {order_real_status}")
+                        
+                        if order_real_status in ['closed', 'cancelled']:
+                            print(f"[{base}] ✅ FOK-ордер завершён после {attempt * check_interval:.0f} секунд (статус: {order_real_status})")
+                            break
+                            
+                    except Exception as e:
+                        print(f"[{base}] ⚠️ Ошибка проверки статуса (попытка {attempt}): {e}")
+                        continue
+                
+                # Обработка результата FOK-ордера
+                if order_real_status == 'closed':
+                    # ✅ Ордер исполнен — продолжаем обработку ниже
+                    print(f"[{base}] ✅ FOK-ордер ИСПОЛНЕН полностью")
+                    
+                elif order_real_status == 'cancelled':
+                    # ❌ FOK-ордер отменён — не смог исполниться полностью по целевой цене
+                    print(f"[{base}] ❌ FOK-ордер ОТМЕНЁН (не смог исполниться полностью)")
+                    print(f"[{base}]   Причина: недостаточная ликвидность на уровне {target_sell_price:.8f}")
+                    print(f"[{base}]   Требуется дождаться роста цены или увеличения ликвидности")
                     self._clear_selling_flag(base)
                     return
+                    
+                else:
+                    # ⚠️ Неизвестный статус — проверяем баланс для уверенности
+                    print(f"[{base}] ⚠️ FOK-ордер в неизвестном статусе: {order_real_status}")
+                    print(f"[{base}]   Проверяем баланс для определения фактического состояния...")
+                    
+                    try:
+                        new_balances = api_client.get_account_balance()
+                        new_balance_base = next((b for b in new_balances if b.get('currency') == base), None)
+                        new_available_base = float(new_balance_base.get('available', 0)) if new_balance_base else 0.0
+                        
+                        print(f"[{base}]   Баланс ДО продажи: {available_base:.8f} {base}")
+                        print(f"[{base}]   Баланс СЕЙЧАС: {new_available_base:.8f} {base}")
+                        print(f"[{base}]   Разница: {(available_base - new_available_base):.8f} {base}")
+                        
+                        # Если баланс уменьшился значительно (>90%) — ордер исполнился
+                        if (available_base - new_available_base) >= (available_base * 0.9):
+                            print(f"[{base}] ✅ Баланс уменьшился на {((available_base - new_available_base) / available_base * 100):.1f}%")
+                            print(f"[{base}] ✅ Считаем ордер исполненным по факту изменения баланса")
+                            order_real_status = 'closed'
+                        else:
+                            print(f"[{base}] ❌ Баланс не изменился значительно")
+                            print(f"[{base}] ❌ Считаем ордер отменённым или не исполненным")
+                            self._clear_selling_flag(base)
+                            return
+                            
+                    except Exception as e:
+                        print(f"[{base}] ❌ Ошибка проверки баланса: {e}")
+                        self._clear_selling_flag(base)
+                        return
+                        print(f"[{base}]   Снимаем флаг, ордер будет проверен при следующей итерации")
+                        self._clear_selling_flag(base)
+                        return
                 
                 executed_price = float(order_status.get('avg_deal_price', price))
                 executed_amount = float(order_status.get('filled_amount', available_base))
                 executed_total = float(order_status.get('filled_total', 0))
                 
-                print(f"[{base}] ✅ ПРОДАЖА ИСПОЛНЕНА!")
-                print(f"[{base}]   Объём: {executed_amount} {base}")
-                print(f"[{base}]   Цена: {executed_price}")
-                print(f"[{base}]   Получено: {executed_total} {quote}")
+                print(f"[{base}] ✅ ========== РЕЗУЛЬТАТ ИСПОЛНЕНИЯ ОРДЕРА ==========")
+                print(f"[{base}]   Status: {order_status.get('status')}")
+                print(f"[{base}]   Объём продано: {executed_amount} {base}")
+                print(f"[{base}]   Цена исполнения: {executed_price:.8f}")
+                print(f"[{base}]   Получено: {executed_total:.4f} {quote}")
+                print(f"[{base}]   ---")
+                print(f"[{base}]   Запрошено на продажу: {available_base} {base}")
+                print(f"[{base}]   Цена перед ордером: {current_price_before_sell:.8f}")
+                print(f"[{base}] ✅ ====================================================")
                 
                 # Вычисляем профит
                 with lock:
@@ -932,8 +1100,33 @@ class AutoTraderV2:
                     # Вычисляем рост от стартовой цены
                     growth_pct = ((executed_price - start_price) / start_price * 100.0) if start_price > 0 else 0.0
                 
-                print(f"[{base}] 💰 ПРОФИТ: {profit:.2f} {quote} ({profit_pct:+.2f}%)")
-                print(f"[{base}] 📈 РОСТ: {growth_pct:+.2f}% от стартовой цены")
+                print(f"[{base}] 💰 ========== ФИНАНСОВЫЕ ПОКАЗАТЕЛИ ==========")
+                print(f"[{base}]   Инвестировано: {total_invested:.4f} {quote}")
+                print(f"[{base}]   Получено: {executed_total:.4f} {quote}")
+                print(f"[{base}]   Профит: {profit:.4f} {quote} ({profit_pct:+.2f}%)")
+                print(f"[{base}]   ---")
+                print(f"[{base}]   Цена покупки: {start_price:.8f}")
+                print(f"[{base}]   Целевая цена (LIMIT): {target_sell_price:.8f}")
+                print(f"[{base}]   Цена исполнения (факт): {executed_price:.8f}")
+                print(f"[{base}]   Рост цены: {growth_pct:+.2f}%")
+                print(f"[{base}]   Требуемый рост (из таблицы): {target_delta_pct:+.2f}%")
+                print(f"[{base}]   ---")
+                
+                # 🔴 КРИТИЧЕСКАЯ ПРОВЕРКА: executed_price ДОЛЖНА быть >= target_sell_price!
+                # Это гарантируется LIMIT-ордером
+                if executed_price >= target_sell_price:
+                    print(f"[{base}]   ✅ LIMIT-ордер сработал корректно: {executed_price:.8f} >= {target_sell_price:.8f}")
+                else:
+                    print(f"[{base}]   🚨 ОШИБКА! LIMIT-ордер исполнился ниже минимальной цены!")
+                    print(f"[{base}]   🚨 executed_price: {executed_price:.8f} < target: {target_sell_price:.8f}")
+                    print(f"[{base}]   🚨 Это НЕ должно происходить с LIMIT-ордерами!")
+                
+                if growth_pct >= target_delta_pct:
+                    print(f"[{base}]   ✅ Рост достиг цели: {growth_pct:+.2f}% >= {target_delta_pct:+.2f}%")
+                else:
+                    print(f"[{base}]   🚨 ОШИБКА! Рост ниже требуемого: {growth_pct:+.2f}% < {target_delta_pct:+.2f}%")
+                
+                print(f"[{base}] 💰 ==============================================")
                 
                 # ШАГ 5: Сбрасываем цикл и сохраняем состояние (под lock, быстро!)
                 with lock:
@@ -954,7 +1147,8 @@ class AutoTraderV2:
                         volume=executed_amount,
                         price=executed_price,
                         delta_percent=growth_pct,
-                        pnl=profit
+                        pnl=profit,
+                        source="AUTO"  # Маркер автоматической продажи
                     )
                     print(f"[{base}] [OK] Продажа записана в лог")
                 except Exception as log_error:

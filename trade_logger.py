@@ -353,22 +353,22 @@ class TradeLogger:
 
                 self._trim_log_file(currency)
 
-        
-
-        # Лог только в котируемой валюте:
-
+            # Лог только в котируемой валюте:
         # Все суммы в логах показываем в котируемой валюте (USDT) — не дублируем текст 'USDT' и убираем 'ВсегоИнвест'
-        print(f"[{entry['time']}] [{currency}] Buy{{{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{investment:.4f}}}")
-
+        print(f"[{entry['time']}] [{currency}] 🟢[FROM_TRY_SELL] Buy{{{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{investment:.4f}}}")
         logging.info(f"BUY: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, total_drop_percent={total_drop_percent}, investment={investment}")
 
     
 
     def log_sell(self, currency: str, volume: float, price: float, 
 
-                 delta_percent: float, pnl: float):
+                 delta_percent: float, pnl: float, source: str = "AUTO"):
 
-        """Логировать операцию продажи (в файл конкретной валюты)"""
+        """Логировать операцию продажи (в файл конкретной валюты)
+        
+        Args:
+            source: "AUTO" для автоматических продаж из _try_sell, "MANUAL" для ручных
+        """
 
         currency = currency.upper()
 
@@ -466,9 +466,12 @@ class TradeLogger:
             pnl_str = f"{pnl:.4f}"
             total_str = f"{self.total_pnl[currency]:.4f}"
 
-        print(f"[{entry['time']}] [{currency}] Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{total_str}}}")
+        # Маркер источника продажи
+        source_marker = "🟢[AUTO]" if source == "AUTO" else "🔴[MANUAL]"
+        
+        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{total_str}}}")
 
-        logging.info(f"SELL: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}")
+        logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}")
 
     
 

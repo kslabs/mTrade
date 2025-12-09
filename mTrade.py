@@ -1578,41 +1578,16 @@ def get_trade_indicators():
                     'cycle_started_at': cycle_obj.cycle_started_at,
                     'last_action_at': cycle_obj.last_action_at
                 }
-                # ИСПРАВЛЕНИЕ: Правильная проверка таблицы (не пересчитывать, если цикл активен!)
-                if cycle_obj.table and len(cycle_obj.table) > 0:
-                    table = cycle_obj.table
-                    print(f"[INDICATORS] {base_currency}: Используем сохранённую таблицу цикла ({len(table)} шагов)")
-                    # Отладка: проверяем, какие поля есть в первой строке
-                    if table and len(table) > 0:
-                        first_row_keys = list(table[0].keys()) if isinstance(table[0], dict) else []
-                        print(f"[INDICATORS] {base_currency}: Поля в table[0]: {first_row_keys}")
-                        print(f"[INDICATORS] {base_currency}: total_invested в table[0]: {table[0].get('total_invested', 'ОТСУТСТВУЕТ')}")
-                        print(f"[INDICATORS] {base_currency}: breakeven_pct в table[0]: {table[0].get('breakeven_pct', 'ОТСУТСТВУЕТ')}")
-                else:
-                    table = None
+                table = cycle_obj.table if cycle_obj.table else None
 
-        # Пересчитываем таблицу ТОЛЬКО если:
-        # 1. Цикл НЕ активен (нет сохранённой таблицы)
-        # 2. Или таблица действительно отсутствует
         if not table:
-            print(f"[INDICATORS] {base_currency}: table=None, начинаем пересчёт...")
-            # Дополнительная проверка: не пересчитывать для активного цикла!
-            is_cycle_active = cycle and cycle.get('active', False)
-            if is_cycle_active:
-                print(f"[INDICATORS] {base_currency}: ❌ ВНИМАНИЕ - цикл активен, но таблица отсутствует!")
-                print(f"[INDICATORS] {base_currency}: Это может быть ошибка загрузки или старый файл состояния")
-            
             params = state_manager.get_breakeven_params(base_currency)
             if params and price:
                 try:
                     from breakeven_calculator import calculate_breakeven_table
                     table = calculate_breakeven_table(params, price)
-                    print(f"[INDICATORS] {base_currency}: ⚠️ Рассчитана НОВАЯ таблица с текущей ценой {price} (цикл активен: {is_cycle_active})")
-                    print(f"[INDICATORS] {base_currency}: ВАЖНО: Эта таблица НЕ содержит total_invested и breakeven_pct!")
                 except Exception as e:
                     print(f"[INDICATORS] Ошибка расчёта таблицы для {base_currency}: {e}")
-        else:
-            print(f"[INDICATORS] {base_currency}: ✅ Используется СОХРАНЁННАЯ таблица из цикла")
         
         # УМНЫЙ РАСЧЁТ ТЕКУЩЕЙ ЦЕНЫ ИЗ СТАКАНА
         # Берём цену из уровня стакана, указанного в столбце "Ст." (orderbook_level)
@@ -1755,13 +1730,10 @@ def get_trade_indicators():
                     'step': r.get('step'),
                     'rate': r.get('rate'),
                     'purchase_usd': r.get('purchase_usd'),
-                    'total_invested': r.get('total_invested'),  # Добавлено для столбца "Инв.Сумм,$"
                     'breakeven_price': r.get('breakeven_price'),
-                    'breakeven_pct': r.get('breakeven_pct'),  # Добавлено для столбца "↑ БезУб,%"
                     'target_delta_pct': r.get('target_delta_pct'),
                     'decrease_step_pct': r.get('decrease_step_pct'),
-                    'cumulative_decrease_pct': r.get('cumulative_decrease_pct'),
-                    'orderbook_level': r.get('orderbook_level')  # Добавлено для столбца "Ст."
+                    'cumulative_decrease_pct': r.get('cumulative_decrease_pct')
                 } for r in table]
 
         return jsonify({"success": True, "indicators": indicators, "autotrade_levels": autotrade_levels})
