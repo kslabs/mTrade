@@ -296,6 +296,16 @@ class TradeLogger:
             self.total_invested[currency] = 0.0
 
         self.total_invested[currency] += investment
+        
+        # КРИТИЧЕСКИ ВАЖНО: Сбрасываем профит при начале нового цикла
+        # Если delta_percent=0 и total_drop_percent=0, значит это стартовая покупка нового цикла
+        if delta_percent == 0.0 and total_drop_percent == 0.0:
+            if currency not in self.total_pnl:
+                self.total_pnl[currency] = 0.0
+            else:
+                # Сбрасываем профит, так как начинается новый цикл
+                self.total_pnl[currency] = 0.0
+                print(f"[{currency}] 🔄 Сброс профита при начале нового цикла")
 
         
 
