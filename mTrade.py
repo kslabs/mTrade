@@ -1730,7 +1730,9 @@ def get_trade_indicators():
                     'step': r.get('step'),
                     'rate': r.get('rate'),
                     'purchase_usd': r.get('purchase_usd'),
+                    'total_invested': r.get('total_invested'),
                     'breakeven_price': r.get('breakeven_price'),
+                    'breakeven_pct': r.get('breakeven_pct'),
                     'target_delta_pct': r.get('target_delta_pct'),
                     'decrease_step_pct': r.get('decrease_step_pct'),
                     'cumulative_decrease_pct': r.get('cumulative_decrease_pct')
