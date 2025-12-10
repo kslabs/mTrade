@@ -456,6 +456,26 @@ class AutoTraderV2:
                         if is_active:
                             print(f"[{base}] 🟢 Цикл АКТИВЕН (step={active_step}) → вызываем _try_sell")
                             
+                            # Получаем уровень стакана из текущей строки таблицы
+                            with self._get_lock(base):
+                                cycle = self.cycles[base]
+                                if cycle.table and active_step >= 0 and active_step < len(cycle.table):
+                                    # Получаем orderbook_level из таблицы (1-based для пользователя)
+                                    table_orderbook_level = int(cycle.table[active_step].get('orderbook_level', 1))
+                                    # Преобразуем в индекс массива (0-based)
+                                    orderbook_level = max(0, table_orderbook_level - 1)
+                                    print(f"[{base}] Уровень стакана из таблицы: {table_orderbook_level} → индекс массива: {orderbook_level}")
+                                else:
+                                    orderbook_level = 0
+                            
+                            # Получаем цену из стакана на нужном уровне (bids для продажи)
+                            orderbook_price = self._get_orderbook_price(base, quote, orderbook_level, 'bids')
+                            if orderbook_price:
+                                print(f"[{base}] Используем цену из стакана bids[{orderbook_level}] = {orderbook_price:.8f}")
+                                price = orderbook_price
+                            else:
+                                print(f"[{base}] [WARN] Не удалось получить цену из стакана, используем ticker.last = {price:.8f}")
+                            
                             # Цикл АКТИВЕН → пытаемся продать
                             self._try_sell(base, quote, price)
                             print(f"[{base}] 🟢 _try_sell завершён")
@@ -500,6 +520,51 @@ class AutoTraderV2:
         
         except Exception as e:
             print(f"[{base}] Ошибка получения цены: {e}")
+        
+        return None
+    
+    def _get_orderbook_price(self, base: str, quote: str, orderbook_level: int, side: str = 'bids') -> Optional[float]:
+        """
+        Получить цену из определённого уровня стакана
+        
+        Args:
+            base: базовая валюта (например, ETH)
+            quote: валюта котировки (например, USDT)
+            orderbook_level: уровень стакана (0-based индекс)
+            side: 'bids' для цен покупки или 'asks' для цен продажи
+        
+        Returns:
+            Цена на указанном уровне стакана или None в случае ошибки
+        """
+        try:
+            # Пробуем из WebSocket
+            if self.ws_manager:
+                pair = f"{base}_{quote}".upper()
+                data = self.ws_manager.get_data(pair)
+                if data and data.get('orderbook'):
+                    orderbook = data['orderbook']
+                    levels = orderbook.get(side, [])
+                    if levels and orderbook_level < len(levels):
+                        price = float(levels[orderbook_level][0])
+                        print(f"[{base}] Цена из стакана (WS) {side}[{orderbook_level}] = {price:.8f}")
+                        return price
+            
+            # Fallback на REST API
+            public = GateAPIClient(api_key=None, api_secret=None, network_mode='work')
+            pair = f"{base}_{quote}".upper()
+            orderbook_data = public._request('GET', '/spot/order_book', params={'currency_pair': pair, 'limit': 50})
+            
+            if orderbook_data:
+                levels = orderbook_data.get(side, [])
+                if levels and orderbook_level < len(levels):
+                    price = float(levels[orderbook_level][0])
+                    print(f"[{base}] Цена из стакана (REST) {side}[{orderbook_level}] = {price:.8f}")
+                    return price
+                else:
+                    print(f"[{base}] [WARN] Уровень стакана {orderbook_level} недоступен (доступно уровней: {len(levels)})")
+        
+        except Exception as e:
+            print(f"[{base}] Ошибка получения цены из стакана: {e}")
         
         return None
     
@@ -1119,7 +1184,7 @@ class AutoTraderV2:
                 else:
                     print(f"[{base}]   🚨 ОШИБКА! LIMIT-ордер исполнился ниже минимальной цены!")
                     print(f"[{base}]   🚨 executed_price: {executed_price:.8f} < target: {target_sell_price:.8f}")
-                    print(f"[{base}]   🚨 Это НЕ должно происходить с LIMIT-ордерами!")
+                    print(f"[{base}]   🚨 Это НЕ должно происходить с LIMIT-ордером!")
                 
                 if growth_pct >= target_delta_pct:
                     print(f"[{base}]   ✅ Рост достиг цели: {growth_pct:+.2f}% >= {target_delta_pct:+.2f}%")
@@ -1171,8 +1236,7 @@ class AutoTraderV2:
         """Снять флаг 'продажа в процессе'"""
         lock = self._get_lock(base)
         with lock:
-            if base in self.cycles:
-                self.cycles[base]._selling_in_progress = False
+            self.cycles[base]._selling_in_progress = False
     
     # ============================================================================
     # API ДЛЯ ВЕБ-ИНТЕРФЕЙСА

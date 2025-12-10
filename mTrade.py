@@ -176,7 +176,8 @@ DEFAULT_TRADE_PARAMS = {
     'kprof': 0.02,
     'target_r': 3.65,
     'geom_multiplier': 2.0,
-    'rebuy_mode': 'geometric'
+    'rebuy_mode': 'geometric',
+    'orderbook_level': 0  # Базовый множитель для уровня стакана (формула: (шаг × orderbook_level) + 1)
 }
 
 # Инициализация State Manager (раньше, чтобы он был доступен во всех эндпойнтах)
@@ -1601,12 +1602,17 @@ def get_trade_indicators():
                 
                 if current_step < len(table):
                     row = table[current_step]
-                    orderbook_level = int(row.get('orderbook_level', 0))
+                    # Получаем orderbook_level из таблицы (1-based для пользователя)
+                    table_orderbook_level = int(row.get('orderbook_level', 1))
+                    # Преобразуем в индекс массива (0-based)
+                    orderbook_level = max(0, table_orderbook_level - 1)
                     last_buy_price = cycle.get('last_buy_price', 0) if cycle else 0
                     
                     orderbook = pair_data['orderbook']
                     asks = orderbook.get('asks', [])
                     bids = orderbook.get('bids', [])
+                    
+                    print(f"[INDICATORS] {base_currency}: Уровень стакана из таблицы: {table_orderbook_level} → индекс массива: {orderbook_level}")
                     
                     # Если есть last_buy_price и цикл активен — сравниваем с ним
                     # Иначе просто берём из asks (для начала цикла)
@@ -1661,6 +1667,9 @@ def get_trade_indicators():
             current_step = active_step if active_step >= 0 else 0
             if current_step < len(table):
                 row = table[current_step]
+                
+                # Добавляем уровень стакана из текущей строки таблицы (1-based, для отображения пользователю)
+                autotrade_levels['orderbook_level'] = int(row.get('orderbook_level', 1))
                 
                 # ИСПРАВЛЕНИЕ: Используем РЕАЛЬНЫЙ BE из цикла, а не прогнозный из таблицы
                 if cycle and cycle.get('active') and cycle.get('total_invested_usd', 0) > 0 and cycle.get('base_volume', 0) > 0:

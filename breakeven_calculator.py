@@ -34,6 +34,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
 
     - rebuy_mode: Режим сумм докупок (fixed, geometric, martingale)
 
+    - orderbook_level: Базовый уровень стакана (по умолчанию 0 = лучшая цена)
+
     
 
     Формула расчёта процента снижения на шаге: decrease_step_pct = -((# × Rk) + R)
@@ -43,6 +45,8 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     Возвращает список строк таблицы с полями:
 
     - step: номер шага (0, 1, 2, ...)
+
+    - orderbook_level: Уровень стакана для этого шага (формула: step × base_orderbook_level)
 
     - decrease_step_pct: ↓Δ,% (процент снижения на шаге, рассчитывается по формуле выше)
 
@@ -81,6 +85,14 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
     geom_multiplier = params.get('geom_multiplier', 2.0)
 
     rebuy_mode = params.get('rebuy_mode', 'geometric')
+
+    base_orderbook_level = params.get('orderbook_level', 1)  # Базовый уровень стакана для расчёта
+
+    
+
+    # DEBUG: Выводим параметр для проверки
+
+    print(f"[BREAKEVEN_CALC] base_orderbook_level = {base_orderbook_level} (из params: {params.get('orderbook_level', 'НЕ УКАЗАН')})")
 
     
 
@@ -280,9 +292,37 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
 
         
 
+        # 9. Уровень стакана для этого шага
+
+        # Формула: (# × base_orderbook_level) + 1
+
+        # ВАЖНО: Это значение ДЛЯ ОТОБРАЖЕНИЯ ПОЛЬЗОВАТЕЛЮ (1-based)
+
+        # В коде при использовании нужно вычесть 1 для индекса массива:
+
+        # - Уровень 1 в таблице = bids[0] (лучшая цена)
+
+        # - Уровень 2 в таблице = bids[1] (вторая по значимости цена)
+
+        # - Уровень 3 в таблице = bids[2] (третья по значимости цена)
+
+        calculated_orderbook_level = round((step * base_orderbook_level) + 1)
+
+        
+
+        # DEBUG: Выводим расчёт для первых 3 шагов
+
+        if step <= 2:
+
+            print(f"[BREAKEVEN_CALC] Шаг {step}: ({step} × {base_orderbook_level}) + 1 = {calculated_orderbook_level}")
+
+        
+
         table_data.append({
 
             'step': step_num,
+
+            'orderbook_level': calculated_orderbook_level,
 
             'decrease_step_pct': decrease_step_pct,
 

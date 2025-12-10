@@ -360,6 +360,12 @@ function updateAutoTradeLevels(levels){
     }
   }
   
+  // Обновляем уровень стакана
+  const orderbookLevelEl = $('autotradeOrderbookLevel');
+  if(orderbookLevelEl){
+    orderbookLevelEl.textContent = (levels.orderbook_level !== null && levels.orderbook_level !== undefined) ? levels.orderbook_level : '-';
+  }
+  
   // Обновляем процент роста
   const growthEl = $('autotradeGrowthPct');
   if(growthEl){
@@ -1201,8 +1207,17 @@ function renderBreakEvenTable(tableData){
   body.innerHTML='';
   
   if(!Array.isArray(tableData)||tableData.length===0){
-    body.innerHTML=`<tr><td colspan="9" style='padding:12px;text-align:center;color:#999;'>Нет данных</td></tr>`;
+    body.innerHTML=`<tr><td colspan="10" style='padding:12px;text-align:center;color:#999;'>Нет данных</td></tr>`;
     return;
+  }
+  
+  // 🔍 ОТЛАДКА: Проверяем наличие ключевых полей
+  console.log('[BREAKEVEN RENDER] Данные получены, строк:', tableData.length);
+  if (tableData.length > 0) {
+    const row0 = tableData[0];
+    console.log('[BREAKEVEN RENDER] Первая строка:', row0);
+    console.log('[BREAKEVEN RENDER] total_invested:', row0.total_invested !== undefined ? '✅ ЕСТЬ' : '❌ НЕТ', row0.total_invested);
+    console.log('[BREAKEVEN RENDER] breakeven_pct:', row0.breakeven_pct !== undefined ? '✅ ЕСТЬ' : '❌ НЕТ', row0.breakeven_pct);
   }
   
   // Получаем текущее значение параметра "Стакан"
@@ -1226,8 +1241,14 @@ function renderBreakEvenTable(tableData){
     // Динамическая точность для курсов: Price Precision + 1
     const pricePrecisionPlus1 = currentPairPricePrecision + 1;
     
-    // Расчёт уровня стакана для покупки: (# * Стакан) + 1, округляем до целого
-    const orderbookLevelForStep = Math.round((stepNum * orderbookLevel) + 1);
+    // Уровень стакана берём НАПРЯМУЮ из данных таблицы (без пересчёта!)
+    // Значение соответствует индексу массива: 0 = bids[0], 1 = bids[1], и т.д.
+    const orderbookLevelForStep = row.orderbook_level !== undefined ? row.orderbook_level : 0;
+    
+    // DEBUG: Выводим для первых 3 шагов
+    if (stepNum <= 2) {
+      console.log(`[TABLE_ROW] Шаг ${stepNum}: orderbook_level из данных = ${row.orderbook_level}, отображаем = ${orderbookLevelForStep}`);
+    }
     
     // ↓, % - накопленная сумма процентов снижения
     const cumulativeDecrease = row.cumulative_decrease_pct !== undefined ? row.cumulative_decrease_pct.toFixed(3) : '—';
@@ -1249,7 +1270,7 @@ function renderBreakEvenTable(tableData){
     
     tr.innerHTML = `
       <td style='padding:6px 8px;text-align:center;color:#e0e0e0;font-weight:600;'>${stepNum}</td>
-      <td style='padding:6px 8px;text-align:center;color:#9C27B0;font-weight:600;' title='Уровень стакана: (${stepNum} × ${orderbookLevel}) + 1 = ${orderbookLevelForStep}'>${orderbookLevelForStep}</td>
+      <td style='padding:6px 8px;text-align:center;color:#9C27B0;font-weight:600;' title='Уровень стакана (для пользователя): ${orderbookLevelForStep} → код использует массив[${orderbookLevelForStep - 1}]'>${orderbookLevelForStep}</td>
       <td style='padding:6px 8px;text-align:right;color:${cumulativeColor};font-weight:600;' title='Накопленная сумма процентов снижения'>${cumulativeDecrease}</td>
       <td style='padding:6px 8px;text-align:right;color:${decreaseColor};' title='Шаг процента: -((${stepNum} × Rk) + R)'>${decreaseStep}</td>
       <td style='padding:6px 8px;text-align:right;color:#e0e0e0;font-family:monospace;'>${rate}</td>
@@ -1286,7 +1307,18 @@ async function loadBreakEvenTable(){
           // ✅ Цикл активен и таблица есть - используем её!
           console.log(`[BREAKEVEN] ✅ Используем сохранённую таблицу цикла (${levels.table.length} шагов, P0=${levels.table[0].rate}, start_price=${levels.start_price})`);
           
-          // 🔴 КРИТИЧЕСКИ ВАЖНО: Обновляем поле start_price в форме!
+          // � МИГРАЦИЯ: Если в старой таблице нет orderbook_level - добавляем на лету!
+          const needsMigration = levels.table[0] && levels.table[0].orderbook_level === undefined;
+          if (needsMigration) {
+            console.log(`[BREAKEVEN] 🔧 МИГРАЦИЯ: Добавляем orderbook_level в старую таблицу`);
+            const orderbookLevelParam = parseFloat($('paramOrderbookLevel')?.value) || 0;
+            levels.table.forEach((row, idx) => {
+              row.orderbook_level = Math.round((idx * orderbookLevelParam) + 1);
+            });
+            console.log(`[BREAKEVEN] ✅ Миграция завершена: добавлено поле orderbook_level`);
+          }
+          
+          // �🔴 КРИТИЧЕСКИ ВАЖНО: Обновляем поле start_price в форме!
           // Это гарантирует, что пользователь видит актуальный P0 для активного цикла
           const startPriceField = $('paramStartPrice');
           if (startPriceField && levels.start_price) {
