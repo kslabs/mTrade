@@ -16,6 +16,7 @@ AutoTrader V2 - Чистая реализация с правильной арх
 
 import time
 import threading
+import traceback
 from typing import Dict, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -85,6 +86,7 @@ class TradingCycle:
         self.cycle_started_at = 0.0
         self.last_action_at = time.time()
         self.manual_pause = manual  # Устанавливаем флаг ручной паузы
+        # 🔴 ВАЖНО: last_sell_at НЕ сбрасываем - он нужен для задержки перед следующим циклом!
     
     def activate(self, start_price: float, base_volume: float, invested_usd: float):
         """Активация цикла после стартовой покупки
@@ -468,16 +470,23 @@ class AutoTraderV2:
                                 else:
                                     orderbook_level = 0
                             
+                            # 🔴 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
+                            # Для ПРОВЕРКИ условия продажи используем ticker.last (текущую рыночную цену)
+                            # Для РАЗМЕЩЕНИЯ ордера используем цену из стакана bids[уровень]
+                            market_price = price  # Сохраняем ticker.last для проверки условия
+                            
                             # Получаем цену из стакана на нужном уровне (bids для продажи)
                             orderbook_price = self._get_orderbook_price(base, quote, orderbook_level, 'bids')
                             if orderbook_price:
-                                print(f"[{base}] Используем цену из стакана bids[{orderbook_level}] = {orderbook_price:.8f}")
-                                price = orderbook_price
+                                print(f"[{base}] Цена из стакана bids[{orderbook_level}] = {orderbook_price:.8f}")
+                                print(f"[{base}] Рыночная цена (ticker.last) = {market_price:.8f}")
                             else:
-                                print(f"[{base}] [WARN] Не удалось получить цену из стакана, используем ticker.last = {price:.8f}")
+                                print(f"[{base}] [WARN] Не удалось получить цену из стакана, используем ticker.last для ордера")
+                                orderbook_price = market_price
                             
                             # Цикл АКТИВЕН → пытаемся продать
-                            self._try_sell(base, quote, price)
+                            # Передаём ОБЕ цены: market_price для проверки условия, orderbook_price для ордера
+                            self._try_sell(base, quote, market_price, orderbook_price)
                             print(f"[{base}] 🟢 _try_sell завершён")
                             
                             # TODO: После реализации ребая добавить:
@@ -487,6 +496,12 @@ class AutoTraderV2:
                             if is_paused:
                                 print(f"[{base}] Цикл на РУЧНОЙ ПАУЗЕ → пропуск автостарта")
                             else:
+                                # 🔴 КРИТИЧЕСКИ ВАЖНО: Проверяем баланс ПЕРЕД стартом нового цикла!
+                                # Если после продажи остались монеты - сбрасываем в IDLE и ждём
+                                if self._check_and_reset_if_empty(base, quote, price):
+                                    print(f"[{base}] Баланс проверен, цикл сброшен → пропуск автостарта")
+                                    continue
+                                
                                 print(f"[{base}] Цикл НЕ АКТИВЕН → попытка стартовой покупки")
                                 self._try_start_cycle(base, quote, price)
                     
@@ -574,17 +589,30 @@ class AutoTraderV2:
     
     def _check_and_reset_if_empty(self, base: str, quote: str, price: float) -> bool:
         """
-        Проверяет баланс базовой валюты и сбрасывает цикл, если монет недостаточно
-        для минимального объёма первого шага
+        🔴 КРИТИЧЕСКИ ВАЖНАЯ ФУНКЦИЯ - БЛОКИРУЕТ ДВОЙНЫЕ СТАРТЫ!
         
-        Возвращает True, если цикл был сброшен
+        Проверяет баланс базовой валюты ПЕРЕД стартом нового цикла.
+        
+        ЛОГИКА:
+        1. Если монет >= минимума для шага 0 → Возвращает True (БЛОКИРУЕТ автостарт)
+           - Монеты остались от прошлого цикла (продажа не завершена)
+           - Автотрейдер НЕ должен начинать новый цикл!
+           - Пользователь должен вручную продать остатки или дождаться следующего цикла
+        
+        2. Если монет < минимума для шага 0 → Возвращает False (разрешает автостарт)
+           - Баланс чист, можно начинать новый цикл
+        
+        Возвращает:
+            True - БЛОКИРОВАТЬ автостарт (есть остатки монет)
+            False - разрешить автостарт (баланс чист)
         """
         try:
-            print(f"[{base}] [DEBUG] _check_and_reset_if_empty вызван")
+            print(f"[{base}] 🔴 _check_and_reset_if_empty вызван (проверка остатков ПЕРЕД новым циклом)")
             
             # ШАГ 1: Получаем баланс (БЕЗ lock - это API запрос)
             api_client = self.api_client_provider()
             if not api_client:
+                print(f"[{base}] [WARN] API client недоступен, разрешаем старт (по умолчанию)")
                 return False
             
             all_balances = api_client.get_account_balance()
@@ -598,42 +626,36 @@ class AutoTraderV2:
             # ШАГ 2: Получаем параметры и рассчитываем таблицу для определения минимального объёма
             params = self.state_manager.get_breakeven_params(base)
             if not params:
+                print(f"[{base}] [WARN] Параметры не найдены, разрешаем старт (по умолчанию)")
                 return False
             
             table = calculate_breakeven_table(params, current_price=price)
             if not table or len(table) == 0:
+                print(f"[{base}] [WARN] Таблица пуста, разрешаем старт (по умолчанию)")
                 return False
             
             # Вычисляем минимальный объём базовой валюты для первого шага
             first_step = table[0]
             min_base = first_step['purchase_usd'] / first_step['rate'] if first_step['rate'] > 0 else 0
             
-            print(f"[{base}] Проверка баланса: {available_base} {base} (минимум: {min_base})")
+            print(f"[{base}] Проверка баланса: {available_base:.8f} {base} (минимум для шага 0: {min_base:.8f})")
             
-            # Если монет достаточно для первого шага - не сбрасываем
+            # 🔴 КРИТИЧЕСКАЯ ПРОВЕРКА:
+            # Если есть остатки монет >= минимума - БЛОКИРУЕМ автостарт!
             if available_base >= min_base:
-                return False
+                print(f"[{base}] ⚠️ ОСТАТКИ МОНЕТ ОБНАРУЖЕНЫ! Баланс: {available_base:.8f} >= {min_base:.8f}")
+                print(f"[{base}] ⚠️ БЛОКИРОВКА АВТОСТАРТА → предотвращение двойной покупки")
+                print(f"[{base}] ⚠️ Продайте остатки вручную или дождитесь следующего цикла")
+                return True  # БЛОКИРУЕМ старт!
             
-            # ШАГ 3: Если монет недостаточно - сбрасываем цикл (ПОД lock, быстро)
-            print(f"[{base}] [INFO] Баланс недостаточен ({available_base} < {min_base}), сброс цикла в IDLE")
-            
-            lock = self._get_lock(base)
-            with lock:
-                self._ensure_cycle(base)
-                cycle = self.cycles[base]
-                cycle.reset()
-                
-                # Логируем сброс (просто выводим сообщение, т.к. специального метода нет)
-                print(f"[{base}] [LOG] Цикл сброшен: недостаточно монет ({available_base} < {min_base})")
-                
-                # Сохраняем состояние
-                self._save_state(base)
-            
-            return True
+            # Баланс чист - разрешаем старт
+            print(f"[{base}] ✅ Баланс чист ({available_base:.8f} < {min_base:.8f}), разрешение на автостарт")
+            return False  # Разрешаем старт
             
         except Exception as e:
-            print(f"[{base}] [WARN] Ошибка проверки баланса для сброса: {e}")
-            return False
+            print(f"[{base}] [WARN] Ошибка проверки баланса: {e}, разрешаем старт (по умолчанию)")
+            traceback.print_exc()
+            return False  # В случае ошибки разрешаем старт (безопасное поведение)
     
     def _try_start_cycle(self, base: str, quote: str, price: float):
         """
@@ -663,8 +685,12 @@ class AutoTraderV2:
                 if hasattr(cycle, 'last_sell_at') and cycle.last_sell_at > 0:
                     time_since_sell = time.time() - cycle.last_sell_at
                     if time_since_sell < 60:
-                        print(f"[{base}] [SKIP] Задержка после продажи ({time_since_sell:.1f}s < 60s)")
+                        print(f"[{base}] ⏸️ [SKIP] Задержка после продажи ({time_since_sell:.1f}s < 60s)")
                         return
+                    else:
+                        # Задержка прошла - сбрасываем last_sell_at
+                        print(f"[{base}] ✅ Задержка после продажи истекла ({time_since_sell:.1f}s >= 60s), разрешение на новый цикл")
+                        cycle.last_sell_at = 0.0
                 
                 # Проверка 3: Покупка уже в процессе?
                 if not hasattr(cycle, '_buying_in_progress'):
@@ -830,7 +856,7 @@ class AutoTraderV2:
             if base in self.cycles:
                 self.cycles[base]._buying_in_progress = False
     
-    def _try_sell(self, base: str, quote: str, price: float):
+    def _try_sell(self, base: str, quote: str, market_price: float, orderbook_price: float = None):
         """
         Попытка продать все монеты, если цена достигла цели
         
@@ -841,11 +867,19 @@ class AutoTraderV2:
         ЛОГИКА:
         1. Проверяем, что цикл активен
         2. Получаем целевую цену продажи из таблицы
-        3. Если текущая цена >= целевой → продаём
+        3. Если market_price >= целевой → продаём по orderbook_price
         4. После продажи сбрасываем цикл в IDLE
+        
+        Args:
+            market_price: Текущая рыночная цена (ticker.last) для проверки условия
+            orderbook_price: Цена из стакана bids для размещения ордера (если None, используется market_price)
         """
-        # 🔴 ЯВНАЯ МЕТКА — КОД ОБНОВЛЁН 08.12.2025 07:30
-        print(f"[{base}] 🔴 _try_sell вызван | КОД ВЕРСИЯ: 2025-12-08_07:30 | Цена: {price}")
+        # 🔴 ЯВНАЯ МЕТКА — КОД ОБНОВЛЁН 08.12.2025 10:00 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ПРОВЕРКИ УСЛОВИЯ ПРОДАЖИ
+        if orderbook_price is None:
+            orderbook_price = market_price
+        print(f"[{base}] 🔴 _try_sell вызван | КОД ВЕРСИЯ: 2025-12-08_10:00")
+        print(f"[{base}] 🔴   market_price (для проверки условия): {market_price:.8f}")
+        print(f"[{base}] 🔴   orderbook_price (для ордера): {orderbook_price:.8f}")
         
         try:
             # ШАГ 1: Проверяем состояние цикла (под lock, быстро)
@@ -888,7 +922,8 @@ class AutoTraderV2:
             print(f"[{base}]   target_delta_pct (из таблицы): {target_delta_pct}")
             print(f"[{base}]   breakeven_price (из таблицы): {breakeven_price}")
             print(f"[{base}]   start_price (цена покупки): {start_price}")
-            print(f"[{base}]   price (текущая цена): {price}")
+            print(f"[{base}]   market_price (для проверки условия): {market_price}")
+            print(f"[{base}]   orderbook_price (для ордера): {orderbook_price}")
             print(f"[{base}]   base_volume: {base_volume}")
             print(f"[{base}]   active_step: {cycle.active_step}")
             
@@ -940,7 +975,8 @@ class AutoTraderV2:
             print(f"[{base}] 🔴 ===============================================")
             
             print(f"[{base}] 🟦 [SELL_CHECK_POINT_1] Проверка продажи:")
-            print(f"  Текущая цена: {price:.8f}")
+            print(f"  Рыночная цена (для проверки): {market_price:.8f}")
+            print(f"  Цена для ордера (из стакана): {orderbook_price:.8f}")
             print(f"  Расчетный курс шага (rate): {rate:.8f}")
             print(f"  Цена безубыточности: {breakeven_price:.8f}")
             print(f"  Целевая дельта (от start_price): +{target_delta_pct:.2f}%")
@@ -949,20 +985,21 @@ class AutoTraderV2:
             
             # 🔴🔴🔴 КРИТИЧЕСКАЯ ПРОВЕРКА УСЛОВИЯ ПРОДАЖИ 🔴🔴🔴
             print(f"[{base}] 🔴🔴🔴 ========== КРИТИЧЕСКАЯ ТОЧКА РЕШЕНИЯ ==========")
-            print(f"[{base}] 🔴 price (текущая из параметра): {price:.10f}")
+            print(f"[{base}] 🔴 market_price (для проверки условия): {market_price:.10f}")
+            print(f"[{base}] 🔴 orderbook_price (для ордера): {orderbook_price:.10f}")
             print(f"[{base}] � target_sell_price (вычислено): {target_sell_price:.10f}")
             print(f"[{base}] 🔴 start_price (цена покупки):  {start_price:.10f}")
-            print(f"[{base}] 🔴 Разница (price - target):    {(price - target_sell_price):.10f}")
+            print(f"[{base}] 🔴 Разница (market - target):    {(market_price - target_sell_price):.10f}")
             print(f"[{base}] 🔴 target_delta_pct из таблицы: {target_delta_pct:.4f}%")
-            print(f"[{base}] �🟦 [SELL_CHECK_POINT_2] Проверка: {price:.10f} >= {target_sell_price:.10f} ?")
+            print(f"[{base}] �🟦 [SELL_CHECK_POINT_2] Проверка: {market_price:.10f} >= {target_sell_price:.10f} ?")
             
-            if price < target_sell_price:
-                print(f"[{base}] 🟦 [SELL_BLOCKED] Цена НЕ достигла цели ({price:.8f} < {target_sell_price:.8f})")
-                print(f"[{base}] 🟦 [SELL_BLOCKED] Требуется рост ещё на {((target_sell_price - price) / price * 100):.2f}%")
+            if market_price < target_sell_price:
+                print(f"[{base}] 🟦 [SELL_BLOCKED] Рыночная цена НЕ достигла цели ({market_price:.8f} < {target_sell_price:.8f})")
+                print(f"[{base}] 🟦 [SELL_BLOCKED] Требуется рост ещё на {((target_sell_price - market_price) / market_price * 100):.2f}%")
                 return
             
-            print(f"[{base}] 🟢 [SELL_APPROVED] Условие выполнено! {price:.8f} >= {target_sell_price:.8f}")
-            print(f"[{base}] 🟢 [SELL_APPROVED] Фактический рост: {((price - start_price) / start_price * 100):.2f}%")
+            print(f"[{base}] 🟢 [SELL_APPROVED] Условие выполнено! {market_price:.8f} >= {target_sell_price:.8f}")
+            print(f"[{base}] 🟢 [SELL_APPROVED] Фактический рост: {((market_price - start_price) / start_price * 100):.2f}%")
             
             # ШАГ 3: АТОМАРНО устанавливаем флаг продажи (под lock, быстро)
             with lock:
@@ -1024,288 +1061,123 @@ class AutoTraderV2:
                 # Проверяем, что цена всё ещё выше целевой
                 if current_price_before_sell < target_sell_price:
                     print(f"[{base}] [SKIP] ⚠️ Цена упала ниже целевой во время подготовки!")
-                    print(f"[{base}]   Было: {price:.8f} >= {target_sell_price:.8f} ✅")
+                    print(f"[{base}]   Было (market_price): {market_price:.8f} >= {target_sell_price:.8f} ✅")
                     print(f"[{base}]   Сейчас: {current_price_before_sell:.8f} < {target_sell_price:.8f} ❌")
                     print(f"[{base}]   Продажа отменена для соответствия таблице безубыточности")
                     self._clear_selling_flag(base)
                     return
                 
-                # 🔴 ЛОГИРОВАНИЕ ПАРАМЕТРОВ ЗАПРОСА НА ПРОДАЖУ
-                print(f"[{base}] 🔵 ========== ПАРАМЕТРЫ ЗАПРОСА НА ПРОДАЖУ ==========")
-                print(f"[{base}] 🔵 [SELL_EXECUTION_FROM_TRY_SELL] ← Продажа из функции _try_sell")
+                # 🔴 ЛОГИРОВАНИЕ ПАРАМЕТРОВ ЗАПРОСА НА ПРОДАЖУ (упрощённый)
+                print(f"[{base}] ======= ПАРАМЕТРЫ ЗАПРОСА НА ПРОДАЖУ =======")
+                print(f"[{base}]   source: SELL_EXECUTION_FROM_TRY_SELL")
                 print(f"[{base}]   currency_pair: {currency_pair}")
                 print(f"[{base}]   side: sell")
-                print(f"[{base}]   order_type: LIMIT (гарантия минимальной цены!)")
+                print(f"[{base}]   order_type: LIMIT")
                 print(f"[{base}]   amount: {available_base} {base}")
                 print(f"[{base}]   price (LIMIT): {target_sell_price:.8f} {quote}")
-                print(f"[{base}]   ---")
-                print(f"[{base}]   Текущая цена рынка: {current_price_before_sell:.8f}")
-                print(f"[{base}]   Целевая цена продажи: {target_sell_price:.8f}")
-                print(f"[{base}]   Цена покупки (start_price): {start_price:.8f}")
-                print(f"[{base}]   Ожидаемая дельта: {((current_price_before_sell - start_price) / start_price * 100.0):.2f}%")
-                print(f"[{base}]   Требуемая дельта (из таблицы): {target_delta_pct:.2f}%")
-                print(f"[{base}]   Ожидаемая выручка: >={available_base * target_sell_price:.4f} {quote}")
-                print(f"[{base}] 🔵 =====================================================")
-                
-                # 🔴 КРИТИЧЕСКИ ВАЖНО: Используем LIMIT-ордер с time_in_force='fok'
-                # FOK (Fill-Or-Kill) = Всё или ничего:
-                #   • Если ордер может быть исполнен ПОЛНОСТЬЮ и СРАЗУ → исполняется
-                #   • Если НЕ может быть исполнен полностью → ОТМЕНЯЕТСЯ
-                #   • Результат известен через 1-2 секунды
-                # LIMIT гарантирует цену >= target_sell_price
-                # FOK гарантирует, что ордер не зависнет в книге заявок
-                print(f"[{base}] 🟢 Создаём LIMIT FOK-ордер с минимальной ценой {target_sell_price:.8f}")
-                print(f"[{base}]    FOK = Fill-Or-Kill: продаст ВСЁ сразу или отменит ордер")
+                print(f"[{base}]   current_price_market: {current_price_before_sell:.8f}")
+                print(f"[{base}]   target_sell_price: {target_sell_price:.8f}")
+                print(f"[{base}]   start_price (buy): {start_price:.8f}")
+                try:
+                    expected_revenue = available_base * target_sell_price
+                    print(f"[{base}]   expected_revenue >= {expected_revenue:.4f} {quote}")
+                except Exception:
+                    pass
+                print(f"[{base}] ==============================================")
+
+                # Создаём LIMIT FOK-ордер
                 order = api_client.create_spot_order(
                     currency_pair=currency_pair,
                     side='sell',
                     order_type='limit',
                     amount=str(available_base),
                     price=str(target_sell_price),
-                    time_in_force='fok'  # 🔴 Fill-Or-Kill: всё или ничего!
+                    time_in_force='fok'
                 )
                 
                 order_id = order.get('id')
-                print(f"[{base}] ✅ ========== РЕЗУЛЬТАТ СОЗДАНИЯ ОРДЕРА ==========")
-                print(f"[{base}]   Order ID: {order_id}")
-                print(f"[{base}] ✅ ==================================================")
+                print(f"[{base}] [OK] LIMIT ордер на продажу создан: {order_id}")
                 
-                # 🔴 FOK-ордер исполняется или отменяется СРАЗУ (1-2 секунды)
-                # Проверяем статус: должен быть 'closed' (исполнен) или 'cancelled' (отменён)
-                max_attempts = 3  # Достаточно 3 попыток для FOK
-                check_interval = 1.0  # Проверка каждую секунду
-                order_real_status = 'unknown'
+                # Проверяем исполнение
+                time.sleep(0.5)
+                order_status = api_client.get_spot_order(order_id, currency_pair)
                 
-                print(f"[{base}] ⏳ Проверка FOK-ордера (максимум {max_attempts} секунды)...")
-                
-                for attempt in range(1, max_attempts + 1):
-                    time.sleep(check_interval)
-                    
-                    try:
-                        order_status = api_client.get_spot_order(order_id, currency_pair)
-                        order_real_status = order_status.get('status', 'unknown')
-                        
-                        print(f"[{base}] 🔍 Попытка {attempt}/{max_attempts}: статус = {order_real_status}")
-                        
-                        if order_real_status in ['closed', 'cancelled']:
-                            print(f"[{base}] ✅ FOK-ордер завершён после {attempt * check_interval:.0f} секунд (статус: {order_real_status})")
-                            break
-                            
-                    except Exception as e:
-                        print(f"[{base}] ⚠️ Ошибка проверки статуса (попытка {attempt}): {e}")
-                        continue
-                
-                # Обработка результата FOK-ордера
-                if order_real_status == 'closed':
-                    # ✅ Ордер исполнен — продолжаем обработку ниже
-                    print(f"[{base}] ✅ FOK-ордер ИСПОЛНЕН полностью")
-                    
-                elif order_real_status == 'cancelled':
-                    # ❌ FOK-ордер отменён — не смог исполниться полностью по целевой цене
-                    print(f"[{base}] ❌ FOK-ордер ОТМЕНЁН (не смог исполниться полностью)")
-                    print(f"[{base}]   Причина: недостаточная ликвидность на уровне {target_sell_price:.8f}")
-                    print(f"[{base}]   Требуется дождаться роста цены или увеличения ликвидности")
+                if order_status.get('status') != 'closed':
+                    print(f"[{base}] [WARN] Ордер на продажу не исполнен")
                     self._clear_selling_flag(base)
                     return
-                    
-                else:
-                    # ⚠️ Неизвестный статус — проверяем баланс для уверенности
-                    print(f"[{base}] ⚠️ FOK-ордер в неизвестном статусе: {order_real_status}")
-                    print(f"[{base}]   Проверяем баланс для определения фактического состояния...")
-                    
-                    try:
-                        new_balances = api_client.get_account_balance()
-                        new_balance_base = next((b for b in new_balances if b.get('currency') == base), None)
-                        new_available_base = float(new_balance_base.get('available', 0)) if new_balance_base else 0.0
-                        
-                        print(f"[{base}]   Баланс ДО продажи: {available_base:.8f} {base}")
-                        print(f"[{base}]   Баланс СЕЙЧАС: {new_available_base:.8f} {base}")
-                        print(f"[{base}]   Разница: {(available_base - new_available_base):.8f} {base}")
-                        
-                        # Если баланс уменьшился значительно (>90%) — ордер исполнился
-                        if (available_base - new_available_base) >= (available_base * 0.9):
-                            print(f"[{base}] ✅ Баланс уменьшился на {((available_base - new_available_base) / available_base * 100):.1f}%")
-                            print(f"[{base}] ✅ Считаем ордер исполненным по факту изменения баланса")
-                            order_real_status = 'closed'
-                        else:
-                            print(f"[{base}] ❌ Баланс не изменился значительно")
-                            print(f"[{base}] ❌ Считаем ордер отменённым или не исполненным")
-                            self._clear_selling_flag(base)
-                            return
-                            
-                    except Exception as e:
-                        print(f"[{base}] ❌ Ошибка проверки баланса: {e}")
-                        self._clear_selling_flag(base)
-                        return
-                        print(f"[{base}]   Снимаем флаг, ордер будет проверен при следующей итерации")
-                        self._clear_selling_flag(base)
-                        return
                 
-                executed_price = float(order_status.get('avg_deal_price', price))
-                executed_amount = float(order_status.get('filled_amount', available_base))
-                executed_total = float(order_status.get('filled_total', 0))
+                executed_price = float(order_status.get('avg_deal_price', orderbook_price))
+                executed_amount = float(order_status.get('filled_amount', 0))
+                executed_cost = float(order_status.get('filled_total', 0))
                 
-                print(f"[{base}] ✅ ========== РЕЗУЛЬТАТ ИСПОЛНЕНИЯ ОРДЕРА ==========")
-                print(f"[{base}]   Status: {order_status.get('status')}")
-                print(f"[{base}]   Объём продано: {executed_amount} {base}")
-                print(f"[{base}]   Цена исполнения: {executed_price:.8f}")
-                print(f"[{base}]   Получено: {executed_total:.4f} {quote}")
-                print(f"[{base}]   ---")
-                print(f"[{base}]   Запрошено на продажу: {available_base} {base}")
-                print(f"[{base}]   Цена перед ордером: {current_price_before_sell:.8f}")
-                print(f"[{base}] ✅ ====================================================")
+                print(f"[{base}] [OK] Ордер на продажу исполнен!")
+                print(f"[{base}]   Объём: {executed_amount} {base}")
+                print(f"[{base}]   Цена: {executed_price}")
+                print(f"[{base}]   Стоимость: {executed_cost} {quote}")
                 
-                # Вычисляем профит
+                # 🔴 КРИТИЧЕСКИ ВАЖНО: Сохраняем данные для логирования ДО сброса цикла!
                 with lock:
                     cycle = self.cycles[base]
+                    # Сохраняем invested и start_price для расчёта PnL и дельты
                     total_invested = cycle.total_invested_usd
-                    profit = executed_total - total_invested
-                    profit_pct = (profit / total_invested * 100.0) if total_invested > 0 else 0.0
+                    cycle_start_price = cycle.start_price
                     
-                    # Вычисляем рост от стартовой цены
-                    growth_pct = ((executed_price - start_price) / start_price * 100.0) if start_price > 0 else 0.0
-                
-                print(f"[{base}] 💰 ========== ФИНАНСОВЫЕ ПОКАЗАТЕЛИ ==========")
-                print(f"[{base}]   Инвестировано: {total_invested:.4f} {quote}")
-                print(f"[{base}]   Получено: {executed_total:.4f} {quote}")
-                print(f"[{base}]   Профит: {profit:.4f} {quote} ({profit_pct:+.2f}%)")
-                print(f"[{base}]   ---")
-                print(f"[{base}]   Цена покупки: {start_price:.8f}")
-                print(f"[{base}]   Целевая цена (LIMIT): {target_sell_price:.8f}")
-                print(f"[{base}]   Цена исполнения (факт): {executed_price:.8f}")
-                print(f"[{base}]   Рост цены: {growth_pct:+.2f}%")
-                print(f"[{base}]   Требуемый рост (из таблицы): {target_delta_pct:+.2f}%")
-                print(f"[{base}]   ---")
-                
-                # 🔴 КРИТИЧЕСКАЯ ПРОВЕРКА: executed_price ДОЛЖНА быть >= target_sell_price!
-                # Это гарантируется LIMIT-ордером
-                if executed_price >= target_sell_price:
-                    print(f"[{base}]   ✅ LIMIT-ордер сработал корректно: {executed_price:.8f} >= {target_sell_price:.8f}")
-                else:
-                    print(f"[{base}]   🚨 ОШИБКА! LIMIT-ордер исполнился ниже минимальной цены!")
-                    print(f"[{base}]   🚨 executed_price: {executed_price:.8f} < target: {target_sell_price:.8f}")
-                    print(f"[{base}]   🚨 Это НЕ должно происходить с LIMIT-ордером!")
-                
-                if growth_pct >= target_delta_pct:
-                    print(f"[{base}]   ✅ Рост достиг цели: {growth_pct:+.2f}% >= {target_delta_pct:+.2f}%")
-                else:
-                    print(f"[{base}]   🚨 ОШИБКА! Рост ниже требуемого: {growth_pct:+.2f}% < {target_delta_pct:+.2f}%")
-                
-                print(f"[{base}] 💰 ==============================================")
-                
-                # ШАГ 5: Сбрасываем цикл и сохраняем состояние (под lock, быстро!)
-                with lock:
-                    cycle = self.cycles[base]
-                    cycle.reset()  # Сброс в IDLE (автоматически увеличит total_cycles_count)
-                    cycle._selling_in_progress = False
-                    cycle.last_sell_at = time.time()  # ВАЖНО: Устанавливаем метку времени продажи
-                    
-                    print(f"[{base}] 🎉 ЦИКЛ ЗАВЕРШЁН! Всего циклов: {cycle.total_cycles_count}, last_sell_at={cycle.last_sell_at}")
-                    
-                    # Сохраняем состояние
+                    # Устанавливаем время продажи ДО сброса!
+                    cycle.last_sell_at = time.time()
+                    print(f"[{base}] ⏰ Время продажи установлено: {cycle.last_sell_at}")
+                    cycle.reset()
+                    print(f"[{base}] Цикл сброшен в IDLE после продажи")
                     self._save_state(base)
                 
-                # ШАГ 6: Логируем продажу в файл (БЕЗ lock)
+                # ШАГ 6: Рассчитываем метрики и логируем продажу (БЕЗ lock)
                 try:
+                    # Рассчитываем дельту (процент роста от цены покупки)
+                    if cycle_start_price > 0:
+                        delta_percent = ((executed_price - cycle_start_price) / cycle_start_price) * 100.0
+                    else:
+                        delta_percent = 0.0
+                    
+                    # Рассчитываем PnL (профит)
+                    revenue = executed_cost  # Выручка от продажи
+                    pnl = revenue - total_invested  # Профит = выручка - инвестиции
+                    
+                    print(f"[{base}] 💰 Расчёт метрик:")
+                    print(f"[{base}]   Инвестировано: {total_invested:.4f} {quote}")
+                    print(f"[{base}]   Выручка: {revenue:.4f} {quote}")
+                    print(f"[{base}]   PnL: {pnl:.4f} {quote}")
+                    print(f"[{base}]   Дельта: {delta_percent:.2f}%")
+                    
+                    # Логируем продажу с правильными параметрами
                     self.logger.log_sell(
                         currency=base,
                         volume=executed_amount,
                         price=executed_price,
-                        delta_percent=growth_pct,
-                        pnl=profit,
-                        source="AUTO"  # Маркер автоматической продажи
+                        delta_percent=delta_percent,
+                        pnl=pnl,
+                        source="AUTO"
                     )
-                    print(f"[{base}] [OK] Продажа записана в лог")
+                    print(f"[{base}] ✅ [OK] Продажа записана в лог (PnL={pnl:.4f}, Δ={delta_percent:.2f}%)")
                 except Exception as log_error:
-                    print(f"[{base}] [WARN] Ошибка записи в лог: {log_error}")
+                    print(f"[{base}] ⚠️ [WARN] Ошибка записи в лог: {log_error}")
                     import traceback
                     traceback.print_exc()
                 
-            except Exception as e:
-                print(f"[{base}] [ERROR] Ошибка выполнения продажи: {e}")
-                import traceback
-                traceback.print_exc()
+                # ШАГ 7: Снимаем флаг продажи
                 self._clear_selling_flag(base)
                 
+            except Exception as api_error:
+                print(f"[{base}] [ERROR] Ошибка при выполнении продажи через API: {api_error}")
+                self._clear_selling_flag(base)
+        
         except Exception as e:
-            print(f"[{base}] [ERROR] Ошибка в _try_sell: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[{base}] [ERROR] Критическая ошибка в _try_sell: {e}")
+            print(traceback.format_exc())
+            self._clear_selling_flag(base)
     
     def _clear_selling_flag(self, base: str):
-        """Снять флаг 'продажа в процессе'"""
+        """Снять флаг 'покупка в процессе'"""
         lock = self._get_lock(base)
         with lock:
-            self.cycles[base]._selling_in_progress = False
-    
-    # ============================================================================
-    # API ДЛЯ ВЕБ-ИНТЕРФЕЙСА
-    # ============================================================================
-    
-    def get_status(self) -> dict:
-        """Получить статус автотрейдера"""
-        return {
-            'running': self.running,
-            'stats': self.stats,
-            'cycles_count': len(self.cycles),
-            'active_cycles': sum(1 for c in self.cycles.values() if c.is_active())
-        }
-    
-    def get_stats(self) -> dict:
-        """Получить статистику автотрейдера (совместимость с API)"""
-        return self.get_status()
-    
-    def get_cycle_info(self, base: str) -> Optional[dict]:
-        """Получить информацию о цикле для валюты"""
-        lock = self._get_lock(base)
-        with lock:
-            cycle = self.cycles.get(base)
-            if not cycle:
-                print(f"[DEBUG] get_cycle_info({base}): цикл не найден в self.cycles")
-                return None
-            
-            result = {
-                'state': cycle.state.value,
-                'active': cycle.is_active(),
-                'cycle_id': cycle.cycle_id,  # Текущий ID цикла
-                'total_cycles_count': cycle.total_cycles_count,  # Количество завершённых циклов
-                'active_step': cycle.active_step,
-                'start_price': cycle.start_price,
-                'last_buy_price': cycle.last_buy_price,
-                'total_invested_usd': cycle.total_invested_usd,
-                'base_volume': cycle.base_volume,
-                'cycle_started_at': cycle.cycle_started_at,
-                'last_action_at': cycle.last_action_at,
-                'table_steps': len(cycle.table) if cycle.table else 0
-            }
-            print(f"[DEBUG] get_cycle_info({base}): state={result['state']}, active={result['active']}, cycle_id={result['cycle_id']}")
-            return result
-    
-    def force_reset_cycle(self, base: str, reason: str = "manual_action"):
-        """Принудительный сброс цикла при ручной продаже
-        
-        Используется когда продажа происходит через веб-интерфейс,
-        чтобы корректно сбросить состояние цикла и предотвратить
-        немедленные повторные покупки.
-        """
-        lock = self._get_lock(base)
-        with lock:
-            self._ensure_cycle(base)
-            cycle = self.cycles[base]
-            
-            if cycle.is_active():
-                print(f"[{base}] 🔴 ПРИНУДИТЕЛЬНЫЙ СБРОС ЦИКЛА (причина: {reason})")
-                print(f"[{base}]   Цикл ID: {cycle.cycle_id}")
-                print(f"[{base}]   Инвестировано: {cycle.total_invested_usd} USDT")
-            
-            # Сбрасываем цикл (manual=False чтобы НЕ блокировать автостарт)
-            cycle.reset(manual=False)
-            
-            # КРИТИЧЕСКИ ВАЖНО: Устанавливаем метку времени продажи
-            # Это предотвратит немедленную новую покупку
-            cycle.last_sell_at = time.time()
-            
-            print(f"[{base}] ✅ Цикл сброшен, last_sell_at={cycle.last_sell_at}")
-            
-            # Сохраняем состояние
-            self._save_state(base)
+            if base in self.cycles:
+                self.cycles[base]._selling_in_progress = False

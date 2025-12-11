@@ -498,15 +498,40 @@ def quick_sell_all_impl():
         # 🔴 МАРКЕР: Это РУЧНАЯ продажа через веб-интерфейс "Sell All"
         print(f"[TRADE_LOG] 🔴[MANUAL_SELL_ALL] Ручная продажа через веб-интерфейс: {base_currency}, volume={volume_to_log}, price={best_bid}")
         
+        # Пытаемся рассчитать метрики для ручной продажи
+        delta_percent = 0.0
+        pnl = 0.0
+        
+        try:
+            # Получаем последнюю покупку для расчёта дельты
+            last_buy = trade_logger.get_last_entry(base_currency, entry_type='buy')
+            if last_buy and 'price' in last_buy:
+                buy_price = float(last_buy['price'])
+                if buy_price > 0:
+                    delta_percent = ((best_bid - buy_price) / buy_price) * 100.0
+                
+                # Рассчитываем PnL
+                if 'volume_quote' in last_buy:
+                    invested = float(last_buy.get('volume_quote', 0))
+                    revenue = volume_to_log * best_bid
+                    pnl = revenue - invested
+                    print(f"[INFO] MANUAL_SELL_ALL: метрики рассчитаны - дельта={delta_percent:.2f}%, PnL={pnl:.4f}")
+                else:
+                    print(f"[WARN] MANUAL_SELL_ALL: нет volume_quote в last_buy, PnL=0")
+            else:
+                print(f"[WARN] MANUAL_SELL_ALL: нет данных о последней покупке для {base_currency}, метрики=0")
+        except Exception as metrics_error:
+            print(f"[WARN] MANUAL_SELL_ALL: ошибка расчёта метрик - {metrics_error}")
+        
         trade_logger.log_sell(
             currency=base_currency, 
             volume=volume_to_log, 
             price=best_bid, 
-            delta_percent=0.0,  # Фиксированная дельта для ручных продаж
-            pnl=0.0,            # Фиксированный PnL для ручных продаж
-            source="MANUAL"     # 🔴 МАРКЕР РУЧНОЙ ПРОДАЖИ
+            delta_percent=delta_percent,  # Рассчитанная дельта
+            pnl=pnl,                      # Рассчитанный PnL
+            source="MANUAL"               # 🔴 МАРКЕР РУЧНОЙ ПРОДАЖИ
         )
-        print(f"[TRADE_LOG] 🔴[MANUAL_SELL_ALL] Продажа залогирована в файл")
+        print(f"[TRADE_LOG] 🔴[MANUAL_SELL_ALL] Продажа залогирована в файл (delta={delta_percent:.2f}%, PnL={pnl:.4f})")
 
         # Если автотрейдер запущен — принудительно закроем цикл для этой валюты,
         # чтобы ручная "sell all" не привела к немедленному автоматическому ребаю.

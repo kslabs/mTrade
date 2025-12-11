@@ -357,101 +357,61 @@ class TradeLogger:
         # Все суммы в логах показываем в котируемой валюте (USDT) — не дублируем текст 'USDT' и убираем 'ВсегоИнвест'
         print(f"[{entry['time']}] [{currency}] 🟢[FROM_TRY_SELL] Buy{{{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{investment:.4f}}}")
         logging.info(f"BUY: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, total_drop_percent={total_drop_percent}, investment={investment}")
-
-    
-
     def log_sell(self, currency: str, volume: float, price: float, 
-
                  delta_percent: float, pnl: float, source: str = "AUTO"):
-
         """Логировать операцию продажи (в файл конкретной валюты)
         
         Args:
             source: "AUTO" для автоматических продаж из _try_sell, "MANUAL" для ручных
+        
+        ВАЖНО: Профит больше НЕ НАКАПЛИВАЕТСЯ! 
+        Каждый цикл считается с нуля. Профит = PnL текущей продажи.
         """
-
         currency = currency.upper()
-
         volume_quote = volume * price  # Объём в котируемой валюте
-
         
-
-        # Обновляем профит и уменьшаем инвестиции
-
+        # ИСПРАВЛЕНО: Убрано ВСЁ накопление профита
+        # Уменьшаем инвестиции
         if currency not in self.total_invested:
-
             self.total_invested[currency] = 0.0
-
-        if currency not in self.total_pnl:
-
-            self.total_pnl[currency] = 0.0
-
-        self.total_pnl[currency] += pnl
-
-        self.total_invested[currency] -= volume_quote  # считаем, что продаём весь объём
-
         
-
+        # Профит = только PnL текущей продажи (НЕ НАКАПЛИВАЕТСЯ)
+        current_profit = pnl
+        
+        self.total_invested[currency] -= volume_quote  # считаем, что продаём весь объём
+        
         entry = {
-
             'timestamp': datetime.now().isoformat(),
-
             'time': datetime.now().strftime('%H:%M:%S'),
-
             'type': 'sell',
-
             'currency': currency,
-
             'volume': volume,
-
             'volume_quote': volume_quote,
-
             'price': price,
-
             'delta_percent': delta_percent,
-
             'pnl': pnl,
-
-            'total_pnl': self.total_pnl[currency],
-
+            'total_pnl': current_profit,  # Профит = PnL текущей продажи (БЕЗ накопления)
             'total_invested': self.total_invested[currency]
-
         }
 
         
-
         with self.lock:
-
             # Убедиться что для валюты есть контейнер
-
             self._ensure_currency_logs(currency)
-
             
-
             # Добавить в память
-
             self.logs_by_currency[currency].append(entry)
-
             
-
             # Сохранить в файл валюты
-
             self._save_log_entry(currency, entry)
-
             
-
             # Периодически обрезаем файл (каждые 100 записей для данной валюты)
-
             if len(self.logs_by_currency[currency]) % 100 == 0:
-
                 self._trim_log_file(currency)
-
         
-
         # Лог только в котируемой валюте:
-
         # Показываем суммы в котируемой валюте без текстового суффикса 'USDT' и без дублирования имени валюты
-        # В формате продаж: показываем PnL и суммарный профит как 'Профит'
+        # В формате продаж: показываем PnL и Профит (который теперь = PnL, а не накапливается)
         # Окрасим числа профита в консоли: положительный — зелёный, отрицательный — красный
         try:
             # ANSI escape sequences
@@ -459,19 +419,19 @@ class TradeLogger:
             GREEN = '\x1b[32m'
             RESET = '\x1b[0m'
             pnl_color = GREEN if pnl >= 0 else RED
-            total_color = GREEN if self.total_pnl[currency] >= 0 else RED
+            profit_color = GREEN if current_profit >= 0 else RED
             pnl_str = f"{pnl_color}{pnl:.4f}{RESET}"
-            total_str = f"{total_color}{self.total_pnl[currency]:.4f}{RESET}"
+            profit_str = f"{profit_color}{current_profit:.4f}{RESET}"
         except Exception:
             pnl_str = f"{pnl:.4f}"
-            total_str = f"{self.total_pnl[currency]:.4f}"
+            profit_str = f"{current_profit:.4f}"
 
         # Маркер источника продажи
         source_marker = "🟢[AUTO]" if source == "AUTO" else "🔴[MANUAL]"
         
-        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{total_str}}}")
-
+        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}}}")
         logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}")
+
 
     
 
@@ -576,6 +536,37 @@ class TradeLogger:
 
     
 
+    def get_last_entry(self, currency: str, entry_type: str = None) -> Optional[dict]:
+        """Получить последнюю запись для валюты
+        
+        Args:
+            currency: Валюта
+            entry_type: Тип записи ('buy', 'sell' или None для любого типа)
+        
+        Returns:
+            Последняя запись или None, если записей нет
+        """
+        currency = currency.upper()
+        
+        with self.lock:
+            if currency not in self.logs_by_currency:
+                return None
+            
+            logs = self.logs_by_currency[currency]
+            
+            if not logs:
+                return None
+            
+            # Если указан тип, ищем последнюю запись этого типа
+            if entry_type:
+                for entry in reversed(logs):
+                    if entry.get('type') == entry_type:
+                        return entry
+                return None
+            
+            # Иначе возвращаем самую последнюю запись
+            return logs[-1] if logs else None
+    
     def get_formatted_logs(self, limit: Optional[int] = None, currency: Optional[str] = None) -> List[str]:
 
         """

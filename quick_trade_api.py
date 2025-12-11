@@ -404,14 +404,40 @@ def quick_sell_all():
             print(f"[ERROR] quick_sell_all: нет ID в ответе - {result}")
             return _quick_trade_error('Ордер не создан (нет ID в ответе)', diagnostic_info, 400)
 
-        # Логирование сделки
+        # Логирование сделки с расчётом метрик
         trade_logger = get_trade_logger()
+        
+        # Пытаемся получить данные цикла для расчёта метрик
+        delta_percent = 0.0
+        pnl = 0.0
+        
+        try:
+            # Получаем последнюю покупку для расчёта дельты
+            last_buy = trade_logger.get_last_entry(base_currency, entry_type='buy')
+            if last_buy and 'price' in last_buy:
+                buy_price = float(last_buy['price'])
+                if buy_price > 0:
+                    delta_percent = ((best_bid - buy_price) / buy_price) * 100.0
+                
+                # Рассчитываем PnL
+                if 'volume_quote' in last_buy:
+                    invested = float(last_buy.get('volume_quote', 0))
+                    revenue = amount * best_bid
+                    pnl = revenue - invested
+                    print(f"[INFO] quick_sell_all: метрики рассчитаны - дельта={delta_percent:.2f}%, PnL={pnl:.4f}")
+                else:
+                    print(f"[WARN] quick_sell_all: нет volume_quote в last_buy, PnL=0")
+            else:
+                print(f"[WARN] quick_sell_all: нет данных о последней покупке для {base_currency}, метрики=0")
+        except Exception as metrics_error:
+            print(f"[WARN] quick_sell_all: ошибка расчёта метрик - {metrics_error}")
+        
         trade_logger.log_sell(
             currency=base_currency,
             volume=amount,
             price=best_bid,
-            delta_percent=0.0,
-            pnl=0.0,
+            delta_percent=delta_percent,
+            pnl=pnl,
         )
 
         return jsonify({

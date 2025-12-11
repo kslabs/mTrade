@@ -29,7 +29,15 @@ from state_manager import get_state_manager
 # from dual_thread_autotrader import DualThreadAutoTrader
 
 # НОВЫЙ АВТОТРЕЙДЕР V2 (чистая архитектура, без багов!)
-from autotrader_v2 import AutoTraderV2
+try:
+    # Импорт автотрейдера выполняем лениво: если модуль некорректен — не ломаем весь сервер.
+    from autotrader_v2 import AutoTraderV2
+except Exception as e:
+    AutoTraderV2 = None
+    print(f"[WARN] Не удалось импортировать autotrader_v2: {e}")
+    import traceback
+    print(traceback.format_exc())
+
 from trade_logger import get_trade_logger
 from currency_sync import CurrencySync  # Синхронизация валют с Gate.io
 from quick_trade_handler import handle_buy_min, handle_sell_all  # Обработчики быстрой торговли
@@ -1692,6 +1700,7 @@ def get_trade_indicators():
                     # Если цикл не активен или нет данных - используем прогнозный BE из таблицы
                     autotrade_levels['breakeven_price'] = row.get('breakeven_price')
                     autotrade_levels['breakeven_pct'] = row.get('breakeven_pct')
+
                     
                     print(
                         f"[DEBUG] autotrade_levels для {currency_pair}: step={current_step}, "
