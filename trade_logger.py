@@ -354,9 +354,10 @@ class TradeLogger:
                 self._trim_log_file(currency)
 
             # Лог только в котируемой валюте:
-        # Все суммы в логах показываем в котируемой валюте (USDT) — не дублируем текст 'USDT' и убираем 'ВсегоИнвест'
-        print(f"[{entry['time']}] [{currency}] 🟢[FROM_TRY_SELL] Buy{{{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{investment:.4f}}}")
-        logging.info(f"BUY: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, total_drop_percent={total_drop_percent}, investment={investment}")
+        # Все суммы в логах показываем в котируемой валюте (USDT)
+        # Инвест - показываем НАКОПИТЕЛЬНУЮ сумму инвестиций (total_invested)
+        print(f"[{entry['time']}] [{currency}] 🟢 Buy{{{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{self.total_invested[currency]:.4f}}}")
+        logging.info(f"BUY: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, total_drop_percent={total_drop_percent}, investment={investment}, total_invested={self.total_invested[currency]}")
     def log_sell(self, currency: str, volume: float, price: float, 
                  delta_percent: float, pnl: float, source: str = "AUTO"):
         """Логировать операцию продажи (в файл конкретной валюты)
@@ -364,21 +365,24 @@ class TradeLogger:
         Args:
             source: "AUTO" для автоматических продаж из _try_sell, "MANUAL" для ручных
         
-        ВАЖНО: Профит больше НЕ НАКАПЛИВАЕТСЯ! 
-        Каждый цикл считается с нуля. Профит = PnL текущей продажи.
+        ВАЖНО: Профит = (сумма от продажи) - (сумма всех инвестиций в цикле)
         """
         currency = currency.upper()
-        volume_quote = volume * price  # Объём в котируемой валюте
+        volume_quote = volume * price  # Сумма от продажи в котируемой валюте
         
-        # ИСПРАВЛЕНО: Убрано ВСЁ накопление профита
-        # Уменьшаем инвестиции
+        # Получаем сумму всех инвестиций в цикле
         if currency not in self.total_invested:
             self.total_invested[currency] = 0.0
         
-        # Профит = только PnL текущей продажи (НЕ НАКАПЛИВАЕТСЯ)
-        current_profit = pnl
+        # ✅ ПРАВИЛЬНЫЙ РАСЧЁТ ПРОФИТА:
+        # Профит = (сумма от продажи) - (сумма всех инвестиций в цикле)
+        cycle_profit = volume_quote - self.total_invested[currency]
         
-        self.total_invested[currency] -= volume_quote  # считаем, что продаём весь объём
+        # Сохраняем сумму инвестиций до обнуления (для отображения в логе)
+        total_invested_before = self.total_invested[currency]
+        
+        # После продажи обнуляем инвестиции (цикл завершён)
+        self.total_invested[currency] = 0.0
         
         entry = {
             'timestamp': datetime.now().isoformat(),
@@ -389,9 +393,9 @@ class TradeLogger:
             'volume_quote': volume_quote,
             'price': price,
             'delta_percent': delta_percent,
-            'pnl': pnl,
-            'total_pnl': current_profit,  # Профит = PnL текущей продажи (БЕЗ накопления)
-            'total_invested': self.total_invested[currency]
+            'pnl': pnl,  # PnL от автотрейдера (может быть неточным)
+            'total_pnl': cycle_profit,  # ✅ ПРАВИЛЬНЫЙ ПРОФИТ ЦИКЛА
+            'total_invested': total_invested_before  # Показываем сколько было инвестировано
         }
 
         
@@ -411,7 +415,7 @@ class TradeLogger:
         
         # Лог только в котируемой валюте:
         # Показываем суммы в котируемой валюте без текстового суффикса 'USDT' и без дублирования имени валюты
-        # В формате продаж: показываем PnL и Профит (который теперь = PnL, а не накапливается)
+        # В формате продаж: показываем PnL и Профит (который теперь = сумма от продажи - инвестиции)
         # Окрасим числа профита в консоли: положительный — зелёный, отрицательный — красный
         try:
             # ANSI escape sequences
@@ -419,18 +423,19 @@ class TradeLogger:
             GREEN = '\x1b[32m'
             RESET = '\x1b[0m'
             pnl_color = GREEN if pnl >= 0 else RED
-            profit_color = GREEN if current_profit >= 0 else RED
+            profit_color = GREEN if cycle_profit >= 0 else RED
             pnl_str = f"{pnl_color}{pnl:.4f}{RESET}"
-            profit_str = f"{profit_color}{current_profit:.4f}{RESET}"
+            profit_str = f"{profit_color}{cycle_profit:.4f}{RESET}"
         except Exception:
             pnl_str = f"{pnl:.4f}"
-            profit_str = f"{current_profit:.4f}"
+            profit_str = f"{cycle_profit:.4f}"
 
         # Маркер источника продажи
         source_marker = "🟢[AUTO]" if source == "AUTO" else "🔴[MANUAL]"
         
-        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}}}")
-        logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}")
+        # Показываем: сумму продажи, курс, рост, PnL, ПРОФИТ (= сумма продажи - инвестиции), сумму инвестиций
+        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}; Инвест:{total_invested_before:.4f}}}")
+        logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}, cycle_profit={cycle_profit}, invested={total_invested_before}")
 
 
     
