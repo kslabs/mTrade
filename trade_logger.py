@@ -93,7 +93,7 @@ class TradeLogger:
 
     def _load_logs_for_currency(self, currency: str):
 
-        """Загрузить логи для конкретной валюты"""
+        """Загрузить логи для конкретной валюты и восстановить total_invested"""
 
         currency = currency.upper()
 
@@ -111,6 +111,9 @@ class TradeLogger:
 
             logs = deque(maxlen=self.MAX_LOG_ENTRIES)
 
+            last_total_invested = 0.0
+            last_entry_time = None
+            
             with open(log_file, 'r', encoding='utf-8') as f:
 
                 for line in f:
@@ -124,6 +127,22 @@ class TradeLogger:
                             entry = json.loads(line)
 
                             logs.append(entry)
+                            
+                            # ✅ ПРАВИЛЬНОЕ ВОССТАНОВЛЕНИЕ: берём total_invested из САМОЙ ПОСЛЕДНЕЙ записи
+                            # При загрузке логов мы идём по записям последовательно
+                            # - Если встретили buy: берём его total_invested (уже накопленный)
+                            # - Если встретили sell: обнуляем (цикл завершён)
+                            if entry.get('type') == 'buy' and 'total_invested' in entry:
+                                old_value = last_total_invested
+                                last_total_invested = entry['total_invested']
+                                last_entry_time = entry.get('timestamp')
+                                print(f"[{currency}] 📖 ЗАГРУЗКА Buy: total_invested {old_value:.4f} → {last_total_invested:.4f}")
+                            elif entry.get('type') == 'sell':
+                                old_value = last_total_invested
+                                # После продажи total_invested = 0 (цикл завершён)
+                                last_total_invested = 0.0
+                                last_entry_time = entry.get('timestamp')
+                                print(f"[{currency}] 📖 ЗАГРУЗКА Sell: total_invested {old_value:.4f} → 0.0 (обнулён)")
 
                         except json.JSONDecodeError:
 
@@ -132,8 +151,9 @@ class TradeLogger:
             
 
             self.logs_by_currency[currency] = logs
+            self.total_invested[currency] = last_total_invested
 
-            print(f"[TRADE_LOGGER] Загружено {len(logs)} записей для {currency}")
+            print(f"[TRADE_LOGGER] Загружено {len(logs)} записей для {currency}, total_invested={last_total_invested:.4f} (последняя запись: {last_entry_time})")
 
         except Exception as e:
 
@@ -294,8 +314,16 @@ class TradeLogger:
         if currency not in self.total_invested:
 
             self.total_invested[currency] = 0.0
+            print(f"[{currency}] ❗ ИНИЦИАЛИЗАЦИЯ total_invested = 0.0")
 
+        
+        # 🔍 ОТЛАДКА: Выводим состояние ДО покупки
+        print(f"[{currency}] 🔍 LOG_BUY ДО: total_invested={self.total_invested[currency]:.4f}, investment={investment:.4f}")
+        
         self.total_invested[currency] += investment
+        
+        # 🔍 ОТЛАДКА: Выводим состояние ПОСЛЕ покупки
+        print(f"[{currency}] ✅ LOG_BUY ПОСЛЕ: total_invested={self.total_invested[currency]:.4f}")
 
         
 
@@ -370,19 +398,26 @@ class TradeLogger:
         currency = currency.upper()
         volume_quote = volume * price  # Сумма от продажи в котируемой валюте
         
-        # Получаем сумму всех инвестиций в цикле
+        # 🔍 ОТЛАДКА: Выводим состояние ДО расчёта
         if currency not in self.total_invested:
             self.total_invested[currency] = 0.0
+            print(f"[{currency}] ❗ ИНИЦИАЛИЗАЦИЯ total_invested = 0.0 (в продаже)")
+        
+        print(f"[{currency}] 🔍 LOG_SELL ДО: total_invested={self.total_invested[currency]:.4f}, volume_quote={volume_quote:.4f}")
         
         # ✅ ПРАВИЛЬНЫЙ РАСЧЁТ ПРОФИТА:
         # Профит = (сумма от продажи) - (сумма всех инвестиций в цикле)
         cycle_profit = volume_quote - self.total_invested[currency]
+        
+        print(f"[{currency}] 💰 ПРОФИТ: {cycle_profit:.4f} = {volume_quote:.4f} - {self.total_invested[currency]:.4f}")
         
         # Сохраняем сумму инвестиций до обнуления (для отображения в логе)
         total_invested_before = self.total_invested[currency]
         
         # После продажи обнуляем инвестиции (цикл завершён)
         self.total_invested[currency] = 0.0
+        
+        print(f"[{currency}] ♻️ LOG_SELL ПОСЛЕ: total_invested ОБНУЛЁН = 0.0")
         
         entry = {
             'timestamp': datetime.now().isoformat(),
@@ -621,13 +656,14 @@ class TradeLogger:
                 invested += log.get('investment', 0)
 
                 # Показываем суммы (уже в котируемой валюте) без суффикса 'USDT' и без дублирующего поля 'ВсегоИнвест'
+                # ✅ ИСПРАВЛЕНО: Используем total_invested (накопленная сумма), а не investment (последняя покупка)
                 line = (
                     f"[{time_str}] [{currency_str}] {log_type}{{"
                     f"{volume_quote:.4f}; "
                     f"Курс:{log.get('price', 0):.4f}; "
                     f"↓Δ%:{log.get('delta_percent', 0):.2f}; "
                     f"↓%:{log.get('total_drop_percent', 0):.2f}; "
-                    f"Инвест:{log.get('investment', 0):.4f}}}"
+                    f"Инвест:{log.get('total_invested', 0):.4f}}}"
                 )
 
             else:  # sell
