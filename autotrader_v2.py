@@ -1056,17 +1056,26 @@ class AutoTraderV2:
                     with lock:
                         cycle = self.cycles[base]
                         start_price = cycle.start_price
+                        last_buy_price = cycle.last_buy_price
                         current_step = cycle.active_step
-                        
-                        if cycle.table and current_step >= 0 and current_step < len(cycle.table):
-                            actual_total_drop_pct = abs(float(cycle.table[current_step].get('cumulative_decrease_pct', 0)))
-                        else:
-                            actual_total_drop_pct = 0.0
                     
-                    if start_price > 0:
-                        delta_percent = ((executed_price - start_price) / start_price) * 100.0
+                    # ✅ ИСПРАВЛЕНО: Два разных процента:
+                    # 1. delta_percent (↓Δ%) — отклонение от ПОСЛЕДНЕЙ покупки (НЕ накапливается)
+                    # 2. total_drop_percent (↓%) — отклонение от СТАРТОВОЙ покупки (НАКАПЛИВАЕТСЯ)
+                    
+                    # ↓Δ% — отклонение от последней покупки
+                    if last_buy_price > 0:
+                        delta_percent = ((executed_price - last_buy_price) / last_buy_price) * 100.0
                     else:
                         delta_percent = 0.0
+                    
+                    # ↓% — накопленное отклонение от стартовой покупки
+                    if start_price > 0:
+                        total_drop_percent = ((executed_price - start_price) / start_price) * 100.0
+                    else:
+                        total_drop_percent = 0.0
+                    
+                    actual_total_drop_pct = total_drop_percent
                     
                     self.logger.log_buy(
                         currency=base,
@@ -1527,10 +1536,23 @@ class AutoTraderV2:
                         avg_invest_price = cycle.total_invested_usd / cycle.base_volume if cycle.base_volume > 0 else 0
                         pnl = (executed_price - avg_invest_price) * filled_amount
                         
+                        # ✅ ИСПРАВЛЕНИЕ: Рассчитываем РЕАЛЬНЫЙ рост от безубытка по ФАКТИЧЕСКОЙ цене продажи
+                        # (а не по рыночной цене в момент проверки условий)
+                        actual_step = cycle.active_step
+                        if actual_step >= 0 and actual_step < len(cycle.table):
+                            be_price = float(cycle.table[actual_step].get('breakeven_price', cycle.start_price))
+                            if be_price > 0:
+                                actual_growth_from_be = ((executed_price - be_price) / be_price) * 100.0
+                            else:
+                                actual_growth_from_be = 0.0
+                        else:
+                            actual_growth_from_be = 0.0
+                        
                         print(f"[{base}] 🎉 Цикл завершён!")
                         print(f"[{base}]   Средняя цена покупки: {avg_invest_price:.8f}")
                         print(f"[{base}]   Цена продажи: {executed_price:.8f}")
                         print(f"[{base}]   PnL: {pnl:.4f} {quote}")
+                        print(f"[{base}]   Рост от BE: {actual_growth_from_be:.2f}%")
                         
                         # Закрываем цикл через reset() - это правильный способ!
                         cycle._selling_in_progress = False
@@ -1546,11 +1568,11 @@ class AutoTraderV2:
                             currency=base,
                             volume=filled_amount,
                             price=executed_price,
-                            delta_percent=current_growth_from_be,  # ✅ ИСПРАВЛЕНО: рост от безубытка
+                            delta_percent=actual_growth_from_be,  # ✅ ИСПРАВЛЕНО: РЕАЛЬНЫЙ рост от безубытка по фактической цене
                             pnl=pnl,
                             source="AUTO"  # Маркер автоматической продажи
                         )
-                        print(f"[{base}] ✅ Продажа записана в лог (рост от BE={current_growth_from_be:.2f}%, PnL={pnl:.4f} {quote})")
+                        print(f"[{base}] ✅ Продажа записана в лог (рост от BE={actual_growth_from_be:.2f}%, PnL={pnl:.4f} {quote})")
                     except Exception as log_error:
                         print(f"[{base}] ⚠️ [WARN] Ошибка записи в лог: {log_error}")
                         import traceback
