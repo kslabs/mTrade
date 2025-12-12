@@ -1,0 +1,2 @@
+{"timestamp": "2025-12-01T08:24:03.494853", "time": "08:24:03", "type": "sell", "currency": "BTC", "volume": 0.000234, "volume_quote": 20.149950599999997, "price": 86110.9, "delta_percent": 0.0, "pnl": 0.0, "total_pnl": 0.0, "total_invested": -10.072155599999997}
+{"timestamp": "2025-12-01T08:24:14.289849", "time": "08:24:14", "type": "buy", "currency": "BTC", "volume": 0.000117, "volume_quote": 10.0781577, "price": 86138.1, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.0781577, "total_invested": 0.006002100000003452}

@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-26T09:32:22.894773", "time": "09:32:22", "type": "sell", "currency": "ARC", "volume": 301.82, "volume_quote": 10.032496799999999, "price": 0.03324, "delta_percent": 0.42296072507553245, "pnl": 0.04225480000000037, "total_pnl": 7.269076031401364, "total_invested": -1039.2256478125896}
+{"timestamp": "2025-11-26T09:32:49.647649", "time": "09:32:49", "type": "buy", "currency": "ARC", "volume": 300.4, "volume_quote": 10.000316, "price": 0.03329, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.000316, "total_invested": -1029.2253318125895}

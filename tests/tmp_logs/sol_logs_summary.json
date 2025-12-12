@@ -1,0 +1,243 @@
+[
+  {
+    "source": "system_trader.log",
+    "line_no": 6,
+    "text": "2025-11-22 17:17:47,073 INFO SELL: currency=SOL, volume=0.08, price=127.92, delta_percent=0.779957456865985, pnl=0.07919999999999959"
+  },
+  {
+    "source": "system_trader.log",
+    "line_no": 7,
+    "text": "2025-11-22 17:17:47,094 INFO SELL-DIAG: currency=SOL, price=127.92, sell_level=127.653501, volume=0.08, active_step=0, cycle_state=True, last_buy=126.93, reason=Fallback:     127.6  0.08,  PnL=0.05360000"
+  },
+  {
+    "source": "system_trader.log",
+    "line_no": 8,
+    "text": "2025-11-22 17:17:47,096 INFO SELL: currency=SOL, volume=0.08, price=127.92, delta_percent=0.779957456865985, pnl=0.07919999999999959"
+  },
+  {
+    "source": "system_trader.log",
+    "line_no": 9,
+    "text": "2025-11-22 17:17:47,118 INFO SELL: currency=SOL, volume=0.08, price=127.92, delta_percent=0.779957456865985, pnl=0.07919999999999959"
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1548.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T15:48:36.070151",
+      "time": "15:48:36",
+      "type": "buy",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.112,
+      "price": 126.4,
+      "delta_percent": 0.0,
+      "total_drop_percent": 0.0,
+      "investment": 10.112,
+      "total_invested": 10.112
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1626.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T16:26:48.294157",
+      "time": "16:26:48",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.164,
+      "price": 127.05,
+      "delta_percent": 0.5142405063291071,
+      "pnl": 0.05199999999999932,
+      "total_pnl": 0.05199999999999932,
+      "total_invested": -10.164
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1627.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T16:26:48.294157",
+      "time": "16:26:48",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.164,
+      "price": 127.05,
+      "delta_percent": 0.5142405063291071,
+      "pnl": 0.05199999999999932,
+      "total_pnl": 0.05199999999999932,
+      "total_invested": -10.164
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1630.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T16:30:08.965482",
+      "time": "16:30:08",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.164,
+      "price": 127.05,
+      "delta_percent": 0.5142405063291071,
+      "pnl": 0.05199999999999932,
+      "total_pnl": 0.05199999999999932,
+      "total_invested": -10.164
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1705.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T17:04:59.566310",
+      "time": "17:04:59",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.079,
+      "volume_quote": 10.017990000000001,
+      "price": 126.81,
+      "delta_percent": 0.0,
+      "pnl": 0.0,
+      "total_pnl": 0.0,
+      "total_invested": -10.017990000000001
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1707.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T17:06:54.263051",
+      "time": "17:06:54",
+      "type": "buy",
+      "currency": "SOL",
+      "volume": 0.079,
+      "volume_quote": 10.027470000000001,
+      "price": 126.93,
+      "delta_percent": 0.0,
+      "total_drop_percent": 0.0,
+      "investment": 10.027470000000001,
+      "total_invested": 0.009479999999999933
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1717.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T17:17:47.072504",
+      "time": "17:17:47",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.233600000000001,
+      "price": 127.92,
+      "delta_percent": 0.779957456865985,
+      "pnl": 0.07919999999999959,
+      "total_pnl": 0.07919999999999959,
+      "total_invested": -10.233600000000001
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1717.jsonl",
+    "line_no": 2,
+    "entry": {
+      "timestamp": "2025-11-22T17:17:47.072504",
+      "time": "17:17:47",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.233600000000001,
+      "price": 127.92,
+      "delta_percent": 0.779957456865985,
+      "pnl": 0.07919999999999959,
+      "total_pnl": 0.07919999999999959,
+      "total_invested": -10.233600000000001
+    }
+  },
+  {
+    "source": "EXPORT_SOL_20251122_1717.jsonl",
+    "line_no": 3,
+    "entry": {
+      "timestamp": "2025-11-22T17:17:47.095663",
+      "time": "17:17:47",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.233600000000001,
+      "price": 127.92,
+      "delta_percent": 0.779957456865985,
+      "pnl": 0.07919999999999959,
+      "total_pnl": 0.15839999999999918,
+      "total_invested": -20.467200000000002
+    }
+  },
+  {
+    "source": "SOL_logs.jsonl",
+    "line_no": 1,
+    "entry": {
+      "timestamp": "2025-11-22T17:06:54.263051",
+      "time": "17:06:54",
+      "type": "buy",
+      "currency": "SOL",
+      "volume": 0.079,
+      "volume_quote": 10.027470000000001,
+      "price": 126.93,
+      "delta_percent": 0.0,
+      "total_drop_percent": 0.0,
+      "investment": 10.027470000000001,
+      "total_invested": 0.009479999999999933
+    }
+  },
+  {
+    "source": "SOL_logs.jsonl",
+    "line_no": 2,
+    "entry": {
+      "timestamp": "2025-11-22T17:17:47.072504",
+      "time": "17:17:47",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.233600000000001,
+      "price": 127.92,
+      "delta_percent": 0.779957456865985,
+      "pnl": 0.07919999999999959,
+      "total_pnl": 0.07919999999999959,
+      "total_invested": -10.233600000000001
+    }
+  },
+  {
+    "source": "SOL_logs.jsonl",
+    "line_no": 3,
+    "entry": {
+      "timestamp": "2025-11-22T17:17:47.095663",
+      "time": "17:17:47",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.233600000000001,
+      "price": 127.92,
+      "delta_percent": 0.779957456865985,
+      "pnl": 0.07919999999999959,
+      "total_pnl": 0.15839999999999918,
+      "total_invested": -20.467200000000002
+    }
+  },
+  {
+    "source": "SOL_logs.jsonl",
+    "line_no": 4,
+    "entry": {
+      "timestamp": "2025-11-22T17:17:47.117612",
+      "time": "17:17:47",
+      "type": "sell",
+      "currency": "SOL",
+      "volume": 0.08,
+      "volume_quote": 10.233600000000001,
+      "price": 127.92,
+      "delta_percent": 0.779957456865985,
+      "pnl": 0.07919999999999959,
+      "total_pnl": 0.23759999999999876,
+      "total_invested": -30.7008
+    }
+  }
+]

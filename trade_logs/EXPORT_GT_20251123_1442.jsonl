@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T14:41:51.566454", "time": "14:41:51", "type": "buy", "currency": "GT", "volume": 9.95346, "volume_quote": 99.07136597159999, "price": 9.95346, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 99.07136597159999, "total_invested": 811.2878433692999}
+{"timestamp": "2025-11-23T14:41:56.509644", "time": "14:41:56", "type": "sell", "currency": "GT", "volume": 0.99, "volume_quote": 9.9594, "price": 10.06, "delta_percent": 1.070381555760517, "pnl": 0.10547460000000074, "total_pnl": 0.8983953000000052, "total_invested": 801.3284433693}

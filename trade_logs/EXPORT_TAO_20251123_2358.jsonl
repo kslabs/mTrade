@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T23:57:35.120791", "time": "23:57:35", "type": "buy", "currency": "TAO", "volume": 0.009, "volume_quote": 2.7099, "price": 301.1, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 3.0, "total_invested": 6.0}
+{"timestamp": "2025-11-23T23:57:46.506882", "time": "23:57:46", "type": "sell", "currency": "TAO", "volume": 0.017, "volume_quote": 5.1238, "price": 301.4, "delta_percent": 0.0, "pnl": 0.0, "total_pnl": 0.0, "total_invested": 0.8761999999999999}

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест отображения таблицы безубыточности</title>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 8px;
+            border: 1px solid #3a3a3a;
+            text-align: right;
+        }
+        th {
+            background: #2a2a2a;
+            font-weight: bold;
+        }
+        .highlight {
+            background: #2a4a2a !important;
+            font-weight: bold;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px 5px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background: #2a4a2a; color: #4CAF50; }
+        .error { background: #4a2a2a; color: #f44336; }
+        .info { background: #2a3a4a; color: #2196F3; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Тест отображения таблицы безубыточности</h1>
+    
+    <div>
+        <label>Валюта: 
+            <select id="currencySelect">
+                <option value="WLD">WLD</option>
+                <option value="XRP">XRP</option>
+                <option value="ETH">ETH</option>
+                <option value="BTC">BTC</option>
+            </select>
+        </label>
+        <button onclick="loadTable()">Загрузить таблицу</button>
+        <button onclick="checkFields()">Проверить поля</button>
+    </div>
+    
+    <div id="status"></div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Ст.</th>
+                <th>↓, %</th>
+                <th>↓Δ,%</th>
+                <th>Курс</th>
+                <th>Покупка, $</th>
+                <th>Инв.Сумм,$</th>
+                <th>Ц.БезУб,$</th>
+                <th>↑ БезУб,%</th>
+                <th>tΔPsell,%</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+            <tr><td colspan="10" style="text-align:center;">Нажмите "Загрузить таблицу"</td></tr>
+        </tbody>
+    </table>
+    
+    <div id="rawData" style="margin-top: 20px; padding: 10px; background: #2a2a2a; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+        <h3>Сырые данные (JSON):</h3>
+        <pre id="jsonData" style="color: #4CAF50; font-size: 11px; overflow-x: auto;"></pre>
+    </div>
+    
+    <script>
+        let currentData = null;
+        
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = type;
+        }
+        
+        async function loadTable() {
+            const currency = document.getElementById('currencySelect').value;
+            const tbody = document.getElementById('tableBody');
+            const jsonData = document.getElementById('jsonData');
+            
+            showStatus(`Загрузка данных для ${currency}...`, 'info');
+            
+            try {
+                const url = `/api/breakeven/table?base_currency=${currency}`;
+                console.log('📡 Запрос:', url);
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                currentData = data;
+                jsonData.textContent = JSON.stringify(data, null, 2);
+                
+                if (!data.success) {
+                    showStatus(`❌ Ошибка: ${data.error || 'Неизвестная ошибка'}`, 'error');
+                    return;
+                }
+                
+                const table = data.table;
+                if (!table || table.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;">Нет данных</td></tr>';
+                    showStatus('⚠️ Таблица пустая', 'error');
+                    return;
+                }
+                
+                tbody.innerHTML = '';
+                
+                table.forEach((row, idx) => {
+                    const tr = document.createElement('tr');
+                    if (idx === 0) {
+                        tr.className = 'highlight';
+                    }
+                    
+                    tr.innerHTML = `
+                        <td style="text-align:center;">${row.step !== undefined ? row.step : idx}</td>
+                        <td style="text-align:center;">${Math.round((row.step * 1) + 1)}</td>
+                        <td>${row.cumulative_decrease_pct !== undefined ? row.cumulative_decrease_pct.toFixed(2) : '—'}</td>
+                        <td>${row.decrease_step_pct !== undefined ? row.decrease_step_pct.toFixed(2) : '—'}</td>
+                        <td>${row.rate !== undefined ? row.rate.toFixed(8) : '—'}</td>
+                        <td>${row.purchase_usd !== undefined ? row.purchase_usd.toFixed(2) : '—'}</td>
+                        <td style="color: #2196F3; font-weight: bold;">${row.total_invested !== undefined ? row.total_invested.toFixed(2) : '❌ НЕТ'}</td>
+                        <td>${row.breakeven_price !== undefined ? row.breakeven_price.toFixed(8) : '—'}</td>
+                        <td style="color: #4CAF50; font-weight: bold;">${row.breakeven_pct !== undefined ? row.breakeven_pct.toFixed(2) : '❌ НЕТ'}</td>
+                        <td>${row.target_delta_pct !== undefined ? row.target_delta_pct.toFixed(2) : '—'}</td>
+                    `;
+                    
+                    tbody.appendChild(tr);
+                });
+                
+                showStatus(`✅ Загружено строк: ${table.length}`, 'success');
+                
+            } catch (error) {
+                showStatus(`❌ Исключение: ${error.message}`, 'error');
+                console.error('Ошибка:', error);
+            }
+        }
+        
+        function checkFields() {
+            if (!currentData || !currentData.table || currentData.table.length === 0) {
+                showStatus('⚠️ Сначала загрузите таблицу', 'error');
+                return;
+            }
+            
+            const row0 = currentData.table[0];
+            const hasTotalInvested = 'total_invested' in row0;
+            const hasBreakevenPct = 'breakeven_pct' in row0;
+            
+            let message = '🔍 Проверка полей:\n';
+            message += `total_invested: ${hasTotalInvested ? '✅ ЕСТЬ' : '❌ НЕТ'}\n`;
+            message += `breakeven_pct: ${hasBreakevenPct ? '✅ ЕСТЬ' : '❌ НЕТ'}`;
+            
+            if (hasTotalInvested && hasBreakevenPct) {
+                showStatus(`✅ Все поля присутствуют! total_invested=${row0.total_invested}, breakeven_pct=${row0.breakeven_pct}`, 'success');
+            } else {
+                showStatus(`❌ Отсутствуют поля! total_invested=${hasTotalInvested}, breakeven_pct=${hasBreakevenPct}`, 'error');
+            }
+            
+            console.log('Первая строка:', row0);
+        }
+        
+        // Автозагрузка при открытии
+        window.addEventListener('load', () => {
+            loadTable();
+        });
+    </script>
+</body>
+</html>

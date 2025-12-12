@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Диагностика загрузки параметров</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .test { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .ok { background: #dfd; }
+        .error { background: #fdd; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Диагностика загрузки параметров</h1>
+    <div id="results"></div>
+    
+    <script>
+        const $ = id => document.getElementById(id);
+        
+        async function runTests() {
+            const resultsDiv = $('results');
+            
+            const tests = [
+                {
+                    name: 'Функция $ работает',
+                    test: () => {
+                        const el = document.createElement('div');
+                        el.id = 'test-el';
+                        document.body.appendChild(el);
+                        const found = $('test-el');
+                        document.body.removeChild(el);
+                        return found !== null;
+                    }
+                },
+                {
+                    name: 'API /api/trade/params доступен',
+                    test: async () => {
+                        const r = await fetch('/api/trade/params?base_currency=ETH');
+                        const d = await r.json();
+                        return d.success === true;
+                    }
+                },
+                {
+                    name: 'API /api/currencies доступен',
+                    test: async () => {
+                        const r = await fetch('/api/currencies');
+                        const d = await r.json();
+                        return d.success === true && Array.isArray(d.currencies);
+                    }
+                },
+                {
+                    name: 'API /api/breakeven/table доступен',
+                    test: async () => {
+                        const params = new URLSearchParams({
+                            base_currency: 'ETH',
+                            steps: 16,
+                            start_volume: 10,
+                            pprof: 0.45,
+                            kprof: 0.01,
+                            target_r: 0.6,
+                            rk: 0.13,
+                            geom_multiplier: 1.371,
+                            rebuy_mode: 'geometric',
+                            orderbook_level: 0.26
+                        });
+                        const r = await fetch(`/api/breakeven/table?${params.toString()}`);
+                        const d = await r.json();
+                        return d.success === true && Array.isArray(d.table);
+                    }
+                },
+                {
+                    name: 'Можно создать элементы формы',
+                    test: () => {
+                        const input = document.createElement('input');
+                        input.id = 'paramSteps';
+                        input.value = '16';
+                        document.body.appendChild(input);
+                        
+                        const retrieved = $('paramSteps');
+                        const canRead = retrieved && retrieved.value === '16';
+                        
+                        document.body.removeChild(input);
+                        return canRead;
+                    }
+                }
+            ];
+            
+            for (const testCase of tests) {
+                const div = document.createElement('div');
+                div.className = 'test';
+                
+                try {
+                    const result = await testCase.test();
+                    div.className += result ? ' ok' : ' error';
+                    div.innerHTML = `
+                        <strong>${result ? '✅' : '❌'} ${testCase.name}</strong>
+                        <pre>Результат: ${result}</pre>
+                    `;
+                } catch (e) {
+                    div.className += ' error';
+                    div.innerHTML = `
+                        <strong>❌ ${testCase.name}</strong>
+                        <pre>Ошибка: ${e.message}\n${e.stack}</pre>
+                    `;
+                }
+                
+                resultsDiv.appendChild(div);
+            }
+            
+            // Финальный тест: попытка загрузить параметры как в app.js
+            const finalDiv = document.createElement('div');
+            finalDiv.className = 'test';
+            
+            try {
+                console.log('[TEST] Загружаем параметры...');
+                const r = await fetch('/api/trade/params?base_currency=ETH');
+                const d = await r.json();
+                
+                if (d.success && d.params) {
+                    finalDiv.className += ' ok';
+                    finalDiv.innerHTML = `
+                        <strong>✅ Параметры успешно загружены</strong>
+                        <pre>${JSON.stringify(d.params, null, 2)}</pre>
+                    `;
+                } else {
+                    finalDiv.className += ' error';
+                    finalDiv.innerHTML = `
+                        <strong>❌ Параметры не загружены</strong>
+                        <pre>success: ${d.success}\nerror: ${d.error || 'нет'}</pre>
+                    `;
+                }
+            } catch (e) {
+                finalDiv.className += ' error';
+                finalDiv.innerHTML = `
+                    <strong>❌ Ошибка загрузки параметров</strong>
+                    <pre>${e.message}\n${e.stack}</pre>
+                `;
+            }
+            
+            resultsDiv.appendChild(finalDiv);
+        }
+        
+        runTests();
+    </script>
+</body>
+</html>

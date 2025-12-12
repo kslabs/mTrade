@@ -1,0 +1,2 @@
+{"timestamp": "2025-12-12T16:10:55.225164", "time": "16:10:55", "type": "sell", "currency": "ANIME", "volume": 1543.32, "volume_quote": 10.30629096, "price": 0.006678, "delta_percent": 0.0, "pnl": 0.0, "total_pnl": 0.0, "total_invested": -10.30629096}
+{"timestamp": "2025-12-12T16:10:59.406533", "time": "16:10:59", "type": "buy", "currency": "ANIME", "volume": 1488.98, "volume_quote": 9.99998968, "price": 0.006716, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 9.99998968, "total_invested": -0.30630127999999957}

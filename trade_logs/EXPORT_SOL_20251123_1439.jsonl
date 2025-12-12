@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T14:39:25.028777", "time": "14:39:25", "type": "buy", "currency": "SOL", "volume": 9.94308, "volume_quote": 98.8648398864, "price": 9.94308, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 98.8648398864, "total_invested": 722.7596214128}
+{"timestamp": "2025-11-23T14:39:29.905416", "time": "14:39:29", "type": "sell", "currency": "SOL", "volume": 0.076, "volume_quote": 9.9484, "price": 130.9, "delta_percent": 1216.4934808932446, "pnl": 9.19272592, "total_pnl": 73.44303504, "total_invested": 712.8112214128}

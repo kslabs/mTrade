@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T14:51:22.813701", "time": "14:51:22", "type": "buy", "currency": "LTC", "volume": 9.96268, "volume_quote": 99.25499278240001, "price": 9.96268, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 99.25499278240001, "total_invested": 544.1518253501999}
+{"timestamp": "2025-11-23T14:51:26.759351", "time": "14:51:26", "type": "sell", "currency": "LTC", "volume": 0.119, "volume_quote": 9.96149, "price": 83.71, "delta_percent": 740.2357598557816, "pnl": 8.77593108, "total_pnl": 52.49367402000001, "total_invested": 534.1903353501999}

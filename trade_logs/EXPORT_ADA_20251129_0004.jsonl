@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-29T00:03:35.990454", "time": "00:03:35", "type": "sell", "currency": "ADA", "volume": 56.32, "volume_quote": 23.800832, "price": 0.4226, "delta_percent": 0.09474182851727994, "pnl": 0.11396259098970915, "total_pnl": 0.11396259098970915, "total_invested": -23.800832}
+{"timestamp": "2025-11-29T00:04:04.464836", "time": "00:04:04", "type": "buy", "currency": "ADA", "volume": 23.67, "volume_quote": 10.000575, "price": 0.42249999999999993, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.000575, "total_invested": -13.800257}
