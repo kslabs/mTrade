@@ -97,6 +97,7 @@ let diagnosticDecisions = {};
 let sellPrices = {};
 let buyPrices = {};
 let currentPrices = {};
+let activeCycles = {}; // Статус цикла для каждой валюты (true = активен, false = неактивен)
 
 // --- On-page debug panel --------------------------------------------------
 // Creates a small debug panel on the page which collects DEBUG messages
@@ -322,6 +323,7 @@ function updateAutoTradeLevels(levels){
   sellPrices[currentBaseCurrency] = levels.sell_price;
   buyPrices[currentBaseCurrency] = levels.next_buy_price;
   currentPrices[currentBaseCurrency] = levels.current_price;
+  activeCycles[currentBaseCurrency] = levels.active_cycle; // 🔥 СОХРАНЯЕМ СТАТУС ЦИКЛА
   
   // Обновляем UI разрешений для отображения активного шага
   updateTabsPermissionsUI();
@@ -651,6 +653,67 @@ async function loadCurrenciesFromServer(){
   }catch(e){ logDbg('loadCurrencies exc '+e) }
 }
 
+// 🔥 ПРИНУДИТЕЛЬНАЯ функция для окрашивания валют с неактивным циклом в синий цвет
+function forceApplyInactiveColors(){
+  console.log('[FORCE_COLOR] Принудительное применение синего цвета для валют с неактивным циклом');
+  const cont = document.getElementById('currencyTabsContainer');
+  if(!cont) {
+    console.warn('[FORCE_COLOR] currencyTabsContainer не найден');
+    return;
+  }
+  
+  const tabs = cont.querySelectorAll('.tab-item');
+  let processedCount = 0;
+  
+  tabs.forEach(tab => {
+    const code = tab.dataset.code;
+    if(!code) return;
+    
+    const cycleActive = activeCycles[code]; // Используем статус цикла
+    const isCycleInactive = (cycleActive === false); // Синий ТОЛЬКО если явно false
+    
+    console.log(`[FORCE_COLOR] ${code}: cycleActive=${cycleActive}, isCycleInactive=${isCycleInactive}`);
+    
+    if(isCycleInactive){
+      const codeLabel = tab.querySelector('.code-label');
+      if(codeLabel){
+        const isActive = tab.classList.contains('active');
+        const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Светло-синий для активной, ярко-синий для неактивной
+        const shadow = isActive ? '0 0 3px rgba(66,165,245,0.6)' : '0 0 2px rgba(33,150,243,0.5)';
+        
+        // Применяем синий цвет максимально агрессивно
+        const styleText = `color: ${blueColor} !important; text-shadow: ${shadow} !important;`;
+        codeLabel.style.cssText = styleText;
+        codeLabel.setAttribute('style', styleText);
+        
+        // Также добавляем класс для CSS
+        tab.classList.add('inactive-currency');
+        
+        // Проверяем результат
+        const finalColor = window.getComputedStyle(codeLabel).color;
+        console.log(`[FORCE_COLOR] ${code}: установлен синий цвет ${blueColor}, computed="${finalColor}"`);
+        processedCount++;
+      } else {
+        console.warn(`[FORCE_COLOR] ${code}: .code-label не найден!`);
+      }
+    } else {
+      // Для валют с активным циклом убираем класс и inline-стили
+      tab.classList.remove('inactive-currency');
+      const codeLabel = tab.querySelector('.code-label');
+      if(codeLabel && codeLabel.hasAttribute('style')){
+        // Сохраняем только те стили, которые не относятся к цвету
+        const style = codeLabel.getAttribute('style');
+        if(style && (style.includes('color') || style.includes('text-shadow'))){
+          codeLabel.removeAttribute('style');
+          console.log(`[FORCE_COLOR] ${code}: убран inline-стиль (цикл активен)`);
+        }
+      }
+    }
+  });
+  
+  console.log(`[FORCE_COLOR] Обработано валют с неактивным циклом: ${processedCount}`);
+}
+
 async function loadTradingPermissions(){
   console.log('[DEBUG] loadTradingPermissions called');
   try{
@@ -662,6 +725,8 @@ async function loadTradingPermissions(){
       window.tradingPermissions = d.permissions;
       // Обновляем UI (индикаторы на вкладках)
       updateTabsPermissionsUI();
+      // 🔥 ПРИНУДИТЕЛЬНО применяем синий цвет
+      setTimeout(() => forceApplyInactiveColors(), 50);
     } else {
       console.warn('[WARN] loadTradingPermissions failed:', d.error || 'unknown');
     }
@@ -674,7 +739,8 @@ async function toggleTradingPermission(code, event){
   if(event) event.stopPropagation(); // Предотвращаем переключение вкладки
   if(!code) return;
   
-  const currentState = window.tradingPermissions && window.tradingPermissions[code];
+  // ВАЖНО: undefined трактуется как false (торговля запрещена)
+  const currentState = (window.tradingPermissions && window.tradingPermissions[code]) === true;
   const newState = !currentState;
   
   console.log(`[DEBUG] toggleTradingPermission: ${code} ${currentState} -> ${newState}`);
@@ -697,6 +763,8 @@ async function toggleTradingPermission(code, event){
       console.log(`[SUCCESS] Торговля для ${code}: ${newState ? 'разрешена' : 'запрещена'}`);
       // Обновляем UI
       updateTabsPermissionsUI();
+      // 🔥 ПРИНУДИТЕЛЬНО применяем синий цвет
+      setTimeout(() => forceApplyInactiveColors(), 50);
     } else {
       console.error('[ERROR] toggleTradingPermission failed:', d.error);
       alert('Ошибка: ' + (d.error || 'Не удалось изменить разрешение'));
@@ -742,11 +810,35 @@ function renderCurrencyTabs(list){
     
     el.innerHTML=`<span class='code-label'>${cur.code}</span>${cur.symbol?`<span class='symbol-label'>${cur.symbol}</span>`:''}`;
     el.insertBefore(permBtn, el.firstChild); // Вставляем кнопку в начало
+    
+    // 🔥 КРИТИЧЕСКИ ВАЖНО: Применяем синий цвет для валют с неактивным циклом СРАЗУ при создании вкладки
+    const cycleActive = activeCycles[cur.code]; // Используем статус цикла
+    const isCycleInactive = (cycleActive === false); // Синий ТОЛЬКО если явно false
+    
+    if(isCycleInactive){
+      el.classList.add('inactive-currency');
+      const codeLabel = el.querySelector('.code-label');
+      if(codeLabel){
+        const isActive = el.classList.contains('active');
+        const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Темно-синий для активной, ярко-синий для неактивной
+        
+        // Применяем синий цвет МАКСИМАЛЬНО агрессивно сразу при создании элемента
+        codeLabel.style.cssText = `color: ${blueColor} !important; text-shadow: 0 0 2px rgba(33,150,243,0.5) !important;`;
+        codeLabel.setAttribute('style', `color: ${blueColor} !important; text-shadow: 0 0 2px rgba(33,150,243,0.5) !important;`);
+        
+        console.log(`[RENDER_TAB] ${cur.code}: создана вкладка с НЕАКТИВНЫМ циклом, СИНИЙ цвет ${blueColor} (cycleActive=${cycleActive})`);
+      }
+    } else {
+      console.log(`[RENDER_TAB] ${cur.code}: создана вкладка с АКТИВНЫМ циклом (cycleActive=${cycleActive})`);
+    }
+    
     el.onclick=()=>switchBaseCurrency(cur.code);
     cont.appendChild(el);
   });
   updatePairNameUI();
   updateTabsPermissionsUI();
+  // 🔥 ПРИНУДИТЕЛЬНО применяем синий цвет после создания вкладок
+  setTimeout(() => forceApplyInactiveColors(), 50);
 }
 function updatePairNameUI(){
   const pair=`${currentBaseCurrency}_${currentQuoteCurrency}`;
@@ -778,12 +870,21 @@ function updateTabsPermissionsUI(){
     const decision = diagnosticDecisions[code];
     const permissionEnabled = window.tradingPermissions && window.tradingPermissions[code];
     
+    // 🔍 ДИАГНОСТИКА: Логируем permission для отладки
+    if(code === 'ANIME' || permissionEnabled === false || permissionEnabled === undefined){
+      console.log(`[PERMISSION_DEBUG] ${code}:`, {
+        permissionEnabled: permissionEnabled,
+        tradingPermissions: window.tradingPermissions,
+        specificValue: window.tradingPermissions ? window.tradingPermissions[code] : 'no tradingPermissions'
+      });
+    }
+    
     // Обновляем кнопку разрешения торговли
     const permBtn = tab.querySelector('.perm-indicator');
     if(permBtn){
       permBtn.classList.toggle('on', permissionEnabled === true);
-      permBtn.classList.toggle('off', permissionEnabled === false);
-      permBtn.title = permissionEnabled ? 'Торговля разрешена (клик для запрета)' : 'Торговля запрещена (клик для разрешения)';
+      permBtn.classList.toggle('off', permissionEnabled !== true);  // undefined/null/false = off
+      permBtn.title = (permissionEnabled === true) ? 'Торговля разрешена (клик для запрета)' : 'Торговля запрещена (клик для разрешения)';
     }
     
     // Очищаем старые индикаторы шага
@@ -808,7 +909,106 @@ function updateTabsPermissionsUI(){
     } else if(decision === 'WAIT'){
       tab.classList.add('decision-wait');
     }
+    
+    // === НОВАЯ ЛОГИКА: динамическое изменение цвета бордюра по цене ===
+    // Удаляем старые классы готовности к продаже/покупке
+    tab.classList.remove('ready-to-sell', 'ready-to-buy', 'inactive-currency');
+    
+    // Получаем цены для этой валюты
+    const currentPrice = currentPrices[code];
+    const sellPrice = sellPrices[code];
+    const buyPrice = buyPrices[code];
+    
+    // 🔥 ИСПОЛЬЗУЕМ СТАТУС ЦИКЛА (а не разрешение торговли!)
+    const cycleActive = activeCycles[code]; // true = активен, false = неактивен, undefined = нет данных
+    const isCycleInactive = (cycleActive === false); // Синий ТОЛЬКО если явно false
+    
+    // 🔍 ДИАГНОСТИКА: Явное логирование для КАЖДОЙ валюты
+    console.log(`[CYCLE_STATUS] ${code}: cycleActive=${cycleActive}, isCycleInactive=${isCycleInactive}`);
+    
+    if(isCycleInactive){
+      // ✅ Для валют с НЕАКТИВНЫМ циклом - красим название валюты в ярко-синий цвет
+      tab.classList.add('inactive-currency');
+      console.log(`[CURRENCY_STATUS] ${code}: ЦИКЛ НЕАКТИВЕН (cycleActive=${cycleActive}) - добавлен класс inactive-currency`);
+      
+      // Проверяем, что класс действительно добавлен
+      const hasClass = tab.classList.contains('inactive-currency');
+      const codeLabel = tab.querySelector('.code-label');
+      console.log(`[DEBUG] ${code}: classList contains inactive-currency = ${hasClass}, .code-label найден = ${!!codeLabel}`);
+      
+      // 🔥 КРАЙНЯЯ МЕРА: устанавливаем inline-стиль для ГАРАНТИИ
+      if(codeLabel){
+        const isActive = tab.classList.contains('active');
+        const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Светло-синий для активной, ярко-синий для неактивной
+        const shadow = isActive ? '0 0 3px rgba(66,165,245,0.6)' : '0 0 2px rgba(33,150,243,0.5)';
+        
+        // Множественная установка для гарантии с text-shadow
+        const styleText = `color: ${blueColor} !important; text-shadow: ${shadow} !important;`;
+        codeLabel.style.cssText = styleText;
+        codeLabel.setAttribute('style', styleText);
+        
+        // Проверяем, что стиль применился
+        const computedColor = window.getComputedStyle(codeLabel).color;
+        const computedShadow = window.getComputedStyle(codeLabel).textShadow;
+        console.log(`[INLINE_STYLE] ${code}: установлен inline-стиль color=${blueColor}, shadow=${shadow}`);
+        console.log(`[INLINE_STYLE] ${code}: проверка - style="${codeLabel.getAttribute('style')}"`);
+        console.log(`[INLINE_STYLE] ${code}: computed - color="${computedColor}", shadow="${computedShadow}"`);
+      } else {
+        console.error(`[ERROR] ${code}: .code-label НЕ НАЙДЕН!`);
+      }
+    } else {
+      // ✅ Для валют с АКТИВНЫМ циклом убираем inline-стиль и применяем цветную индикацию по ценам
+      const codeLabel = tab.querySelector('.code-label');
+      if(codeLabel && codeLabel.hasAttribute('style')){
+        // Убираем inline-стиль полностью, если есть цвет или тень
+        const style = codeLabel.getAttribute('style');
+        if(style && (style.includes('color') || style.includes('text-shadow'))){
+          codeLabel.removeAttribute('style');
+          console.log(`[INLINE_STYLE] ${code}: убран inline-стиль, используется CSS`);
+        }
+      }
+      
+      if(currentPrice !== undefined && currentPrice !== null && 
+         sellPrice !== undefined && sellPrice !== null &&
+         buyPrice !== undefined && buyPrice !== null){
+        
+        // Жёлтый бордюр: цена выше цены продажи (готов к продаже)
+        if(currentPrice >= sellPrice){
+          tab.classList.add('ready-to-sell');
+          console.log(`[BORDER] ${code}: ready-to-sell (current=${currentPrice} >= sell=${sellPrice})`);
+        }
+        // Красный бордюр: цена ниже цены покупки (готов к покупке/докупке)
+        else if(currentPrice <= buyPrice){
+          tab.classList.add('ready-to-buy');
+          console.log(`[BORDER] ${code}: ready-to-buy (current=${currentPrice} <= buy=${buyPrice})`);
+        }
+        // Обычный бордюр: цена между покупкой и продажей
+        else {
+          console.log(`[BORDER] ${code}: normal (buy=${buyPrice} < current=${currentPrice} < sell=${sellPrice})`);
+        }
+      }
+    }
   });
+  
+  // 🔥 ДОПОЛНИТЕЛЬНАЯ МЕРА: Повторно применяем синий цвет через 100ms
+  // на случай если какие-то стили применяются асинхронно
+  setTimeout(() => {
+    tabs.forEach(tab => {
+      const code = tab.dataset.code;
+      if(!code) return;
+      const cycleActive = activeCycles[code]; // Используем статус цикла
+      const isCycleInactive = (cycleActive === false); // Синий ТОЛЬКО если явно false
+      if(isCycleInactive){
+        const codeLabel = tab.querySelector('.code-label');
+        if(codeLabel){
+          const isActive = tab.classList.contains('active');
+          const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Светло-синий для активной, ярко-синий для неактивной
+          codeLabel.style.cssText = `color: ${blueColor} !important;`;
+          console.log(`[DELAYED_STYLE] ${code}: повторно установлен синий цвет через 100ms (cycleActive=${cycleActive})`);
+        }
+      }
+    });
+  }, 100);
 }
 
 async function switchBaseCurrency(code){
@@ -1157,7 +1357,8 @@ async function loadAllIndicators(){
           sellPrices[code] = d.autotrade_levels.sell_price;
           buyPrices[code] = d.autotrade_levels.next_buy_price;
           currentPrices[code] = d.autotrade_levels.current_price;
-          console.log(`[INDICATORS] Загружены данные для ${code}: step=${d.autotrade_levels.active_step}, decision=${d.autotrade_levels.diagnostic_decision}`);
+          activeCycles[code] = d.autotrade_levels.active_cycle; // 🔥 СОХРАНЯЕМ СТАТУС ЦИКЛА ДЛЯ КАЖДОЙ ВАЛЮТЫ
+          console.log(`[INDICATORS] Загружены данные для ${code}: step=${d.autotrade_levels.active_step}, decision=${d.autotrade_levels.diagnostic_decision}, cycle=${d.autotrade_levels.active_cycle}`);
         }
       }catch(e){
         console.log(`[INDICATORS] Ошибка загрузки для ${code}:`, e);
@@ -1166,7 +1367,10 @@ async function loadAllIndicators(){
   }
   // Обновляем UI после загрузки всех данных
   updateTabsPermissionsUI();
+  // 🔥 ПРИНУДИТЕЛЬНО применяем цвета после загрузки всех индикаторов
+  setTimeout(() => forceApplyInactiveColors(), 100);
   console.log('[INDICATORS] Загрузка индикаторов для всех валют завершена');
+  console.log('[INDICATORS] Статус циклов:', activeCycles);
 }
 async function loadPairBalances(){
   if(!currentBaseCurrency||!currentQuoteCurrency) return;
@@ -2316,6 +2520,69 @@ document.addEventListener('DOMContentLoaded',()=>{
   initApp();
   startUptimeLoops();
   loadTradeParams();
+  
+  // 🔥 ПРИНУДИТЕЛЬНО применяем синий цвет для неактивных валют после загрузки
+  setTimeout(() => {
+    console.log('[INIT] Применяем синий цвет для неактивных валют после загрузки страницы');
+    forceApplyInactiveColors();
+  }, 200);
+  
+  // 🔥 ПОСТОЯННЫЙ МОНИТОРИНГ: Проверяем и перекрашиваем каждые 500ms
+  // ПРОСТАЯ ЛОГИКА: Если у вкладки индикатор .perm-indicator.off - красим название в синий
+  let paintDebugCounter = 0;
+  setInterval(() => {
+    const tabs = document.querySelectorAll('.tab-item');
+    paintDebugCounter++;
+    const showDebug = (paintDebugCounter % 10 === 0); // Детальные логи каждые 5 секунд
+    
+    tabs.forEach(tab => {
+      const permIndicator = tab.querySelector('.perm-indicator');
+      const codeLabel = tab.querySelector('.code-label');
+      const code = tab.dataset.code || '???';
+      
+      if(showDebug){
+        console.log(`[AUTO_PAINT_DEBUG] ${code}: indicator=${permIndicator ? 'найден' : 'НЕТ'}, label=${codeLabel ? 'найден' : 'НЕТ'}`);
+        if(permIndicator){
+          const classes = Array.from(permIndicator.classList);
+          console.log(`[AUTO_PAINT_DEBUG] ${code}: классы индикатора = [${classes.join(', ')}]`);
+        }
+      }
+      
+      if(permIndicator && codeLabel){
+        // ЕСЛИ индикатор OFF (красный) - название СИНЕЕ
+        if(permIndicator.classList.contains('off')){
+          const isActive = tab.classList.contains('active');
+          const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Светло-синий для активной, ярко-синий для неактивной
+          
+          // Проверяем текущий цвет
+          const computedColor = window.getComputedStyle(codeLabel).color;
+          const needsUpdate = !computedColor.includes('33, 150, 243') && !computedColor.includes('100, 181, 246');
+          
+          if(needsUpdate){
+            codeLabel.style.cssText = `color: ${blueColor} !important;`;
+            console.log(`[AUTO_PAINT] ${code}: индикатор OFF → покрашен в СИНИЙ ${blueColor} (было: ${computedColor})`);
+          } else if(showDebug){
+            console.log(`[AUTO_PAINT_DEBUG] ${code}: уже синий (${computedColor})`);
+          }
+        }
+        // ЕСЛИ индикатор ON (зелёный) - убираем синий цвет
+        else if(permIndicator.classList.contains('on')){
+          const computedColor = window.getComputedStyle(codeLabel).color;
+          const isBlue = computedColor.includes('33, 150, 243') || computedColor.includes('100, 181, 246');
+          
+          if(isBlue){
+            codeLabel.style.cssText = '';
+            console.log(`[AUTO_PAINT] ${code}: индикатор ON → убран синий цвет (было: ${computedColor})`);
+          } else if(showDebug){
+            console.log(`[AUTO_PAINT_DEBUG] ${code}: уже не синий (${computedColor})`);
+          }
+        }
+        else if(showDebug){
+          console.log(`[AUTO_PAINT_DEBUG] ${code}: индикатор не имеет класса 'on' или 'off'!`);
+        }
+      }
+    });
+  }, 500);
   
   // Обработчик кнопки сброса цикла
   const resetCycleBtn = document.getElementById('resetCycleBtn');
