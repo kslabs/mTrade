@@ -86,26 +86,26 @@
 
     <div class="grid">
         <div class="card">
-            <h3 style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                    <span>📈 Рынок и стакан</span>
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <button id="buyMinOrderBtn" class="server-btn-small control-large" style="background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Купить минимальный ордер">&#x1F6D2;</button>
-                        <button id="sellAllBtn" class="server-btn-small control-large" style="background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Продать всё">💰</button>
-                        <button id="resumeCycleBtn" class="server-btn-small control-large" style="background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Старт цикла">▶</button>
-                        <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
-                        <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (скоро)">&#x1F501;</button>
-                        <span style="font-size:11px;color:#888;">Баланс:</span>
-                        <span id="headerQuoteBalance" style="font-size:12px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
-                        <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
-                            <option value="USDT">USDT</option>
-                            <option value="USDC">USDC</option>
-                            <option value="BTC">BTC</option>
-                            <option value="ETH">ETH</option>
-                        </select>
-                    </div>
+            <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <span style="font-size:16px;line-height:1.2;">📈 Рынок и стакан</span>
+                    <span style="font-size:11px;color:#888;font-weight:normal;line-height:1.2;" id="wsStatus">🔄 Подключение к WebSocket...</span>
                 </div>
-                <div style="text-align:left;font-size:.85em;color:#888;font-weight:normal;"><span id="wsStatus">🔄 Подключение к WebSocket...</span></div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button id="buyMinOrderBtn" class="server-btn-small control-large" style="background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Купить минимальный ордер">&#x1F6D2;</button>
+                    <button id="sellAllBtn" class="server-btn-small control-large" style="background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Продать всё">💰</button>
+                    <button id="resumeCycleBtn" class="server-btn-small control-large" style="background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Старт цикла">▶</button>
+                    <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
+                    <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (скоро)">&#x1F501;</button>
+                    <span style="font-size:11px;color:#888;">Баланс:</span>
+                    <span id="headerQuoteBalance" style="font-size:12px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
+                    <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
+                        <option value="USDT">USDT</option>
+                        <option value="USDC">USDC</option>
+                        <option value="BTC">BTC</option>
+                        <option value="ETH">ETH</option>
+                    </select>
+                </div>
             </h3>
             <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT</div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
             <div class="balances-grid">
