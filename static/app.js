@@ -923,20 +923,35 @@ function updateTabsPermissionsUI(){
     const cycleActive = activeCycles[code]; // true = активен, false = неактивен, undefined = нет данных
     const isCycleInactive = (cycleActive === false); // Синий ТОЛЬКО если явно false
     
-    // 🔍 ДИАГНОСТИКА: Явное логирование для КАЖДОЙ валюты
-    console.log(`[CYCLE_STATUS] ${code}: cycleActive=${cycleActive}, isCycleInactive=${isCycleInactive}`);
+    // ✅ ИСПРАВЛЕНИЕ: СНАЧАЛА обновляем бордюр по ценам, ПОТОМ красим текст
+    // Бордюр должен обновляться ВСЕГДА, независимо от статуса цикла!
+    if(currentPrice !== undefined && currentPrice !== null && 
+       sellPrice !== undefined && sellPrice !== null &&
+       buyPrice !== undefined && buyPrice !== null){
+      
+      // Зелёный бордюр: цена выше или равна цене продажи (готов к продаже)
+      if(currentPrice >= sellPrice){
+        tab.classList.add('ready-to-sell');
+        console.log(`[BORDER] ${code}: ready-to-sell (current=${currentPrice} >= sell=${sellPrice})`);
+      }
+      // Красный бордюр: цена ниже или равна цене покупки (готов к покупке/докупке)
+      else if(currentPrice <= buyPrice){
+        tab.classList.add('ready-to-buy');
+        console.log(`[BORDER] ${code}: ready-to-buy (current=${currentPrice} <= buy=${buyPrice})`);
+      }
+      // Обычный бордюр: цена между покупкой и продажей
+      else {
+        // Убираем все цветные бордюры
+        console.log(`[BORDER] ${code}: normal (buy=${buyPrice} < current=${currentPrice} < sell=${sellPrice})`);
+      }
+    }
     
+    // Теперь применяем синий текст для неактивных циклов (не влияет на бордюр!)
     if(isCycleInactive){
       // ✅ Для валют с НЕАКТИВНЫМ циклом - красим название валюты в ярко-синий цвет
       tab.classList.add('inactive-currency');
-      console.log(`[CURRENCY_STATUS] ${code}: ЦИКЛ НЕАКТИВЕН (cycleActive=${cycleActive}) - добавлен класс inactive-currency`);
       
-      // Проверяем, что класс действительно добавлен
-      const hasClass = tab.classList.contains('inactive-currency');
       const codeLabel = tab.querySelector('.code-label');
-      console.log(`[DEBUG] ${code}: classList contains inactive-currency = ${hasClass}, .code-label найден = ${!!codeLabel}`);
-      
-      // 🔥 КРАЙНЯЯ МЕРА: устанавливаем inline-стиль для ГАРАНТИИ
       if(codeLabel){
         const isActive = tab.classList.contains('active');
         const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Светло-синий для активной, ярко-синий для неактивной
@@ -946,45 +961,15 @@ function updateTabsPermissionsUI(){
         const styleText = `color: ${blueColor} !important; text-shadow: ${shadow} !important;`;
         codeLabel.style.cssText = styleText;
         codeLabel.setAttribute('style', styleText);
-        
-        // Проверяем, что стиль применился
-        const computedColor = window.getComputedStyle(codeLabel).color;
-        const computedShadow = window.getComputedStyle(codeLabel).textShadow;
-        console.log(`[INLINE_STYLE] ${code}: установлен inline-стиль color=${blueColor}, shadow=${shadow}`);
-        console.log(`[INLINE_STYLE] ${code}: проверка - style="${codeLabel.getAttribute('style')}"`);
-        console.log(`[INLINE_STYLE] ${code}: computed - color="${computedColor}", shadow="${computedShadow}"`);
-      } else {
-        console.error(`[ERROR] ${code}: .code-label НЕ НАЙДЕН!`);
       }
     } else {
-      // ✅ Для валют с АКТИВНЫМ циклом убираем inline-стиль и применяем цветную индикацию по ценам
+      // ✅ Для валют с АКТИВНЫМ циклом убираем inline-стиль
       const codeLabel = tab.querySelector('.code-label');
       if(codeLabel && codeLabel.hasAttribute('style')){
         // Убираем inline-стиль полностью, если есть цвет или тень
         const style = codeLabel.getAttribute('style');
         if(style && (style.includes('color') || style.includes('text-shadow'))){
           codeLabel.removeAttribute('style');
-          console.log(`[INLINE_STYLE] ${code}: убран inline-стиль, используется CSS`);
-        }
-      }
-      
-      if(currentPrice !== undefined && currentPrice !== null && 
-         sellPrice !== undefined && sellPrice !== null &&
-         buyPrice !== undefined && buyPrice !== null){
-        
-        // Жёлтый бордюр: цена выше цены продажи (готов к продаже)
-        if(currentPrice >= sellPrice){
-          tab.classList.add('ready-to-sell');
-          console.log(`[BORDER] ${code}: ready-to-sell (current=${currentPrice} >= sell=${sellPrice})`);
-        }
-        // Красный бордюр: цена ниже цены покупки (готов к покупке/докупке)
-        else if(currentPrice <= buyPrice){
-          tab.classList.add('ready-to-buy');
-          console.log(`[BORDER] ${code}: ready-to-buy (current=${currentPrice} <= buy=${buyPrice})`);
-        }
-        // Обычный бордюр: цена между покупкой и продажей
-        else {
-          console.log(`[BORDER] ${code}: normal (buy=${buyPrice} < current=${currentPrice} < sell=${sellPrice})`);
         }
       }
     }
