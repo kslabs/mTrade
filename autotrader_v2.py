@@ -1026,7 +1026,13 @@ class AutoTraderV2:
                 print(f"[{base}]   Цена: {executed_price}")
                 print(f"[{base}]   Стоимость: {executed_cost} {quote}")
                 
-                # ШАГ 6: Обновляем состояние цикла (под lock, быстро)
+                # ШАГ 6: Сохраняем старые значения ДО обновления (для правильного логирования)
+                with lock:
+                    cycle = self.cycles[base]
+                    old_last_buy_price = cycle.last_buy_price  # Сохраняем СТАРУЮ цену для расчёта дельты
+                    start_price = cycle.start_price
+                
+                # ШАГ 7: Обновляем состояние цикла (под lock, быстро)
                 with lock:
                     cycle = self.cycles[base]
                     
@@ -1057,21 +1063,15 @@ class AutoTraderV2:
                     # Сохраняем состояние
                     self._save_state(base)
                 
-                # ШАГ 7: Логируем докупку в файл (БЕЗ lock)
+                # ШАГ 8: Логируем докупку в файл (используем СТАРЫЕ значения для правильной дельты)
                 try:
-                    with lock:
-                        cycle = self.cycles[base]
-                        start_price = cycle.start_price
-                        last_buy_price = cycle.last_buy_price
-                        current_step = cycle.active_step
-                    
                     # ✅ ИСПРАВЛЕНО: Два разных процента:
                     # 1. delta_percent (↓Δ%) — отклонение от ПОСЛЕДНЕЙ покупки (НЕ накапливается)
                     # 2. total_drop_percent (↓%) — отклонение от СТАРТОВОЙ покупки (НАКАПЛИВАЕТСЯ)
                     
-                    # ↓Δ% — отклонение от последней покупки
-                    if last_buy_price > 0:
-                        delta_percent = ((executed_price - last_buy_price) / last_buy_price) * 100.0
+                    # ↓Δ% — отклонение от последней покупки (используем СТАРОЕ значение!)
+                    if old_last_buy_price > 0:
+                        delta_percent = ((executed_price - old_last_buy_price) / old_last_buy_price) * 100.0
                     else:
                         delta_percent = 0.0
                     
