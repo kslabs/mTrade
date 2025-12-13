@@ -88,7 +88,10 @@
         <div class="card">
             <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
                 <div style="display:flex;flex-direction:column;gap:2px;">
-                    <span style="font-size:16px;line-height:1.2;">📈 Рынок и стакан</span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:16px;line-height:1.2;">📈 Рынок и стакан</span>
+                        <span style="font-size:14px;line-height:1.2;color:#4a9eff;font-weight:600;" id="currentPairName">BTC_USDT</span>
+                    </div>
                     <span style="font-size:11px;color:#888;font-weight:normal;line-height:1.2;" id="wsStatus">🔄 Подключение к WebSocket...</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
@@ -108,7 +111,6 @@
                     </div>
                 </div>
             </h3>
-            <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT</div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
             <div class="balances-grid">
                 <div class="balance-item"><div class="balance-label">Баланс <span id="baseSymbol">BTC</span></div><div class="balance-value" id="baseBalance">0.00000000</div><div class="balance-usd" id="baseBalanceUSD">≈ $0.00</div></div>
                 <div class="balance-item" id="pairParamsBlock"><div class="balance-label">Параметры пары</div><div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:10px;color:#ccc;"><div>Min Quote:</div><div id="minQuoteAmount">-</div><div>Min Base:</div><div id="minBaseAmount">-</div><div>Amt Prec:</div><div id="amountPrecision">-</div><div>Price Prec:</div><div id="pricePrecision">-</div></div></div>
