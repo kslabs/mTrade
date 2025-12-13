@@ -97,14 +97,15 @@
                     <button id="resumeCycleBtn" class="server-btn-small control-large" style="background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Старт цикла">▶</button>
                     <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
                     <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (скоро)">&#x1F501;</button>
-                    <span style="font-size:11px;color:#888;">Баланс:</span>
-                    <span id="headerQuoteBalance" style="font-size:12px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
-                    <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
-                        <option value="USDT">USDT</option>
-                        <option value="USDC">USDC</option>
-                        <option value="BTC">BTC</option>
-                        <option value="ETH">ETH</option>
-                    </select>
+                    <div style="display:flex;flex-direction:column;gap:1px;align-items:flex-end;">
+                        <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:3px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer;outline:none;height:auto;line-height:1.2;" onchange="switchQuoteCurrency(this.value)">
+                            <option value="USDT">USDT</option>
+                            <option value="USDC">USDC</option>
+                            <option value="BTC">BTC</option>
+                            <option value="ETH">ETH</option>
+                        </select>
+                        <span id="headerQuoteBalance" style="font-size:13px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;line-height:1.2;" title="Баланс котируемой валюты">0.00</span>
+                    </div>
                 </div>
             </h3>
             <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT</div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
