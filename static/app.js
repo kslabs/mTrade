@@ -100,28 +100,72 @@ let currentPrices = {};
 let activeCycles = {}; // Статус цикла для каждой валюты (true = активен, false = неактивен)
 
 // --- On-page debug panel --------------------------------------------------
-// Creates a small debug panel on the page which collects DEBUG messages
+// Creates a collapsible debug panel with a side tab
 // Use window.uiDebugLog(message, level) from any script to append messages
 window.uiDebugLog = function(msg, level='DEBUG'){
   try{
     if(!window.__uiDebugPanel){
-      // create container lazily
+      // Create main panel container
       const panel = document.createElement('div');
       panel.id = 'uiDebugPanel';
       panel.style.position = 'fixed';
-      panel.style.right = '12px';
+      panel.style.right = '0';
       panel.style.bottom = '12px';
       panel.style.width = '420px';
       panel.style.maxHeight = '40vh';
-      panel.style.overflow = 'auto';
-      panel.style.background = 'rgba(18,18,18,0.92)';
+      panel.style.background = 'rgba(18,18,18,0.95)';
       panel.style.color = '#ddd';
-      panel.style.border = '1px solid rgba(255,255,255,0.06)';
-      panel.style.borderRadius = '8px';
+      panel.style.border = '1px solid rgba(255,255,255,0.08)';
+      panel.style.borderRight = 'none';
+      panel.style.borderRadius = '8px 0 0 8px';
       panel.style.fontSize = '12px';
       panel.style.zIndex = 99999;
       panel.style.padding = '8px';
-      panel.style.boxShadow = '0 6px 18px rgba(0,0,0,0.6)';
+      panel.style.boxShadow = '-4px 4px 20px rgba(0,0,0,0.7)';
+      panel.style.transition = 'transform 0.3s ease';
+      panel.style.transform = 'translateX(100%)'; // Initially hidden
+      
+      // Create toggle tab
+      const tab = document.createElement('div');
+      tab.id = 'uiDebugTab';
+      tab.innerHTML = '◀<br>D<br>E<br>B<br>U<br>G';
+      tab.style.position = 'fixed';
+      tab.style.right = '0';
+      tab.style.bottom = '50%';
+      tab.style.transform = 'translateY(50%)';
+      tab.style.width = '28px';
+      tab.style.padding = '8px 4px';
+      tab.style.background = 'rgba(18,18,18,0.95)';
+      tab.style.color = '#4a9eff';
+      tab.style.border = '1px solid rgba(255,255,255,0.08)';
+      tab.style.borderRight = 'none';
+      tab.style.borderRadius = '8px 0 0 8px';
+      tab.style.fontSize = '11px';
+      tab.style.fontWeight = '700';
+      tab.style.letterSpacing = '1px';
+      tab.style.textAlign = 'center';
+      tab.style.lineHeight = '1.2';
+      tab.style.cursor = 'pointer';
+      tab.style.zIndex = 99998;
+      tab.style.userSelect = 'none';
+      tab.style.boxShadow = '-2px 2px 8px rgba(0,0,0,0.5)';
+      tab.style.transition = 'background 0.2s';
+      
+      tab.onmouseenter = () => { tab.style.background = 'rgba(74,158,255,0.2)'; };
+      tab.onmouseleave = () => { tab.style.background = 'rgba(18,18,18,0.95)'; };
+      
+      // Toggle panel visibility
+      let isOpen = false;
+      tab.onclick = () => {
+        isOpen = !isOpen;
+        if(isOpen){
+          panel.style.transform = 'translateX(0)';
+          tab.innerHTML = '▶<br>D<br>E<br>B<br>U<br>G';
+        } else {
+          panel.style.transform = 'translateX(100%)';
+          tab.innerHTML = '◀<br>D<br>E<br>B<br>U<br>G';
+        }
+      };
 
       const header = document.createElement('div');
       header.style.display = 'flex';
@@ -147,6 +191,7 @@ window.uiDebugLog = function(msg, level='DEBUG'){
       clearBtn.style.border = 'none';
       clearBtn.style.padding = '4px 8px';
       clearBtn.style.borderRadius = '4px';
+      clearBtn.style.cursor = 'pointer';
       clearBtn.onclick = () => { panel.querySelector('.dbg-body').innerHTML = ''; };
 
       const copyBtn = document.createElement('button');
@@ -156,13 +201,30 @@ window.uiDebugLog = function(msg, level='DEBUG'){
       copyBtn.style.border = 'none';
       copyBtn.style.padding = '4px 8px';
       copyBtn.style.borderRadius = '4px';
+      copyBtn.style.cursor = 'pointer';
       copyBtn.onclick = () => {
         const text = [...panel.querySelectorAll('.dbg-row')].map(n=>n.textContent).join('\n');
-        navigator.clipboard?.writeText(text).then(()=>{ copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy',500) });
+        navigator.clipboard?.writeText(text).then(()=>{ copyBtn.textContent = 'Copied!'; setTimeout(()=>copyBtn.textContent='Copy',800) });
+      };
+      
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = '✕';
+      closeBtn.style.background = '#dc3545';
+      closeBtn.style.color = '#fff';
+      closeBtn.style.border = 'none';
+      closeBtn.style.padding = '4px 10px';
+      closeBtn.style.borderRadius = '4px';
+      closeBtn.style.cursor = 'pointer';
+      closeBtn.style.fontWeight = 'bold';
+      closeBtn.onclick = () => { 
+        isOpen = false;
+        panel.style.transform = 'translateX(100%)';
+        tab.innerHTML = '◀<br>D<br>E<br>B<br>U<br>G';
       };
 
       controls.appendChild(clearBtn);
       controls.appendChild(copyBtn);
+      controls.appendChild(closeBtn);
       header.appendChild(controls);
 
       const body = document.createElement('div');
@@ -174,8 +236,10 @@ window.uiDebugLog = function(msg, level='DEBUG'){
       panel.appendChild(header);
       panel.appendChild(body);
       document.body.appendChild(panel);
+      document.body.appendChild(tab);
 
       window.__uiDebugPanel = panel;
+      window.__uiDebugTab = tab;
       window.__uiDebugBuffer = [];
     }
 
