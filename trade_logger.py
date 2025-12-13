@@ -54,11 +54,13 @@ class TradeLogger:
 
         
 
-        # Общая объём инвестиций и профита по валютам
-
+        # Общая объём инвестиций по валютам (НЕ накопительный между циклами!)
         self.total_invested = {}  # {currency: float}
-
-        self.total_pnl = {}       # {currency: float}
+        
+        # DEPRECATED: Это поле больше не используется
+        # Профиты теперь хранятся в логах (поле 'total_pnl' в каждой записи sell)
+        # и не суммируются между циклами
+        # self.total_pnl = {}       # {currency: float}
 
         
 
@@ -614,6 +616,8 @@ class TradeLogger:
         Форматированный вывод логов для UI/консоли
 
         Все расчёты (инвестиции, профит, остаток) ведутся по истории логов данной валюты.
+        
+        ✅ ИСПРАВЛЕНО: Профит каждого цикла независим, не накапливается между циклами.
 
         """
 
@@ -635,12 +639,6 @@ class TradeLogger:
 
         formatted = []
 
-        # Для расчёта динамики по валюте
-
-        invested = 0.0
-
-        pnl_sum = 0.0
-
         for log in logs:
 
             time_str = log.get('time', '??:??:??')
@@ -652,8 +650,6 @@ class TradeLogger:
             volume_quote = log.get('volume_quote', log.get('volume', 0) * log.get('price', 0))
 
             if log.get('type') == 'buy':
-
-                invested += log.get('investment', 0)
 
                 # Показываем суммы (уже в котируемой валюте) без суффикса 'USDT' и без дублирующего поля 'ВсегоИнвест'
                 # ✅ ИСПРАВЛЕНО: Используем total_invested (накопленная сумма), а не investment (последняя покупка)
@@ -668,19 +664,20 @@ class TradeLogger:
 
             else:  # sell
 
-                pnl_sum += log.get('pnl', 0)
-
-                invested -= volume_quote
-
+                # ✅ ИСПРАВЛЕНО: Используем total_pnl (профит ЭТОГО цикла), а не накопленный pnl_sum
+                # Профит цикла = (сумма от продажи) - (сумма всех инвестиций в цикле)
+                cycle_profit = log.get('total_pnl', 0)
+                
                 # Для продажи также убираем лишнюю метку 'USDT' — значения по-прежнему в USDT
-                # Для продажи: показываем PnL и суммарный профит как 'Профит' — убираем ОстИнвест как бессмысленное значение
+                # Для продажи: показываем PnL и профит ЦИКЛА (не накопленный)
                 line = (
                     f"[{time_str}] [{currency_str}] {log_type}{{"
                     f"{volume_quote:.4f}; "
                     f"Курс:{log.get('price', 0):.4f}; "
                     f"↑Δ%:{log.get('delta_percent', 0):.2f}; "
                     f"PnL:{log.get('pnl', 0):.4f}; "
-                    f"Профит:{pnl_sum:.4f}}}"
+                    f"Профит:{cycle_profit:.4f}; "
+                    f"Инвест:{log.get('total_invested', 0):.4f}}}"
                 )
 
             formatted.append(line)
@@ -750,6 +747,11 @@ class TradeLogger:
         Args:
 
             currency: Валюта (если не указана - статистика по всем валютам)
+            
+        Returns:
+            Статистика с информацией о циклах и их профитах (каждый цикл независим)
+        
+        ✅ ИСПРАВЛЕНО: Профиты циклов не суммируются, показываются отдельно для каждого цикла.
 
         """
 
@@ -765,8 +767,14 @@ class TradeLogger:
 
         total_investment = sum(log.get('investment', 0) for log in logs if log.get('type') == 'buy')
 
-        total_pnl = sum(log.get('pnl', 0) for log in logs if log.get('type') == 'sell')
-
+        
+        # ✅ ИСПРАВЛЕНО: Собираем профиты по отдельным циклам (не суммируем)
+        # Профит каждого цикла хранится в поле 'total_pnl' записи sell
+        cycle_profits = [log.get('total_pnl', 0) for log in logs if log.get('type') == 'sell']
+        
+        # Для совместимости с API можем вернуть последний профит или среднее значение
+        last_cycle_profit = cycle_profits[-1] if cycle_profits else 0.0
+        avg_cycle_profit = sum(cycle_profits) / len(cycle_profits) if cycle_profits else 0.0
         
 
         return {
@@ -779,7 +787,10 @@ class TradeLogger:
 
             'total_investment': round(total_investment, 4),
 
-            'total_pnl': round(total_pnl, 4),
+            'last_cycle_profit': round(last_cycle_profit, 4),  # ✅ Профит последнего цикла
+            'avg_cycle_profit': round(avg_cycle_profit, 4),    # ✅ Средний профит цикла
+            'total_cycles': len(cycle_profits),                 # ✅ Количество завершённых циклов
+            'cycle_profits': [round(p, 4) for p in cycle_profits],  # ✅ Список всех профитов циклов
 
             'currency': currency,
 
