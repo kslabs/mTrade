@@ -470,9 +470,10 @@ class TradeLogger:
         # Маркер источника продажи
         source_marker = "🟢[AUTO]" if source == "AUTO" else "🔴[MANUAL]"
         
-        # Показываем: сумму продажи, курс, рост, PnL, ПРОФИТ (= сумма продажи - инвестиции), сумму инвестиций
-        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}; Инвест:{total_invested_before:.4f}}}")
-        logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}, cycle_profit={cycle_profit}, invested={total_invested_before}")
+        # Показываем: сумму продажи, курс, рост, PnL, ПРОФИТ (= сумма продажи - инвестиции)
+        # Убрано поле "Инвест" — оно нужно только в покупках!
+        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}}}")
+        logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}, cycle_profit={cycle_profit}")
 
 
     
@@ -668,16 +669,15 @@ class TradeLogger:
                 # Профит цикла = (сумма от продажи) - (сумма всех инвестиций в цикле)
                 cycle_profit = log.get('total_pnl', 0)
                 
-                # Для продажи также убираем лишнюю метку 'USDT' — значения по-прежнему в USDT
-                # Для продажи: показываем PnL и профит ЦИКЛА (не накопленный)
+                # Для продажи: показываем сумму продажи, курс, рост, PnL и профит ЦИКЛА
+                # ✅ ИСПРАВЛЕНО: Убрано поле "Инвест" — оно нужно только в покупках!
                 line = (
                     f"[{time_str}] [{currency_str}] {log_type}{{"
                     f"{volume_quote:.4f}; "
                     f"Курс:{log.get('price', 0):.4f}; "
                     f"↑Δ%:{log.get('delta_percent', 0):.2f}; "
                     f"PnL:{log.get('pnl', 0):.4f}; "
-                    f"Профит:{cycle_profit:.4f}; "
-                    f"Инвест:{log.get('total_invested', 0):.4f}}}"
+                    f"Профит:{cycle_profit:.4f}}}"
                 )
 
             formatted.append(line)
