@@ -111,9 +111,46 @@
                     </div>
                 </div>
             </h3>
-            <div class="balances-grid">
-                <div class="balance-item"><div class="balance-label">Баланс <span id="baseSymbol">BTC</span></div><div class="balance-value" id="baseBalance">0.00000000</div><div class="balance-usd" id="baseBalanceUSD">≈ $0.00</div></div>
-                <div class="balance-item" id="pairParamsBlock"><div class="balance-label">Параметры пары</div><div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:10px;color:#ccc;"><div>Min Quote:</div><div id="minQuoteAmount">-</div><div>Min Base:</div><div id="minBaseAmount">-</div><div>Amt Prec:</div><div id="amountPrecision">-</div><div>Price Prec:</div><div id="pricePrecision">-</div></div></div>
+            <div class="balances-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <!-- Уровни цен -->
+                <div class="balance-item">
+                    <div class="balance-label" style="display:flex;justify-content:space-between;align-items:center;">
+                        <span>📈 Уровни цен</span>
+                        <span style="font-size:10px;padding:2px 6px;border-radius:3px;background:#2a2a2a;" id="autotradeCycleActive">Неактивен</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:10px;color:#ccc;">
+                        <div>Текущая:</div><div id="autotradePriceCurrent">-</div>
+                        <div>Стакан:</div><div id="autotradeOrderbookLevel">-</div>
+                        <div>Start (P0):</div><div id="autotradePriceStart">-</div>
+                        <div>BE:</div><div id="autotradePriceBreakeven">-</div>
+                        <div>Последняя:</div><div id="autotradePriceLastBuy">-</div>
+                        <div style="color:#0f0;">📤 Продажа:</div><div style="color:#0f0;font-weight:600;" id="autotradePriceSell">-</div>
+                        <div style="color:#f00;">📥 Покупка:</div><div style="color:#f00;font-weight:600;" id="autotradePriceNextBuy">-</div>
+                    </div>
+                </div>
+                
+                <!-- Статистика цикла -->
+                <div class="balance-item">
+                    <div class="balance-label">📊 Статистика</div>
+                    <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:10px;color:#ccc;">
+                        <div>Шаг:</div><div id="autotradeCurrentStep">-</div>
+                        <div>Рост от P0:</div><div id="autotradeGrowthPct">-</div>
+                        <div>Инвестировано:</div><div id="autotradeInvested">-</div>
+                        <div>Объём базы:</div><div id="autotradeBaseVolume">-</div>
+                        <div>Торговля:</div><div id="tradeIndicator" style="font-weight:bold;">⏸️ Ожидание</div>
+                    </div>
+                </div>
+                
+                <!-- Параметры пары -->
+                <div class="balance-item" id="pairParamsBlock">
+                    <div class="balance-label">⚙️ Параметры пары</div>
+                    <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:10px;color:#ccc;">
+                        <div>Min Quote:</div><div id="minQuoteAmount">-</div>
+                        <div>Min Base:</div><div id="minBaseAmount">-</div>
+                        <div>Amt Prec:</div><div id="amountPrecision">-</div>
+                        <div>Price Prec:</div><div id="pricePrecision">-</div>
+                    </div>
+                </div>
             </div>
             <div class="orderbook-container">
                 <div class="orderbook-header"><div>Цена (<span id="obQuoteSymbol">USDT</span>)</div><div>Кол-во</div><div>Сумма</div><div>Σ Накоп.</div></div>
@@ -134,61 +171,8 @@
             <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label" style="color:#ffff00;">Price:</div><div class="value" id="indPrice" style="color:#ffff00;">-</div></div><div class="row"><div class="label" style="color:#00ff00;">Sell:</div><div class="value" id="indSell" style="color:#00ff00;">-</div></div><div class="row"><div class="label" style="color:#00bfff;">BE:</div><div class="value" id="indBE" style="color:#00bfff;">-</div></div><div class="row"><div class="label" style="color:#ff8c00;">Last:</div><div class="value" id="indLast" style="color:#ff8c00;">-</div></div><div class="row"><div class="label" style="color:#da70d6;">Start:</div><div class="value" id="indStart" style="color:#da70d6;">-</div></div><div class="row"><div class="label" style="color:#ff0000;">Buy:</div><div class="value" id="indBuy" style="color:#ff0000;">-</div></div></div>
         </div>
         
-        <!-- Блок индикатора активного цикла -->
-        <div class="card autotrade-cycle-indicator" id="autotradeCycleIndicator" style="min-height:600px;display:flex;flex-direction:column;">
-            <div class="cycle-header">
-                <h3 style="margin:0;">🔄 Активный торговый цикл</h3>
-                <div class="cycle-status">
-                    <span class="cycle-label">Статус:</span>
-                    <span class="value inactive" id="autotradeCycleActive">Неактивен</span>
-                </div>
-            </div>
-            
-            <div class="cycle-info-grid">
-                <!-- Уровни цен -->
-                <div class="cycle-section">
-                    <div class="section-title">📈 Уровни цен</div>
-                    <div class="price-levels">
-                        <div class="price-row"><span class="label">Текущая цена:</span><span class="value" id="autotradePriceCurrent">-</span></div>
-                        <div class="price-row"><span class="label">Уровень стакана:</span><span class="value" id="autotradeOrderbookLevel">-</span></div>
-                        <div class="price-row"><span class="label">Стартовая (P0):</span><span class="value" id="autotradePriceStart">-</span></div>
-                        <div class="price-row"><span class="label">Безубыток (BE):</span><span class="value" id="autotradePriceBreakeven">-</span></div>
-                        <div class="price-row"><span class="label">Последняя покупка:</span><span class="value" id="autotradePriceLastBuy">-</span></div>
-                        <div class="price-row sell"><span class="label">📤 Цена продажи:</span><span class="value highlight" id="autotradePriceSell">-</span></div>
-                        <div class="price-row buy"><span class="label">📥 След. покупка:</span><span class="value highlight" id="autotradePriceNextBuy">-</span></div>
-                    </div>
-                </div>
-                
-                <!-- Статистика цикла -->
-                <div class="cycle-section">
-                    <div class="section-title">📊 Статистика</div>
-                    <div class="cycle-stats">
-                        <div class="stat-row">
-                            <span class="label">Текущий шаг:</span>
-                            <span class="value" id="autotradeCurrentStep">-</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Рост от P0:</span>
-                            <span class="value" id="autotradeGrowthPct">-</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Инвестировано:</span>
-                            <span class="value" id="autotradeInvested">-</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Объём базы:</span>
-                            <span class="value" id="autotradeBaseVolume">-</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Торговля:</span>
-                            <span class="value" id="tradeIndicator" style="font-weight:bold;">⏸️ Ожидание</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card breakeven-table">
+        <!-- Таблица безубыточности (перенесена на место активного цикла) -->
+        <div class="card breakeven-table" style="min-height:600px;display:flex;flex-direction:column;">
             <div class="params-header">
                 <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;">
                     <div class="view-toggle-group">
