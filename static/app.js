@@ -1559,6 +1559,10 @@ async function loadBreakEvenTable(){
       orderbook_level: parseFloat($('paramOrderbookLevel')?.value) || 1
     };
     
+    // 🔍 ОТЛАДКА: Выводим прочитанные параметры
+    console.log('[BREAKEVEN] 📊 Параметры из формы:', currentParams);
+    console.log('[BREAKEVEN] 🔢 geom_multiplier:', currentParams.geom_multiplier);
+    
     // Формируем URL с параметрами из формы
     const params = new URLSearchParams({
       base_currency: currentBaseCurrency,
@@ -1577,8 +1581,22 @@ async function loadBreakEvenTable(){
     
     const url = `/api/breakeven/table?${params.toString()}`;
     
+    // 🔍 ОТЛАДКА: Выводим финальный URL запроса
+    console.log('[BREAKEVEN] 🌐 URL запроса:', url);
+    
     const r = await fetch(url);
     const d = await r.json();
+    
+    // 🔍 ОТЛАДКА: Выводим ответ от сервера
+    console.log('[BREAKEVEN] 📥 Ответ от сервера:', d);
+    if(d.params) {
+      console.log('[BREAKEVEN] 📋 Параметры из ответа:', d.params);
+      console.log('[BREAKEVEN] 🔢 geom_multiplier из ответа:', d.params.geom_multiplier);
+    }
+    if(d.table && d.table.length > 0) {
+      console.log('[BREAKEVEN] 📊 Первая строка таблицы:', d.table[0]);
+      console.log('[BREAKEVEN] 📊 Вторая строка таблицы:', d.table[1]);
+    }
     
     if(d.success && d.table){
       renderBreakEvenTable(d.table);
@@ -2341,6 +2359,9 @@ paramsInputIds.forEach(id => {
   const input = $(id);
   if(input) {
     input.addEventListener('input', () => {
+      // 🔍 ОТЛАДКА: Выводим изменённое поле и его новое значение
+      console.log(`[PARAMS_CHANGE] 🔄 Поле "${id}" изменено на: ${input.value}`);
+      
       if(paramsUpdateTimeout) clearTimeout(paramsUpdateTimeout);
       const statusEl = $('paramsSaveStatus');
       if(statusEl) {
@@ -2349,6 +2370,13 @@ paramsInputIds.forEach(id => {
       }
       paramsUpdateTimeout = setTimeout(async () => {
         try {
+          // 🔍 ОТЛАДКА: Выводим все параметры перед обновлением таблицы
+          console.log('[PARAMS_CHANGE] ⚙️ Все параметры перед обновлением таблицы:');
+          paramsInputIds.forEach(paramId => {
+            const el = $(paramId);
+            if(el) console.log(`  - ${paramId}: ${el.value}`);
+          });
+          
           await loadBreakEvenTable();
           if(statusEl) {
             statusEl.textContent = '✓ Обновлено';

@@ -140,6 +140,11 @@ class TradeParamsRoutes:
                 params = self.state_manager.get_breakeven_params(base_currency).copy()
                 base_for_price = base_currency
             
+            # 🔍 ОТЛАДКА: Выводим входящие параметры
+            print(f"[BREAKEVEN_TABLE] 🔍 Входящие query params: {dict(request.args)}")
+            print(f"[BREAKEVEN_TABLE] 📋 Загруженные params: {params}")
+            print(f"[BREAKEVEN_TABLE] 💱 Currency: {base_currency if not use_legacy else 'LEGACY'}")
+            
             # Переопределяем параметры из query string (для мгновенного предпросмотра)
             if 'steps' in request.args:
                 try:
@@ -173,13 +178,19 @@ class TradeParamsRoutes:
                     pass
             if 'geom_multiplier' in request.args:
                 try:
-                    params['geom_multiplier'] = float(request.args.get('geom_multiplier'))
+                    new_geom = float(request.args.get('geom_multiplier'))
+                    params['geom_multiplier'] = new_geom
+                    print(f"[BREAKEVEN_TABLE] ✅ geom_multiplier переопределён: {new_geom}")
                 except (ValueError, TypeError):
+                    print(f"[BREAKEVEN_TABLE] ❌ Ошибка парсинга geom_multiplier")
                     pass
             if 'rebuy_mode' in request.args:
                 rebuy_mode = str(request.args.get('rebuy_mode')).lower()
                 if rebuy_mode in ('fixed', 'geometric', 'martingale'):
                     params['rebuy_mode'] = rebuy_mode
+            
+            # 🔍 ОТЛАДКА: Финальные параметры перед расчётом
+            print(f"[BREAKEVEN_TABLE] 🎯 Финальные params перед расчётом: {params}")
             
             # Получаем текущую цену из WS
             current_price = 0.0

@@ -1541,12 +1541,25 @@ class AutoTraderV2:
                         actual_step = cycle.active_step
                         if actual_step >= 0 and actual_step < len(cycle.table):
                             be_price = float(cycle.table[actual_step].get('breakeven_price', cycle.start_price))
+                            be_pct = float(cycle.table[actual_step].get('breakeven_pct', 0))
+                            target_delta = float(cycle.table[actual_step].get('target_delta_pct', 0))
+                            
+                            print(f"[{base}] 📊 РАСЧЁТ РОСТА ОТ БЕЗУБЫТКА:")
+                            print(f"[{base}]   Шаг: {actual_step}")
+                            print(f"[{base}]   Breakeven price: {be_price:.8f}")
+                            print(f"[{base}]   Breakeven %: {be_pct:.4f}%")
+                            print(f"[{base}]   Target Δ %: {target_delta:.4f}%")
+                            print(f"[{base}]   Executed price: {executed_price:.8f}")
+                            
                             if be_price > 0:
                                 actual_growth_from_be = ((executed_price - be_price) / be_price) * 100.0
+                                print(f"[{base}]   Рост от BE: {actual_growth_from_be:.4f}% = (({executed_price:.8f} - {be_price:.8f}) / {be_price:.8f}) * 100")
                             else:
                                 actual_growth_from_be = 0.0
+                                print(f"[{base}]   ⚠️ BE price = 0, рост не рассчитан")
                         else:
                             actual_growth_from_be = 0.0
+                            print(f"[{base}]   ⚠️ Некорректный шаг {actual_step}, рост не рассчитан")
                         
                         print(f"[{base}] 🎉 Цикл завершён!")
                         print(f"[{base}]   Средняя цена покупки: {avg_invest_price:.8f}")

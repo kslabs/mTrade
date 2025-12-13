@@ -90,9 +90,16 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
 
     
 
-    # DEBUG: Выводим параметр для проверки
+    # 🔍 DEBUG: Выводим ключевые параметры для проверки
 
-    print(f"[BREAKEVEN_CALC] base_orderbook_level = {base_orderbook_level} (из params: {params.get('orderbook_level', 'НЕ УКАЗАН')})")
+    print(f"[BREAKEVEN_CALC] 📊 Параметры расчёта:")
+    print(f"  - steps: {steps}")
+    print(f"  - start_volume: {start_volume}")
+    print(f"  - start_price: {start_price}")
+    print(f"  - geom_multiplier: {geom_multiplier} ⬅️ МНОЖИТЕЛЬ ГЕОМЕТРИИ")
+    print(f"  - rebuy_mode: {rebuy_mode}")
+    print(f"  - base_orderbook_level: {base_orderbook_level}")
+    print(f"  - current_price: {current_price}")
 
     
 
@@ -343,6 +350,12 @@ def calculate_breakeven_table(params: dict, current_price: float = 0.0) -> list:
         })
 
     
-
+    # 🔍 DEBUG: Выводим первые 3 строки таблицы для проверки
+    if len(table_data) > 0:
+        print(f"[BREAKEVEN_CALC] 📊 Первые строки таблицы (geom_multiplier={geom_multiplier}):")
+        for i in range(min(3, len(table_data))):
+            row = table_data[i]
+            print(f"  Шаг {i}: Покупка=${row['purchase_usd']:.2f}, Инв.=${row['total_invested']:.2f}, B/E={row['breakeven_price']:.8f}")
+    
     return table_data
 
