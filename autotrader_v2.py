@@ -24,6 +24,7 @@ from enum import Enum
 from breakeven_calculator import calculate_breakeven_table
 from trade_logger import get_trade_logger
 from gate_api_client import GateAPIClient
+from logging_monitor import get_logging_monitor  # Система автоматического мониторинга ошибок
 
 
 class CycleState(Enum):
@@ -475,6 +476,9 @@ class AutoTraderV2:
                                 if cycle.table and active_step >= 0 and active_step < len(cycle.table):
                                     table_orderbook_level = int(cycle.table[active_step].get('orderbook_level', 1))
                                     orderbook_level = max(0, table_orderbook_level - 1)
+                                    # DEBUG: Выводим уровень стакана
+                                    if iteration % 60 == 1:  # Раз в минуту
+                                        print(f"[{base}] [DEBUG] Шаг {active_step}: table_orderbook_level={table_orderbook_level}, orderbook_level={orderbook_level} (для API)")
                                 else:
                                     orderbook_level = 0
                             
@@ -778,6 +782,19 @@ class AutoTraderV2:
                 print(f"[{base}]   Цена: {executed_price}")
                 print(f"[{base}]   Стоимость: {executed_cost} {quote}")
                 
+                # 🔥 ПРОВЕРКА КАЧЕСТВА: Сравниваем реальную цену с ценой из таблицы (шаг 0)
+                if table and len(table) > 0:
+                    expected_price = float(table[0].get('rate', price))
+                    if expected_price > 0:
+                        price_deviation_pct = ((executed_price - expected_price) / expected_price) * 100.0
+                        if abs(price_deviation_pct) > 1.0:  # Предупреждение если отклонение больше 1%
+                            print(f"[{base}] ⚠️ [WARNING] Значительное отклонение цены покупки от ожидаемой!")
+                            print(f"[{base}]   Ожидалось: {expected_price:.8f}")
+                            print(f"[{base}]   Получено: {executed_price:.8f}")
+                            print(f"[{base}]   Отклонение: {price_deviation_pct:+.4f}%")
+                        else:
+                            print(f"[{base}] ✅ Проверка качества: цена покупки в пределах ожидаемой (отклонение: {price_deviation_pct:+.4f}%)")
+                
                 # КРИТИЧЕСКИ ВАЖНО: Пересчитываем таблицу с РЕАЛЬНОЙ ценой покупки!
                 # Если цена изменилась между расчётом и покупкой, таблица будет неверной
                 print(f"[{base}] [DEBUG] Пересчитываем таблицу с реальной ценой покупки {executed_price}...")
@@ -920,16 +937,96 @@ class AutoTraderV2:
                     return
                 
                 next_step = cycle.table[next_step_index]
-                decrease_step_pct = abs(float(next_step.get('decrease_step_pct', 0)))
+                # 🔥 КРИТИЧЕСКИ ВАЖНО: Используем ТАБЛИЧНОЕ значение rate, а не вычисляем от last_buy_price!
+                # Это гарантирует, что покупка будет СТРОГО на уровне таблицы или ниже.
+                tabular_rate = float(next_step.get('rate', 0))
+                # ВАЖНО: НЕ используем abs()! decrease_step_pct должно быть отрицательным!
+                decrease_step_pct = float(next_step.get('decrease_step_pct', 0))
             
-            if decrease_step_pct <= 0:
+            # Проверка: tabular_rate должен быть > 0, decrease_step_pct может быть 0 только для первого шага
+            if tabular_rate <= 0:
                 return
             
             # ШАГ 3: Проверяем условие докупки
-            rebuy_threshold = last_buy_price * (1.0 - decrease_step_pct / 100.0)
+            # Проверяем ДВА условия:
+            # 1. Цена достигла табличной цены
+            # 2. Реальное падение >= табличному падению
             
+            # Условие 1: Проверяем табличную цену
+            rebuy_threshold = tabular_rate
             if price >= rebuy_threshold:
                 return
+            
+            # Условие 2: 🔥 КРИТИЧЕСКИ ВАЖНО! Проверяем реальное падение от предыдущей покупки
+            # Это гарантирует, что реальное ↓Δ% будет >= табличному, даже если предыдущая покупка была дороже
+            if last_buy_price > 0 and decrease_step_pct != 0:
+                # Вычисляем минимальную цену для реального падения
+                # ВАЖНО: decrease_step_pct уже отрицательное (например, -0.73), поэтому используем сложение!
+                min_price_for_real_drop = last_buy_price * (1 + decrease_step_pct / 100.0)
+                
+                if price >= min_price_for_real_drop:
+                    print(f"[{base}] [BLOCK] Реальное падение недостаточно! Докупка ОТМЕНЕНА")
+                    print(f"[{base}]   Предыдущая реальная цена: {last_buy_price:.8f}")
+                    print(f"[{base}]   Текущая цена (ticker): {price:.8f}")
+                    print(f"[{base}]   Табличная цена шага: {tabular_rate:.8f}")
+                    print(f"[{base}]   Требуемое падение: {decrease_step_pct:.2f}%")
+                    print(f"[{base}]   Нужно упасть до: {min_price_for_real_drop:.8f}")
+                    print(f"[{base}]   Текущее падение: {((price - last_buy_price) / last_buy_price * 100):.2f}%")
+                    return
+            
+            print(f"[{base}] ✅ Условия докупки выполнены:")
+            print(f"[{base}]   Цена {price:.8f} <= табличная {tabular_rate:.8f}")
+            if last_buy_price > 0:
+                min_price_for_real_drop = last_buy_price * (1 + decrease_step_pct / 100.0)
+                print(f"[{base}]   Цена {price:.8f} <= минимум для реального падения {min_price_for_real_drop:.8f}")
+                actual_drop_pct = ((price - last_buy_price) / last_buy_price * 100)
+                print(f"[{base}]   Реальное падение: {actual_drop_pct:.2f}% >= {decrease_step_pct:.2f}%")
+            
+            # 🔥 КРИТИЧЕСКИ ВАЖНАЯ ПРОВЕРКА: Получаем цену из стакана и проверяем, что она СТРОГО ниже табличной
+            # Это защищает от покупки дороже табличной цены при использовании MARKET ордеров
+            with lock:
+                cycle = self.cycles[base]
+                if cycle.table and next_step_index < len(cycle.table):
+                    table_orderbook_level = int(cycle.table[next_step_index].get('orderbook_level', 1))
+                    orderbook_level = max(0, table_orderbook_level - 1)
+                else:
+                    orderbook_level = 0
+            
+            # Получаем РЕАЛЬНУЮ цену из стакана (по которой будет покупка)
+            orderbook_price = self._get_orderbook_price(base, quote, orderbook_level, 'asks')
+            
+            if not orderbook_price:
+                print(f"[{base}] [WARN] Не удалось получить цену из стакана, докупка отменена")
+                return
+            
+            # 🔥 СТРОГАЯ ПРОВЕРКА 1: Цена из стакана НЕ ДОЛЖНА быть выше табличной!
+            if orderbook_price > rebuy_threshold:
+                print(f"[{base}] [BLOCK] Цена из стакана ({orderbook_price:.8f}) выше табличной ({rebuy_threshold:.8f}), докупка ОТМЕНЕНА")
+                print(f"[{base}]   ↓Δ% табличное: {decrease_step_pct:.2f}%")
+                print(f"[{base}]   ↓Δ% реальное: {((orderbook_price - last_buy_price) / last_buy_price * 100):.2f}%")
+                return
+            
+            # 🔥 СТРОГАЯ ПРОВЕРКА 2: Цена из стакана ДОЛЖНА обеспечить реальное падение >= табличному!
+            if last_buy_price > 0 and decrease_step_pct != 0:
+                min_price_for_real_drop_orderbook = last_buy_price * (1 + decrease_step_pct / 100.0)
+                if orderbook_price >= min_price_for_real_drop_orderbook:
+                    print(f"[{base}] [BLOCK] Реальное падение от цены стакана недостаточно! Докупка ОТМЕНЕНА")
+                    print(f"[{base}]   Предыдущая реальная цена: {last_buy_price:.8f}")
+                    print(f"[{base}]   Цена из стакана: {orderbook_price:.8f}")
+                    print(f"[{base}]   Табличная цена: {rebuy_threshold:.8f}")
+                    print(f"[{base}]   Требуемое падение: {decrease_step_pct:.2f}%")
+                    print(f"[{base}]   Нужно упасть до: {min_price_for_real_drop_orderbook:.8f}")
+                    orderbook_drop_pct = ((orderbook_price - last_buy_price) / last_buy_price * 100)
+                    print(f"[{base}]   Текущее падение от стакана: {orderbook_drop_pct:.2f}%")
+                    return
+            
+            print(f"[{base}] ✅ Все проверки пройдены:")
+            print(f"[{base}]   Цена стакана {orderbook_price:.8f} <= табличная {rebuy_threshold:.8f}")
+            if last_buy_price > 0 and decrease_step_pct != 0:
+                min_price_for_real_drop_orderbook = last_buy_price * (1 + decrease_step_pct / 100.0)
+                orderbook_drop_pct = ((orderbook_price - last_buy_price) / last_buy_price * 100)
+                print(f"[{base}]   Цена стакана {orderbook_price:.8f} <= минимум {min_price_for_real_drop_orderbook:.8f}")
+                print(f"[{base}]   Падение от стакана: {orderbook_drop_pct:.2f}% >= {decrease_step_pct:.2f}%")
             
             # ШАГ 4: АТОМАРНО устанавливаем флаг докупки (под lock, быстро)
             with lock:
@@ -996,17 +1093,27 @@ class AutoTraderV2:
                     self._clear_rebuy_flag(base)
                     return
                 
-                # Создаём MARKET ордер на докупку
-                print(f"[{base}] 📈 Создание MARKET BUY (докупка): {purchase_usd} {quote}")
+                # Рассчитываем объём базовой валюты для покупки
+                # Используем цену из стакана (orderbook_price уже получена ранее в _try_rebuy)
+                amount_base = purchase_usd / orderbook_price
+                
+                # Создаём LIMIT FOK ордер на докупку
+                print(f"[{base}] 📈 Создание LIMIT FOK BUY (докупка):")
+                print(f"[{base}]   Объём: {amount_base:.8f} {base}")
+                print(f"[{base}]   Цена: {orderbook_price:.8f} {quote}")
+                print(f"[{base}]   Стоимость: {purchase_usd:.2f} {quote}")
+                
                 order = api_client.create_spot_order(
                     currency_pair=currency_pair,
                     side='buy',
-                    order_type='market',
-                    amount=str(purchase_usd)
+                    order_type='limit',
+                    amount=str(amount_base),
+                    price=str(orderbook_price),
+                    time_in_force='fok'  # Fill-Or-Kill
                 )
                 
                 order_id = order.get('id')
-                print(f"[{base}] [OK] MARKET ордер на докупку создан: {order_id}")
+                print(f"[{base}] [OK] LIMIT FOK ордер на докупку создан: {order_id}")
                 
                 # Проверяем исполнение
                 time.sleep(0.5)
@@ -1063,25 +1170,74 @@ class AutoTraderV2:
                     # Сохраняем состояние
                     self._save_state(base)
                 
-                # ШАГ 8: Логируем докупку в файл (используем СТАРЫЕ значения для правильной дельты)
+                # ШАГ 8: Логируем докупку в файл (используем РЕАЛЬНЫЕ значения цен)
                 try:
-                    # ✅ ИСПРАВЛЕНО: Два разных процента:
-                    # 1. delta_percent (↓Δ%) — отклонение от ПОСЛЕДНЕЙ покупки (НЕ накапливается)
-                    # 2. total_drop_percent (↓%) — отклонение от СТАРТОВОЙ покупки (НАКАПЛИВАЕТСЯ)
+                    # ✅ ИСПРАВЛЕНО: Используем РЕАЛЬНЫЕ цены для расчёта ↓Δ% и ↓%
+                    # ↓Δ% — процент изменения от предыдущей покупки
+                    # ↓% — процент изменения от первой покупки (P0)
                     
-                    # ↓Δ% — отклонение от последней покупки (используем СТАРОЕ значение!)
-                    if old_last_buy_price > 0:
-                        delta_percent = ((executed_price - old_last_buy_price) / old_last_buy_price) * 100.0
-                    else:
-                        delta_percent = 0.0
-                    
-                    # ↓% — накопленное отклонение от стартовой покупки
-                    if start_price > 0:
-                        total_drop_percent = ((executed_price - start_price) / start_price) * 100.0
-                    else:
-                        total_drop_percent = 0.0
+                    with lock:
+                        current_step = self.cycles[base].active_step
+                        if current_step < len(self.cycles[base].table):
+                            step_data = self.cycles[base].table[current_step]
+                            tabular_rate_for_log = float(step_data.get('rate', 0))
+                            tabular_decrease_step_pct = abs(float(step_data.get('decrease_step_pct', 0)))
+                        else:
+                            tabular_rate_for_log = 0
+                            tabular_decrease_step_pct = 0
+                        
+                        # Получаем предыдущий шаг для расчёта табличного ↓Δ%
+                        prev_step_index = current_step - 1
+                        prev_tabular_rate = 0
+                        if prev_step_index >= 0 and prev_step_index < len(self.cycles[base].table):
+                            prev_step_data = self.cycles[base].table[prev_step_index]
+                            prev_tabular_rate = float(prev_step_data.get('rate', 0))
+                        
+                        # ✅ РЕАЛЬНЫЙ расчёт ↓Δ% (от предыдущей РЕАЛЬНОЙ покупки)
+                        if old_last_buy_price > 0:
+                            delta_percent = ((executed_price - old_last_buy_price) / old_last_buy_price) * 100.0
+                        else:
+                            delta_percent = 0.0
+                        
+                        # ✅ ТАБЛИЧНЫЙ расчёт ↓Δ% (от предыдущей ТАБЛИЧНОЙ цены)
+                        if prev_tabular_rate > 0:
+                            tabular_delta_percent = ((executed_price - prev_tabular_rate) / prev_tabular_rate) * 100.0
+                        else:
+                            tabular_delta_percent = 0.0
+                        
+                        # ✅ РЕАЛЬНЫЙ расчёт ↓% (от первой покупки P0)
+                        if start_price > 0:
+                            total_drop_percent = ((executed_price - start_price) / start_price) * 100.0
+                        else:
+                            total_drop_percent = 0.0
                     
                     actual_total_drop_pct = total_drop_percent
+                    
+                    # 🔥 КРИТИЧЕСКИ ВАЖНО: Вычисляем РЕАЛЬНОЕ отклонение от табличной цены для контроля качества
+                    if tabular_rate_for_log > 0:
+                        price_deviation_pct = ((executed_price - tabular_rate_for_log) / tabular_rate_for_log) * 100.0
+                    else:
+                        price_deviation_pct = 0.0
+                    
+                    # 🔥 ПРЕДУПРЕЖДЕНИЕ если покупка дороже табличной (это не должно происходить после защиты!)
+                    if price_deviation_pct > 0.01:  # Допуск 0.01% на погрешности округления
+                        print(f"[{base}] ⚠️ [WARNING] Покупка дороже табличной цены!")
+                        print(f"[{base}]   Табличная цена: {tabular_rate_for_log:.8f}")
+                        print(f"[{base}]   Реальная цена: {executed_price:.8f}")
+                        print(f"[{base}]   Отклонение: +{price_deviation_pct:.4f}%")
+                    else:
+                        print(f"[{base}] ✅ Проверка качества: цена покупки в пределах табличной (отклонение: {price_deviation_pct:.4f}%)")
+                    
+                    # 📊 ДИАГНОСТИКА: Показываем реальные и табличные отклонения
+                    print(f"[{base}] 📊 Диагностика отклонений:")
+                    print(f"[{base}]   Предыдущая РЕАЛЬНАЯ цена: {old_last_buy_price:.8f}")
+                    print(f"[{base}]   Предыдущая ТАБЛИЧНАЯ цена: {prev_tabular_rate:.8f}")
+                    print(f"[{base}]   Текущая РЕАЛЬНАЯ цена: {executed_price:.8f}")
+                    print(f"[{base}]   Текущая ТАБЛИЧНАЯ цена: {tabular_rate_for_log:.8f}")
+                    print(f"[{base}]   ↓Δ% РЕАЛЬНОЕ (логируется): {delta_percent:.2f}%")
+                    print(f"[{base}]   ↓Δ% ТАБЛИЧНОЕ (из таблицы): {tabular_decrease_step_pct:.2f}%")
+                    print(f"[{base}]   ↓Δ% РАСЧЁТНОЕ (от табл. цены): {tabular_delta_percent:.2f}%")
+                    print(f"[{base}]   ↓% от P0: {total_drop_percent:.2f}%")
                     
                     self.logger.log_buy(
                         currency=base,
@@ -1091,7 +1247,7 @@ class AutoTraderV2:
                         total_drop_percent=actual_total_drop_pct,
                         investment=executed_cost
                     )
-                    print(f"[{base}] ✅ Докупка записана в лог")
+                    print(f"[{base}] ✅ Докупка записана в лог (↓Δ%={delta_percent:.2f}%, ↓%={total_drop_percent:.2f}%, Курс:{executed_price:.4f})")
                 except Exception as log_error:
                     print(f"[{base}] ⚠️ [WARN] Ошибка записи в лог: {log_error}")
                 
@@ -1154,11 +1310,25 @@ class AutoTraderV2:
                 return
             
             available_balance = float(balance_info.get('available', 0))
+            locked_balance = float(balance_info.get('locked', 0))
+            total_balance = available_balance + locked_balance
+            
             print(f"[{base}] 🔄 [DEBUG] ✅ Баланс получен")
-            print(f"[{base}] 💰 Доступный баланс для продажи: {available_balance:.8f}")
+            print(f"[{base}] 💰 Доступный баланс: {available_balance:.8f} {base}")
+            print(f"[{base}] 🔒 Заблокированный баланс: {locked_balance:.8f} {base}")
+            print(f"[{base}] 📊 Общий баланс: {total_balance:.8f} {base}")
             
             if available_balance <= 0:
-                print(f"[{base}] ✅ Баланс = 0, остатков нет")
+                if locked_balance > 0:
+                    print(f"[{base}] ⚠️ Баланс заблокирован в ордерах ({locked_balance:.8f} {base})")
+                    print(f"[{base}] 🔄 Отменяем все открытые ордера...")
+                    try:
+                        api_client.cancel_all_open_orders(pair)
+                        print(f"[{base}] ✅ Ордера отменены, повторная попытка при следующей проверке")
+                    except Exception as e:
+                        print(f"[{base}] ❌ Не удалось отменить ордера: {e}")
+                else:
+                    print(f"[{base}] ✅ Баланс = 0, остатков нет")
                 return
             
             # Получаем минимальный объем сделки для валютной пары
@@ -1179,10 +1349,14 @@ class AutoTraderV2:
             
             # Проверяем, достаточно ли объема для продажи
             print(f"[{base}] 🔄 [DEBUG] Шаг 4: Проверяем объемы...")
-            sell_amount = available_balance
+            
+            # Используем 99.9% от available для учёта возможных комиссий и округлений
+            sell_amount = available_balance * 0.999
             sell_amount_rounded = round(sell_amount, amount_precision)
             total_value = sell_amount_rounded * orderbook_price
-            print(f"[{base}] 🔄 [DEBUG] sell_amount={sell_amount}, rounded={sell_amount_rounded}, total_value={total_value}")
+            
+            print(f"[{base}] 🔄 [DEBUG] available={available_balance:.8f}, sell_amount={sell_amount:.8f} (99.9%)")
+            print(f"[{base}] 🔄 [DEBUG] rounded={sell_amount_rounded}, total_value={total_value:.2f}")
             
             if sell_amount_rounded < min_base_amount:
                 print(f"[{base}] ⚠️ Объем {sell_amount_rounded} меньше минимального {min_base_amount}")
@@ -1197,7 +1371,7 @@ class AutoTraderV2:
                 return
             
             if total_value < min_quote_amount:
-                print(f"[{base}] ⚠️ Стоимость {total_value} USDT меньше минимальной {min_quote_amount}")
+                print(f"[{base}] ⚠️ Стоимость {total_value:.2f} USDT меньше минимальной {min_quote_amount}")
                 print(f"[{base}] 🗑️ Сбрасываем цикл, остатки слишком малы для продажи")
                 # Сбрасываем цикл напрямую через объект TradingCycle
                 lock = self._get_lock(base)
@@ -1339,38 +1513,55 @@ class AutoTraderV2:
                     return
                 
                 params_row = cycle.table[active_step]
-                # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем breakeven_price из таблицы
-                # target_delta_pct рассчитан от P0, но продавать нужно от безубытка!
+                # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем данные из таблицы
+                # target_delta_pct рассчитан от цены последней покупки (rate), а не от P0!
+                rate = float(params_row.get('rate', start_price))  # Цена последней покупки
                 breakeven_price = float(params_row.get('breakeven_price', start_price))
                 breakeven_pct = float(params_row.get('breakeven_pct', 0))
                 target_delta_pct = float(params_row.get('target_delta_pct', 0))
             
-            # ИСПРАВЛЕНИЕ: Рассчитываем рост от БЕЗУБЫТКА, а не от P0!
-            # Цена продажи = BE × (1 + профит/100)
-            # Профит = target_delta_pct - breakeven_pct
-            profit_pct = target_delta_pct - breakeven_pct
-            required_price = breakeven_price * (1 + profit_pct / 100.0)
+            # ✅ ИСПРАВЛЕНО: target_delta_pct — это рост от ЦЕНЫ ПОСЛЕДНЕЙ ПОКУПКИ (rate)!
+            # Поэтому применяем его к rate, а не к start_price или breakeven_price
+            required_price = rate * (1 + target_delta_pct / 100.0)
             
-            # Для логов показываем рост от безубытка
-            if breakeven_price > 0:
-                current_growth_from_be = ((market_price - breakeven_price) / breakeven_price) * 100.0
+            # Для логов показываем рост от rate (соответствует target_delta_pct)
+            if rate > 0:
+                current_growth_from_rate = ((market_price - rate) / rate) * 100.0
             else:
-                current_growth_from_be = 0.0
+                current_growth_from_rate = 0.0
             
             print(f"\n[{base}] 💰 ПРОВЕРКА ПРОДАЖИ:")
             print(f"[{base}] 💰   Start price (P0): {start_price:.8f}")
+            print(f"[{base}] 💰   Last buy rate: {rate:.8f}")
             print(f"[{base}] 💰   Breakeven price (BE): {breakeven_price:.8f}")
             print(f"[{base}] 💰   Market price: {market_price:.8f}")
-            print(f"[{base}] 💰   Profit %: {profit_pct:.4f}%")
+            print(f"[{base}] 💰   Target Δ % (от rate): {target_delta_pct:.4f}%")
             print(f"[{base}] 💰   Required price: {required_price:.8f}")
-            print(f"[{base}] 💰   Current growth from BE: {current_growth_from_be:.4f}%")
+            print(f"[{base}] 💰   Current growth from rate: {current_growth_from_rate:.4f}%")
             print(f"[{base}] 💰   Условие: {market_price:.8f} >= {required_price:.8f} ?")
             
             if market_price < required_price:
-                print(f"[{base}] ❌ Цена недостаточна для продажи\n")
+                print(f"[{base}] ❌ Цена ticker недостаточна для продажи\n")
                 return
             
-            print(f"[{base}] ✅✅✅ УСЛОВИЕ ВЫПОЛНЕНО! Начинаем продажу...")
+            # 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА: Цена из стакана ДОЛЖНА обеспечить требуемый рост!
+            print(f"[{base}] 💰   Проверяем цену из стакана (bids)...")
+            print(f"[{base}] 💰   Orderbook price: {orderbook_price:.8f}")
+            print(f"[{base}] 💰   Условие: {orderbook_price:.8f} >= {required_price:.8f} ?")
+            
+            if orderbook_price < required_price:
+                orderbook_growth = ((orderbook_price - rate) / rate) * 100.0 if rate > 0 else 0.0
+                print(f"[{base}] ❌ Цена из стакана ({orderbook_price:.8f}) ниже требуемой ({required_price:.8f})")
+                print(f"[{base}] ❌ Рост от стакана: {orderbook_growth:.4f}% < {target_delta_pct:.4f}%")
+                print(f"[{base}] ❌ Продажа ОТМЕНЕНА для защиты от убытка\n")
+                return
+            
+            print(f"[{base}] ✅✅✅ ОБЕ ПРОВЕРКИ ПРОЙДЕНЫ! Начинаем продажу...")
+            
+            # 🕒 ВРЕМЯ ДЕТЕКЦИИ: Засекаем момент обнаружения условия продажи
+            detection_time = time.time()
+            detection_timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(detection_time))
+            print(f"[{base}] 🕒 ВРЕМЯ ДЕТЕКЦИИ УСЛОВИЯ ПРОДАЖИ: {detection_timestamp}")
             
             # ШАГ 4: АТОМАРНО устанавливаем флаг продажи (под lock, быстро)
             with lock:
@@ -1390,6 +1581,10 @@ class AutoTraderV2:
             
             # ШАГ 5: Все API запросы БЕЗ lock
             print(f"[{base}] 💰 [DIAG] ШАГ 5: Начинаем API запросы...")
+            
+            # 🕒 ТАЙМЕР: Засекаем общее время операции продажи
+            sell_operation_start = time.time()
+            
             try:
                 print(f"[{base}] 💰 [DIAG] Получаем API клиент...")
                 api_client = self.api_client_provider()
@@ -1475,6 +1670,10 @@ class AutoTraderV2:
                 print(f"[{base}]    Условие: Ордер будет исполнен ПОЛНОСТЬЮ или отменён")
                 
                 print(f"[{base}] 💰 [DIAG] Вызываем api_client.create_spot_order...")
+                
+                # 🕒 ТАЙМЕР: Засекаем время создания ордера
+                order_create_start = time.time()
+                
                 order = api_client.create_spot_order(
                     currency_pair=currency_pair,
                     side='sell',
@@ -1483,6 +1682,9 @@ class AutoTraderV2:
                     price=str(orderbook_price),
                     time_in_force='fok'  # Fill-Or-Kill
                 )
+                
+                order_create_time = time.time() - order_create_start
+                print(f"[{base}] ⏱️ Время создания ордера: {order_create_time:.2f}s")
                 
                 # 🔴 КРИТИЧЕСКАЯ ПРОВЕРКА: Ордер создан успешно?
                 if not order or not order.get('id'):
@@ -1511,11 +1713,45 @@ class AutoTraderV2:
                 order_id = order.get('id')
                 print(f"[{base}] ✅ [OK] LIMIT FOK ордер на продажу создан: {order_id}")
                 
-                # Проверяем исполнение
-                print(f"[{base}] 💰 [DIAG] Ожидание 0.5s перед проверкой статуса...")
-                time.sleep(0.5)
-                print(f"[{base}] 💰 [DIAG] Проверяем статус ордера...")
-                order_status = api_client.get_spot_order(order_id, currency_pair)
+                # 🔥 ИСПРАВЛЕНИЕ: Проверяем исполнение с повторными попытками
+                # FOK-ордера исполняются быстро, но статус может обновляться с задержкой API
+                print(f"[{base}] 💰 [DIAG] Начинаем проверку статуса FOK-ордера (макс. 3 попытки)...")
+                
+                max_attempts = 3
+                check_delay = 0.3  # Короткие интервалы для FOK
+                order_status = None
+                
+                for attempt in range(1, max_attempts + 1):
+                    print(f"[{base}] 💰 [DIAG] Попытка {attempt}/{max_attempts}: Ожидание {check_delay}s...")
+                    time.sleep(check_delay)
+                    
+                    print(f"[{base}] 💰 [DIAG] Запрос статуса ордера #{order_id}...")
+                    try:
+                        order_status = api_client.get_spot_order(order_id, currency_pair)
+                        status = order_status.get('status')
+                        filled_amount = float(order_status.get('filled_amount', 0))
+                        
+                        print(f"[{base}] 💰 [DIAG] Статус: {status}, Исполнено: {filled_amount:.8f} / {base_volume:.8f}")
+                        
+                        # Проверяем, завершён ли ордер (успешно или отклонён)
+                        if status in ['closed', 'cancelled']:
+                            print(f"[{base}] ✅ [DIAG] Ордер завершён на попытке {attempt} (статус: {status})")
+                            break
+                        
+                        # Если ордер всё ещё открыт - ждём следующей попытки
+                        if attempt < max_attempts:
+                            print(f"[{base}] ⏳ [DIAG] Ордер ещё обрабатывается (статус: {status}), ждём...")
+                    
+                    except Exception as check_error:
+                        print(f"[{base}] ⚠️ [WARN] Ошибка проверки статуса (попытка {attempt}): {check_error}")
+                        if attempt == max_attempts:
+                            raise  # На последней попытке пробрасываем ошибку
+                
+                # Финальная проверка результата
+                if not order_status:
+                    print(f"[{base}] ❌ [ERROR] Не удалось получить статус ордера после {max_attempts} попыток")
+                    self._clear_selling_flag(base)
+                    return
                 
                 status = order_status.get('status')
                 filled_amount = float(order_status.get('filled_amount', 0))
@@ -1525,7 +1761,17 @@ class AutoTraderV2:
                 
                 if status == 'closed' and filled_amount >= base_volume * 0.999:
                     # ПОЛНАЯ ПРОДАЖА
+                    sell_total_time = time.time() - sell_operation_start
+                    
+                    # 🕒 ВРЕМЯ ЗАВЕРШЕНИЯ ПРОДАЖИ
+                    completion_time = time.time()
+                    completion_timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(completion_time))
+                    time_from_detection = completion_time - detection_time
+                    
                     print(f"\n[{base}] ✅✅✅ ===== ОРДЕР ИСПОЛНЕН ПОЛНОСТЬЮ! ===== ✅✅✅")
+                    print(f"[{base}] 🕒 ВРЕМЯ ЗАВЕРШЕНИЯ ПРОДАЖИ: {completion_timestamp}")
+                    print(f"[{base}] ⏱️ ВРЕМЯ ОТ ДЕТЕКЦИИ ДО ЗАВЕРШЕНИЯ: {time_from_detection:.2f}s")
+                    print(f"[{base}] ⏱️ ОБЩЕЕ ВРЕМЯ ОПЕРАЦИИ ПРОДАЖИ: {sell_total_time:.2f}s")
                     executed_price = float(order_status.get('avg_deal_price', orderbook_price))
                     executed_cost = float(order_status.get('filled_total', base_volume * orderbook_price))
                     
@@ -1542,36 +1788,41 @@ class AutoTraderV2:
                         avg_invest_price = cycle.total_invested_usd / cycle.base_volume if cycle.base_volume > 0 else 0
                         pnl = (executed_price - avg_invest_price) * filled_amount
                         
-                        # ✅ ИСПРАВЛЕНИЕ: Рассчитываем РЕАЛЬНЫЙ рост от безубытка по ФАКТИЧЕСКОЙ цене продажи
-                        # (а не по рыночной цене в момент проверки условий)
+                        # ✅ ИСПРАВЛЕНИЕ: Рассчитываем рост от ЦЕНЫ ПОСЛЕДНЕЙ ПОКУПКИ (rate), как в таблице безубыточности
+                        # target_delta_pct в таблице показывает рост от rate, поэтому и логи должны показывать то же самое
                         actual_step = cycle.active_step
+                        start_price_for_log = cycle.start_price
+                        
                         if actual_step >= 0 and actual_step < len(cycle.table):
+                            rate_for_log = float(cycle.table[actual_step].get('rate', cycle.start_price))  # Цена последней покупки
                             be_price = float(cycle.table[actual_step].get('breakeven_price', cycle.start_price))
                             be_pct = float(cycle.table[actual_step].get('breakeven_pct', 0))
                             target_delta = float(cycle.table[actual_step].get('target_delta_pct', 0))
                             
-                            print(f"[{base}] 📊 РАСЧЁТ РОСТА ОТ БЕЗУБЫТКА:")
+                            print(f"[{base}] 📊 РАСЧЁТ РОСТА ОТ ЦЕНЫ ПОСЛЕДНЕЙ ПОКУПКИ:")
                             print(f"[{base}]   Шаг: {actual_step}")
-                            print(f"[{base}]   Breakeven price: {be_price:.8f}")
-                            print(f"[{base}]   Breakeven %: {be_pct:.4f}%")
-                            print(f"[{base}]   Target Δ %: {target_delta:.4f}%")
+                            print(f"[{base}]   Start price (P0): {start_price_for_log:.8f}")
+                            print(f"[{base}]   Last buy rate: {rate_for_log:.8f}")
+                            print(f"[{base}]   Breakeven price (BE): {be_price:.8f}")
+                            print(f"[{base}]   Target Δ % (от rate): {target_delta:.4f}%")
                             print(f"[{base}]   Executed price: {executed_price:.8f}")
                             
-                            if be_price > 0:
-                                actual_growth_from_be = ((executed_price - be_price) / be_price) * 100.0
-                                print(f"[{base}]   Рост от BE: {actual_growth_from_be:.4f}% = (({executed_price:.8f} - {be_price:.8f}) / {be_price:.8f}) * 100")
+                            # Рассчитываем рост от rate (как в таблице)
+                            if rate_for_log > 0:
+                                actual_growth_from_rate = ((executed_price - rate_for_log) / rate_for_log) * 100.0
+                                print(f"[{base}]   Рост от rate: {actual_growth_from_rate:.4f}% = (({executed_price:.8f} - {rate_for_log:.8f}) / {rate_for_log:.8f}) * 100")
                             else:
-                                actual_growth_from_be = 0.0
-                                print(f"[{base}]   ⚠️ BE price = 0, рост не рассчитан")
+                                actual_growth_from_rate = 0.0
+                                print(f"[{base}]   ⚠️ rate = 0, рост не рассчитан")
                         else:
-                            actual_growth_from_be = 0.0
+                            actual_growth_from_rate = 0.0
                             print(f"[{base}]   ⚠️ Некорректный шаг {actual_step}, рост не рассчитан")
                         
                         print(f"[{base}] 🎉 Цикл завершён!")
                         print(f"[{base}]   Средняя цена покупки: {avg_invest_price:.8f}")
                         print(f"[{base}]   Цена продажи: {executed_price:.8f}")
                         print(f"[{base}]   PnL: {pnl:.4f} {quote}")
-                        print(f"[{base}]   Рост от BE: {actual_growth_from_be:.2f}%")
+                        print(f"[{base}]   Рост от rate: {actual_growth_from_rate:.2f}%")
                         
                         # Закрываем цикл через reset() - это правильный способ!
                         cycle._selling_in_progress = False
@@ -1582,20 +1833,142 @@ class AutoTraderV2:
                         print(f"[{base}] ✅ Состояние сохранено")
                     
                     # ШАГ 7: Логируем продажу в файл (БЕЗ lock)
+                    # 🔥 УСИЛЕННОЕ ЛОГИРОВАНИЕ: Предварительная запись в консоль для гарантии
+                    print(f"\n[{base}] 📝 ===== НАЧАЛО ЗАПИСИ ЛОГА ПРОДАЖИ ===== 📝")
+                    print(f"[{base}] 📝 Volume: {filled_amount:.8f} {base}")
+                    print(f"[{base}] 📝 Price: {executed_price:.8f}")
+                    print(f"[{base}] 📝 Delta: {actual_growth_from_rate:.2f}%")
+                    print(f"[{base}] 📝 PnL: {pnl:.4f} {quote}")
+                    print(f"[{base}] 📝 Source: AUTO")
+                    print(f"[{base}] 📝 Detection: {detection_timestamp}")
+                    print(f"[{base}] 📝 Completion: {completion_timestamp}")
+                    print(f"[{base}] 📝 Time delta: {time_from_detection:.2f}s")
+                    print(f"[{base}] 📝 Operation duration: {sell_total_time:.2f}s")
+                    
                     try:
+                        print(f"[{base}] 📝 Вызов logger.log_sell()...")
+                        
                         self.logger.log_sell(
                             currency=base,
                             volume=filled_amount,
                             price=executed_price,
-                            delta_percent=actual_growth_from_be,  # ✅ ИСПРАВЛЕНО: РЕАЛЬНЫЙ рост от безубытка по фактической цене
+                            delta_percent=actual_growth_from_rate,  # ✅ ИСПРАВЛЕНО: РЕАЛЬНЫЙ рост от цены последней покупки (rate)
                             pnl=pnl,
-                            source="AUTO"  # Маркер автоматической продажи
+                            source="AUTO",  # Маркер автоматической продажи
+                            detection_time=detection_time,  # Время детекции условия
+                            completion_time=completion_time,  # Время завершения продажи
+                            operation_duration=sell_total_time  # Общая длительность операции
                         )
-                        print(f"[{base}] ✅ Продажа записана в лог (рост от BE={actual_growth_from_be:.2f}%, PnL={pnl:.4f} {quote})")
+                        
+                        print(f"[{base}] ✅✅✅ Продажа успешно записана в лог!")
+                        print(f"[{base}] ✅ Параметры: рост от rate={actual_growth_from_rate:.2f}%, PnL={pnl:.4f} {quote}")
+                        print(f"[{base}] 📊 Временные метки:")
+                        print(f"[{base}]    Детекция: {detection_timestamp}")
+                        print(f"[{base}]    Завершение: {completion_timestamp}")
+                        print(f"[{base}]    От детекции до завершения: {time_from_detection:.2f}s")
+                        print(f"[{base}]    Длительность операции: {sell_total_time:.2f}s")
+                        print(f"[{base}] 📝 ===== КОНЕЦ ЗАПИСИ ЛОГА ПРОДАЖИ ===== 📝\n")
+                        
                     except Exception as log_error:
-                        print(f"[{base}] ⚠️ [WARN] Ошибка записи в лог: {log_error}")
-                        import traceback
-                        traceback.print_exc()
+                        print(f"\n[{base}] ❌❌❌ КРИТИЧЕСКАЯ ОШИБКА ЛОГИРОВАНИЯ! ❌❌❌")
+                        print(f"[{base}] ❌ Тип ошибки: {type(log_error).__name__}")
+                        print(f"[{base}] ❌ Сообщение: {log_error}")
+                        print(f"[{base}] ❌ Продажа была ВЫПОЛНЕНА, но лог НЕ ЗАПИСАН!")
+                        print(f"[{base}] ❌ ДАННЫЕ ПРОДАЖИ (СОХРАНИТЕ ИХ ВРУЧНУЮ!):")
+                        print(f"[{base}] ❌   Currency: {base}")
+                        print(f"[{base}] ❌   Volume: {filled_amount:.8f}")
+                        print(f"[{base}] ❌   Price: {executed_price:.8f}")
+                        print(f"[{base}] ❌   Delta %: {actual_growth_from_rate:.2f}")
+                        print(f"[{base}] ❌   PnL: {pnl:.4f}")
+                        print(f"[{base}] ❌   Detection time: {detection_timestamp}")
+                        print(f"[{base}] ❌   Completion time: {completion_timestamp}")
+                        print(f"[{base}] ❌   Time from detection: {time_from_detection:.2f}s")
+                        print(f"[{base}] ❌   Operation duration: {sell_total_time:.2f}s")
+                        
+                        import traceback as tb
+                        traceback_str = tb.format_exc()
+                        print(f"[{base}] ❌ ПОЛНАЯ ТРАССИРОВКА:")
+                        print(traceback_str)
+                        
+                        # 🔥🔥🔥 АВТОМАТИЧЕСКАЯ СИСТЕМА МОНИТОРИНГА ОШИБОК
+                        try:
+                            monitor = get_logging_monitor()
+                            
+                            # Собираем все данные продажи
+                            sell_data = {
+                                'currency': base,
+                                'volume': float(filled_amount),
+                                'price': float(executed_price),
+                                'delta_percent': float(actual_growth_from_rate),
+                                'pnl': float(pnl),
+                                'detection_time': detection_timestamp,
+                                'completion_time': completion_timestamp,
+                                'time_from_detection': float(time_from_detection),
+                                'operation_duration': float(sell_total_time),
+                                'source': 'AUTO'
+                            }
+                            
+                            # Дополнительный контекст
+                            context = {
+                                'order_id': order_status.get('id') if order_status else None,
+                                'filled_amount': float(filled_amount),
+                                'executed_cost': float(executed_cost) if 'executed_cost' in locals() else None,
+                                'market_price': float(market_price) if 'market_price' in locals() else None,
+                                'orderbook_price': float(orderbook_price) if 'orderbook_price' in locals() else None,
+                            }
+                            
+                            # Записываем ошибку в постоянное хранилище
+                            error_file = monitor.log_error(
+                                currency=base,
+                                error_type=type(log_error).__name__,
+                                error_message=str(log_error),
+                                sell_data=sell_data,
+                                traceback_str=traceback_str,
+                                context=context
+                            )
+                            
+                            if error_file:
+                                print(f"[{base}] 🆘 ОШИБКА АВТОМАТИЧЕСКИ ЗАПИСАНА В СИСТЕМУ МОНИТОРИНГА!")
+                                print(f"[{base}] 🆘 Файл ошибки: {error_file}")
+                                print(f"[{base}] 🆘 Проверьте папку logging_errors/ для деталей")
+                            else:
+                                print(f"[{base}] ❌ НЕ УДАЛОСЬ ЗАПИСАТЬ В СИСТЕМУ МОНИТОРИНГА!")
+                        
+                        except Exception as monitor_error:
+                            print(f"[{base}] ❌ ОШИБКА СИСТЕМЫ МОНИТОРИНГА: {monitor_error}")
+                        
+                        # 🔥 FALLBACK: Пытаемся записать в альтернативный лог
+                        try:
+                            import logging
+                            import os
+                            
+                            # Создаём резервный файл лога, если его нет
+                            fallback_log = os.path.join(os.path.dirname(__file__), 'FALLBACK_SELL_LOG.txt')
+                            
+                            with open(fallback_log, 'a', encoding='utf-8') as f:
+                                import datetime
+                                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                f.write(f"\n{'='*80}\n")
+                                f.write(f"[{timestamp}] FALLBACK LOG - ПРОДАЖА НЕ ЗАПИСАЛАСЬ В ОСНОВНОЙ ЛОГ!\n")
+                                f.write(f"Currency: {base}\n")
+                                f.write(f"Volume: {filled_amount:.8f}\n")
+                                f.write(f"Price: {executed_price:.8f}\n")
+                                f.write(f"Delta %: {actual_growth_from_rate:.2f}\n")
+                                f.write(f"PnL: {pnl:.4f}\n")
+                                f.write(f"Detection time: {detection_timestamp}\n")
+                                f.write(f"Completion time: {completion_timestamp}\n")
+                                f.write(f"Time from detection: {time_from_detection:.2f}s\n")
+                                f.write(f"Operation duration: {sell_total_time:.2f}s\n")
+                                f.write(f"Error: {log_error}\n")
+                                f.write(f"{'='*80}\n")
+                            
+                            print(f"[{base}] 🆘 ДАННЫЕ СОХРАНЕНЫ В РЕЗЕРВНЫЙ ЛОГ: {fallback_log}")
+                            
+                        except Exception as fallback_error:
+                            print(f"[{base}] ❌❌❌ НЕ УДАЛОСЬ ЗАПИСАТЬ ДАЖЕ В РЕЗЕРВНЫЙ ЛОГ!")
+                            print(f"[{base}] ❌ Ошибка fallback: {fallback_error}")
+                        
+                        print(f"[{base}] ❌❌❌ КОНЕЦ ОБРАБОТКИ ОШИБКИ ЛОГИРОВАНИЯ ❌❌❌\n")
                 
                 else:
                     # ПРОДАЖА НЕ УДАЛАСЬ (FOK отклонён)

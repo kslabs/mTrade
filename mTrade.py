@@ -90,8 +90,37 @@ def handle_error(error):
 # ИНИЦИАЛИЗАЦИЯ ГЛОБАЛЬНЫХ ПЕРЕМЕННЫХ
 # =============================================================================
 
+# Инициализация State Manager (раньше других, чтобы восстановить сессии)
+state_manager = get_state_manager()
+
 # Инициализация глобальных служебных переменных
 server_start_time = time.time()
+
+# Восстанавливаем время сессий из сохранённого состояния (если есть)
+saved_bot_session_start = state_manager.get("bot_session_start_time")
+saved_session_start = state_manager.get("session_start_time")
+
+if saved_bot_session_start:
+    bot_session_start_time = float(saved_bot_session_start)
+    print(f"[SESSION] Восстановлено время старта сессии бота: {bot_session_start_time}")
+else:
+    bot_session_start_time = time.time()
+    state_manager.set("bot_session_start_time", bot_session_start_time)
+    print(f"[SESSION] Инициализировано новое время сессии бота: {bot_session_start_time}")
+
+if saved_session_start:
+    try:
+        SESSION_START_TIME = datetime.fromisoformat(saved_session_start)
+        print(f"[SESSION] Восстановлено время старта SESSION: {SESSION_START_TIME.isoformat()}")
+    except Exception as e:
+        print(f"[SESSION] Ошибка восстановления SESSION_START_TIME: {e}")
+        SESSION_START_TIME = datetime.now()
+        state_manager.set("session_start_time", SESSION_START_TIME.isoformat())
+else:
+    SESSION_START_TIME = datetime.now()
+    state_manager.set("session_start_time", SESSION_START_TIME.isoformat())
+    print(f"[SESSION] Инициализировано новое время SESSION: {SESSION_START_TIME.isoformat()}")
+
 PAIR_INFO_CACHE = {}
 PAIR_INFO_CACHE_TTL = 3600  # 1 час
 CURRENT_NETWORK_MODE = Config.load_network_mode()
@@ -188,8 +217,7 @@ DEFAULT_TRADE_PARAMS = {
     'orderbook_level': 0  # Базовый множитель для уровня стакана (формула: (шаг × orderbook_level) + 1)
 }
 
-# Инициализация State Manager (раньше, чтобы он был доступен во всех эндпойнтах)
-state_manager = get_state_manager()
+# State Manager уже инициализирован в начале файла (строка ~94)
 
 # Глобальная функция для создания API клиента (нужна для multiprocessing - локальные функции не pickle-able)
 def _create_api_client():
@@ -460,6 +488,52 @@ def get_balance():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/session-profit', methods=['GET'])
+def get_session_profit():
+    """Получить прибыль сессии по валюте или всем валютам"""
+    global SESSION_START_TIME
+    try:
+        logger = get_trade_logger()
+        
+        # Получаем параметр currency (если указан - возвращаем только по этой валюте)
+        currency = request.args.get('currency')
+        
+        # Используем глобальное время старта сессии для фильтрации
+        session_start_time = SESSION_START_TIME
+        
+        # Получаем прибыль (по одной валюте или всем)
+        profits = logger.get_session_profit(currency=currency, session_start_time=session_start_time)
+        
+        # Если запрашивается конкретная валюта, возвращаем только её прибыль
+        if currency:
+            currency_profit = profits.get(currency.upper(), 0.0) if profits else 0.0
+            return jsonify({
+                "success": True,
+                "currency": currency.upper(),
+                "currency_profit": round(currency_profit, 4),
+                "session_start_time": session_start_time.isoformat() if session_start_time else None
+            })
+        else:
+            # Вычисляем общую прибыль по всем валютам (гарантируем возврат числа)
+            total_profit = sum(profits.values()) if profits else 0.0
+            return jsonify({
+                "success": True,
+                "total_profit": round(total_profit, 4),
+                "profits_by_currency": {k: round(v, 4) for k, v in profits.items()} if profits else {},
+                "session_start_time": session_start_time.isoformat() if session_start_time else None
+            })
+    except Exception as e:
+        print(f"[ERROR] get_session_profit: {e}")
+        import traceback
+        traceback.print_exc()
+        # Даже при ошибке возвращаем структуру с нулевой прибылью
+        return jsonify({
+            "success": False, 
+            "error": str(e),
+            "total_profit": 0.0,
+            "currency_profit": 0.0
+        }), 500
+
 @app.route('/api/trade', methods=['POST'])
 def execute_trade():
     """Выполнить сделку"""
@@ -509,7 +583,29 @@ def server_status():
     return jsonify({
         "running": True,  # Если мы отвечаем, значит работаем
         "pid": pid,
-        "uptime": time.time() - server_start_time if 'server_start_time' in globals() else 0
+        "uptime": time.time() - server_start_time if 'server_start_time' in globals() else 0,
+        "bot_session_uptime": time.time() - bot_session_start_time if 'bot_session_start_time' in globals() else 0
+    })
+
+@app.route('/api/reset-session', methods=['POST'])
+def reset_bot_session():
+    """Сбросить сессию бота (обнулить время сессии бота)"""
+    global bot_session_start_time, SESSION_START_TIME
+    bot_session_start_time = time.time()
+    SESSION_START_TIME = datetime.now()
+    
+    # Сохраняем новое время сессий в state_manager (переживёт перезагрузку)
+    state_manager.set("bot_session_start_time", bot_session_start_time)
+    state_manager.set("session_start_time", SESSION_START_TIME.isoformat())
+    
+    print(f"[SESSION] Сессия бота сброшена. Новое время старта: {SESSION_START_TIME.isoformat()}")
+    print(f"[SESSION] Время сохранено в state_manager (переживёт перезагрузку)")
+    
+    return jsonify({
+        "status": "success",
+        "message": "Сессия бота сброшена",
+        "bot_session_uptime": 0,
+        "session_start_time": SESSION_START_TIME.isoformat()
     })
 
 @app.route('/api/server/restart', methods=['POST'])
@@ -1398,7 +1494,28 @@ def get_autotrader_stats():
                 })
             else:
                 print(f"[API] WARNING: cycle_info is None for {base_currency}")
-        print(f"[API] Final stats: active={stats.get('active')}, base_volume={stats.get('base_volume')}")
+        
+        # Получаем РЕАЛЬНЫЙ баланс валюты из API Gate.io
+        try:
+            if account_manager.active_account:
+                acc = account_manager.get_account(account_manager.active_account)
+                api_client = GateAPIClient(acc['api_key'], acc['api_secret'], CURRENT_NETWORK_MODE)
+                all_balances = api_client.get_account_balance()
+                balance_info = next((b for b in all_balances if b.get('currency') == base_currency), None)
+                
+                if balance_info:
+                    available_balance = float(balance_info.get('available', 0))
+                    locked_balance = float(balance_info.get('locked', 0))
+                    stats['real_balance'] = {
+                        'available': available_balance,
+                        'locked': locked_balance,
+                        'total': available_balance + locked_balance
+                    }
+                    print(f"[API] Реальный баланс {base_currency}: available={available_balance}, locked={locked_balance}")
+        except Exception as e:
+            print(f"[API] Ошибка получения реального баланса для {base_currency}: {e}")
+        
+        print(f"[API] Final stats: active={stats.get('active')}, base_volume={stats.get('base_volume')}, real_balance={stats.get('real_balance')}")
         return jsonify({"success": True, "stats": stats})
     except Exception as e:
         import traceback
@@ -1557,6 +1674,7 @@ def get_trade_indicators():
             'invested_usd': None,
             'base_volume': None,
             'current_growth_pct': None,
+            'growth_from_last_buy_pct': None,
             'progress_to_sell': None,
             'table': None,
             'current_price': None,
@@ -1671,6 +1789,16 @@ def get_trade_indicators():
                     autotrade_levels['current_growth_pct'] = (price - start_price) / start_price * 100.0
                 except Exception:
                     autotrade_levels['current_growth_pct'] = None
+            
+            # Добавляем рост от последней покупки
+            last_buy_price = autotrade_levels.get('last_buy_price')
+            if last_buy_price and price:
+                try:
+                    autotrade_levels['growth_from_last_buy_pct'] = (price - last_buy_price) / last_buy_price * 100.0
+                except Exception:
+                    autotrade_levels['growth_from_last_buy_pct'] = None
+            else:
+                autotrade_levels['growth_from_last_buy_pct'] = None
 
             current_step = active_step if active_step >= 0 else 0
             if current_step < len(table):
@@ -1713,7 +1841,7 @@ def get_trade_indicators():
                 breakeven = autotrade_levels.get('breakeven_price')
                 if breakeven and row.get('target_delta_pct'):
                     try:
-                        target_pct = row['target_delta_pct']
+                        target_pct = row['target_delta_pct'];
                         autotrade_levels['sell_price'] = breakeven * (1 + target_pct / 100.0)
                     except Exception:
                         pass
@@ -1755,6 +1883,26 @@ def get_trade_indicators():
                     'decrease_step_pct': r.get('decrease_step_pct'),
                     'cumulative_decrease_pct': r.get('cumulative_decrease_pct')
                 } for r in table]
+
+        # Добавляем РЕАЛЬНЫЙ баланс валюты из API Gate.io
+        try:
+            if account_manager.active_account:
+                acc = account_manager.get_account(account_manager.active_account)
+                api_client_temp = GateAPIClient(acc['api_key'], acc['api_secret'], CURRENT_NETWORK_MODE)
+                all_balances = api_client_temp.get_account_balance()
+                balance_info = next((b for b in all_balances if b.get('currency') == base_currency), None)
+                
+                if balance_info:
+                    available_balance = float(balance_info.get('available', 0))
+                    locked_balance = float(balance_info.get('locked', 0))
+                    autotrade_levels['real_balance'] = {
+                        'available': available_balance,
+                        'locked': locked_balance,
+                        'total': available_balance + locked_balance
+                    }
+        except Exception as e:
+            print(f"[ERROR] Не удалось получить реальный баланс для {base_currency}: {e}")
+            autotrade_levels['real_balance'] = None
 
         return jsonify({"success": True, "indicators": indicators, "autotrade_levels": autotrade_levels})
     except Exception as e:
@@ -2050,6 +2198,108 @@ def quick_sell_all():
     """Продать весь доступный баланс базовой валюты"""
     data = request.get_json() or {}
     return handle_sell_all(data, CURRENT_NETWORK_MODE)
+
+
+# =============================================================================
+# LOGGING ERRORS MONITORING API (Мониторинг ошибок логирования)
+# =============================================================================
+
+@app.route('/api/logging/errors/summary', methods=['GET'])
+def get_logging_errors_summary():
+    """Получить сводку ошибок логирования"""
+    try:
+        from logging_monitor import get_logging_monitor
+        monitor = get_logging_monitor()
+        summary = monitor.get_summary()
+        return jsonify({"success": True, "summary": summary})
+    except Exception as e:
+        print(f"[API] Ошибка получения сводки ошибок: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/logging/errors/latest', methods=['GET'])
+def get_latest_logging_error():
+    """Получить последнюю ошибку логирования"""
+    try:
+        from logging_monitor import get_logging_monitor
+        monitor = get_logging_monitor()
+        error = monitor.get_latest_error()
+        return jsonify({"success": True, "error": error})
+    except Exception as e:
+        print(f"[API] Ошибка получения последней ошибки: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/logging/errors/list', methods=['GET'])
+def list_logging_errors():
+    """Получить список всех файлов ошибок"""
+    try:
+        from logging_monitor import get_logging_monitor
+        import os
+        import glob
+        
+        monitor = get_logging_monitor()
+        error_files = glob.glob(os.path.join(monitor.log_dir, 'ERROR_*.json'))
+        error_files.sort(reverse=True)  # Новые первыми
+        
+        # Ограничиваем количество возвращаемых файлов
+        limit = int(request.args.get('limit', 50))
+        error_files = error_files[:limit]
+        
+        # Читаем краткую информацию из каждого файла
+        errors_list = []
+        for filepath in error_files:
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    error_data = json.load(f)
+                    # Возвращаем только краткую информацию
+                    errors_list.append({
+                        'error_id': error_data.get('error_id'),
+                        'timestamp': error_data.get('timestamp'),
+                        'currency': error_data.get('currency'),
+                        'error_type': error_data.get('error_type'),
+                        'error_message': error_data.get('error_message'),
+                        'file': error_data.get('file'),
+                        'filepath': filepath
+                    })
+            except Exception as e:
+                print(f"[API] Ошибка чтения файла {filepath}: {e}")
+        
+        return jsonify({"success": True, "errors": errors_list, "total": len(errors_list)})
+    except Exception as e:
+        print(f"[API] Ошибка получения списка ошибок: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/logging/errors/<int:error_id>', methods=['GET'])
+def get_logging_error_by_id(error_id):
+    """Получить полную информацию об ошибке по ID"""
+    try:
+        from logging_monitor import get_logging_monitor
+        import os
+        import glob
+        
+        monitor = get_logging_monitor()
+        
+        # Ищем файл ошибки с указанным ID
+        pattern = os.path.join(monitor.log_dir, f'ERROR_{error_id:04d}_*.json')
+        matching_files = glob.glob(pattern)
+        
+        if not matching_files:
+            return jsonify({"success": False, "error": f"Ошибка #{error_id} не найдена"}), 404
+        
+        # Читаем файл ошибки
+        with open(matching_files[0], 'r', encoding='utf-8') as f:
+            error_data = json.load(f)
+        
+        return jsonify({"success": True, "error": error_data})
+    except Exception as e:
+        print(f"[API] Ошибка получения ошибки #{error_id}: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # =============================================================================

@@ -47,9 +47,24 @@
             </div>
         </div>
         <div class="header-right">
-            <div class="server-status-inline"><div class="status-dot" id="statusDot"></div><span id="serverPID" style="color:#999;font-size:11px;">PID: ---</span></div>
-            <div class="uptime-display" id="uptimeDisplay"><strong>00д 00:00:00</strong></div>
-            <div class="server-controls-inline"><button class="server-btn-small restart" id="restartServerBtn">🔄</button><button class="server-btn-small shutdown" id="shutdownServerBtn">⏹️</button></div>
+            <div class="server-status-inline">
+                <div class="status-dot" id="statusDot"></div>
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <div style="font-size:14px;line-height:1.2;color:#999;"><strong>PID:</strong> <span id="serverPID">---</span></div>
+                    <div style="font-size:14px;line-height:1.2;color:#999;">
+                        <strong>Profit:</strong> <span id="totalProfit" style="font-weight:600;">0.00</span> USDT
+                    </div>
+                </div>
+            </div>
+            <div class="uptime-display" id="uptimeDisplay">
+                <div style="font-size:14px;line-height:1.3;"><strong>UpTime:</strong> <span id="serverUptime">00д 00:00:00</span></div>
+                <div style="font-size:14px;line-height:1.3;"><strong>Сессия:</strong> <span id="botSessionUptime">00д 00:00:00</span></div>
+            </div>
+            <div class="server-controls-inline">
+                <button class="server-btn-small reset-session" id="resetBotSessionBtn" title="Сбросить сессию бота">🔄</button>
+                <button class="server-btn-small restart" id="restartServerBtn" title="Перезагрузить сервер">🔄</button>
+                <button class="server-btn-small shutdown" id="shutdownServerBtn" title="Остановить сервер">⏹️</button>
+            </div>
         </div>
     </div>
 
@@ -85,7 +100,7 @@
 
 
     <div class="grid">
-        <div class="card">
+        <div class="card" id="marketCard">
             <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
                 <div style="display:flex;flex-direction:column;gap:2px;">
                     <div style="display:flex;align-items:center;gap:8px;">
@@ -99,7 +114,7 @@
                     <button id="sellAllBtn" class="server-btn-small control-large" style="background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Продать всё">💰</button>
                     <button id="resumeCycleBtn" class="server-btn-small control-large" style="background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Старт цикла">▶</button>
                     <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
-                    <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (скоро)">&#x1F501;</button>
+                    <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (обнулить прибыль и время)">&#x1F501;</button>
                     <div style="display:flex;flex-direction:column;gap:1px;align-items:flex-end;">
                         <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:3px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer;outline:none;height:auto;line-height:1.2;" onchange="switchQuoteCurrency(this.value)">
                             <option value="USDT">USDT</option>
@@ -135,8 +150,10 @@
                     <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:12px;color:#ccc;">
                         <div>Шаг:</div><div id="autotradeCurrentStep">-</div>
                         <div>Рост от P0:</div><div id="autotradeGrowthPct">-</div>
+                        <div>От посл.покупки:</div><div id="autotradeGrowthFromLastBuy">-</div>
                         <div>Инвестировано:</div><div id="autotradeInvested">-</div>
                         <div>Объём базы:</div><div id="autotradeBaseVolume">-</div>
+                        <div>Эквивалент USDT:</div><div id="autotradeBaseVolumeUSDT">-</div>
                         <div>Торговля:</div><div id="tradeIndicator" style="font-weight:bold;">⏸️ Ожидание</div>
                     </div>
                 </div>
@@ -159,7 +176,7 @@
                 <div class="orderbook-bids" id="orderbookBids"><div class="loading">Загрузка...</div></div>
             </div>
         </div>
-        <div class="card indicator-card" style="grid-column:2;display:flex;flex-direction:column;justify-content:space-between;align-items:center;min-height:600px;">
+        <div class="card indicator-card" style="grid-column:2;display:flex;flex-direction:column;justify-content:space-between;align-items:center;">
             <div id="indicatorScale" class="indicator-scale" aria-hidden="false">
                 <div id="markerSell" class="indicator-marker marker-sell" style="background:#00ff00;"><span class="label" style="color:#00ff00;">Sell</span><div class="marker-tooltip">Sell: -</div></div>
                 <div id="markerBE" class="indicator-marker marker-be" style="background:#00bfff;"><span class="label" style="color:#00bfff;">BE</span><div class="marker-tooltip">BE: -</div></div>
@@ -172,19 +189,25 @@
         </div>
         
         <!-- Таблица безубыточности (перенесена на место активного цикла) -->
-        <div class="card breakeven-table" style="min-height:600px;display:flex;flex-direction:column;">
+        <div class="card breakeven-table" style="display:flex;flex-direction:column;">
             <div class="params-header">
-                <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;">
+                <h3 style="display:flex;align-items:center;gap:10px;margin:0;width:100%;">
                     <div class="view-toggle-group">
                         <button id="btn-view-breakeven" class="view-toggle-btn active">Таблица безубыточности</button>
                         <span class="view-toggle-separator">/</span>
                         <button id="btn-view-logs" class="view-toggle-btn">Логи</button>
                     </div>
+                    <div style="flex:1;min-width:20px;"></div>
+                    <div id="session-profit-display" style="display:flex;flex-direction:column;align-items:flex-end;font-size:12px;text-align:right;padding-right:5px;flex-shrink:0;">
+                        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;white-space:nowrap;">
+                            <span style="color:#999;">Прибыль:</span>
+                            <span id="session-total-profit" style="font-weight:bold;color:#4CAF50;">0.00</span>
+                        </div>
+                        <div style="color:#999;font-size:11px;margin-top:2px;text-align:right;white-space:nowrap;">
+                            <span id="session-duration">0д 0ч 0м</span>
+                        </div>
+                    </div>
                 </h3>
-                <div class="params-header-actions">
-                    <div id="paramsSaveStatus" class="params-save-status"></div>
-                    <button id="saveParamsBtn" class="save-params-btn-compact">💾 Сохранить</button>
-                </div>
             </div>
             
             <!-- Блок редактируемых параметров -->
@@ -242,6 +265,10 @@
                     <div class="param-field">
                         <label for="paramOrderbookLevel" title="Определяет уровень стакана для быстрых сделок (1 = лучшая цена, 2 = второй уровень и т.д.)">Стакан:</label>
                         <input type="number" id="paramOrderbookLevel" step="0.1" value="1" min="0" />
+                    </div>
+                    <div style="display:flex;align-items:flex-end;gap:8px;margin-left:auto;">
+                        <div id="paramsSaveStatus" class="params-save-status"></div>
+                        <button id="saveParamsBtn" class="save-params-btn-compact">💾 Сохранить</button>
                     </div>
                 </div>
             </div>
@@ -312,7 +339,7 @@
 </div>
 
 <!-- External JavaScript -->
-<script src="{{ url_for('static', filename='app.js') }}?v={{ cache_buster }}"></script>
+<script type="module" src="{{ url_for('static', filename='app.js') }}?v={{ cache_buster }}"></script>
 <script src="{{ url_for('static', filename='trade-logs-manager.js') }}?v={{ cache_buster }}"></script>
 
 <!-- Patch: ensure TradeLogsManager requests use selected base currency -->
@@ -359,6 +386,85 @@
         }
         ensureInit();
     })();
+
+    // Функция для обновления прибыли сессии и длительности
+    async function updateSessionProfit() {
+        try {
+            // Получаем текущую валюту
+            const currentCurrency = window.currentBaseCurrency || null;
+            
+            // Формируем URL с параметром валюты
+            const url = currentCurrency 
+                ? `/api/session-profit?currency=${currentCurrency}`
+                : '/api/session-profit';
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.success) {
+                // Обновляем прибыль (защита от undefined)
+                const profit = data.currency_profit ?? data.total_profit ?? 0;
+                const profitElement = document.getElementById('session-total-profit');
+                
+                if (profitElement) {
+                    const formattedProfit = (typeof profit === 'number' ? profit : 0).toFixed(4);
+                    
+                    if (profit > 0) {
+                        profitElement.style.color = '#4CAF50';
+                        profitElement.textContent = '+' + formattedProfit;
+                    } else if (profit < 0) {
+                        profitElement.style.color = '#f44336';
+                        profitElement.textContent = formattedProfit;
+                    } else {
+                        profitElement.style.color = '#999';
+                        profitElement.textContent = '0.00';
+                    }
+                }
+                
+                // Обновляем длительность сессии
+                if (data.session_start_time) {
+                    const startTime = new Date(data.session_start_time);
+                    const now = new Date();
+                    const diffMs = now - startTime;
+                    
+                    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    
+                    const durationElement = document.getElementById('session-duration');
+                    if (durationElement) {
+                        durationElement.textContent = `${days}д ${hours}ч ${minutes}м`;
+                    }
+                } else {
+                    const durationElement = document.getElementById('session-duration');
+                    if (durationElement) {
+                        durationElement.textContent = '0д 0ч 0м';
+                    }
+                }
+            } else {
+                // Если success === false, используем значения по умолчанию
+                const profit = data.currency_profit ?? data.total_profit ?? 0;
+                const profitElement = document.getElementById('session-total-profit');
+                if (profitElement) {
+                    profitElement.style.color = '#999';
+                    profitElement.textContent = '0.00';
+                }
+                const durationElement = document.getElementById('session-duration');
+                if (durationElement) {
+                    durationElement.textContent = '0д 0ч 0м';
+                }
+                console.warn('Не удалось получить прибыль сессии:', data.error || 'Unknown error');
+            }
+        } catch (error) {
+            console.error('Ошибка обновления прибыли сессии:', error);
+        }
+    }
+
+    // Обновляем прибыль при загрузке страницы
+    updateSessionProfit();
+
+    // Обновляем прибыль каждые 5 секунд
+    setInterval(updateSessionProfit, 5000);
 </script>
 </body>
 </html>

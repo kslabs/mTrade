@@ -9,11 +9,18 @@
         .header p {color:#666;font-size:11px;margin:0}
         .mode-label {font-weight:500;color:#999;font-size:11px}
         .mode-label.active {color:#4CAF50}
-        .server-status-inline {display:flex;align-items:center;gap:8px;padding:6px 12px;background:#1a1a1a;border-radius:6px;border:1px solid #3a3a3a;font-size:12px}
+        .server-status-inline {display:flex;align-items:center;gap:8px;padding:4px 10px;background:#1a1a1a;border-radius:6px;border:1px solid #3a3a3a;font-size:12px}
         .status-dot {width:8px;height:8px;border-radius:50%;background:#4CAF50;animation:pulse 2s infinite}
         .uptime-display {color:#999;font-size:12px;font-family:'Courier New',monospace}
         .server-controls-inline {display:flex;gap:8px}
         .server-btn-small {padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500;transition:.2s}
+        .server-btn-small.reset-session { /* 2x larger icon and centered */
+            width:36px; height:36px; padding:0;
+            font-size:22px; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+        }
+        .server-btn-small.reset-session {background:#9C27B0;color:#fff}
+        .server-btn-small.reset-session:hover {background:#7B1FA2}
         .server-btn-small.restart { /* 2x larger icon and centered */
             width:36px; height:36px; padding:0;
             font-size:22px; line-height:1;
@@ -85,6 +92,11 @@
             text-align:right;
         }
         .card {background:#2a2a2a;border-radius:8px;padding:15px;box-shadow:0 2px 10px rgba(0,0,0,.3);border:1px solid #3a3a3a}
+        /* WebSocket disconnected state - light blue border */
+        .card.ws-disconnected {
+            border:2px solid #87CEEB !important;
+            box-shadow:0 0 15px rgba(135, 206, 235, 0.4) !important;
+        }
         .card h3 {color:#4CAF50;margin-bottom:12px;font-size:14px;border-bottom:1px solid #3a3a3a;padding-bottom:8px;font-weight:600}
         .market-header {display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:8px 10px;background:#1a1a1a;border-radius:6px;border:1px solid #3a3a3a}
         .pair-name {font-size:14px;font-weight:600;color:#4CAF50}
@@ -399,15 +411,49 @@
         .base-currency-tabs .tab-item.active {background:#1B5E20!important;color:#fff!important;border:2px solid #1B5E20!important}
         
         /* 🔥 НОВОЕ: Цвет border в зависимости от готовности к покупке/продаже */
-        /* Жёлтый border - цена выше цены продажи (готов продавать) - ЕЩЁ ТЕМНЕЕ ФОН */
-        .base-currency-tabs .tab-item.ready-to-sell {border-color:#FFA000!important}
-        .base-currency-tabs .tab-item.ready-to-sell:hover {border-color:#FFB300!important}
-        .base-currency-tabs .tab-item.active.ready-to-sell {background:#B26A00!important;border-color:#B26A00!important}
+        /* 🔌 Светло-синий border - WebSocket отключен (ВЫСШИЙ ПРИОРИТЕТ!) */
+        .base-currency-tabs .tab-item.ws-disconnected {border-color:#87CEEB!important;box-shadow:0 0 8px rgba(135, 206, 235, 0.4)!important}
+        .base-currency-tabs .tab-item.ws-disconnected:hover {border-color:#ADD8E6!important;box-shadow:0 0 10px rgba(173, 216, 230, 0.5)!important}
+        .base-currency-tabs .tab-item.active.ws-disconnected {
+            border-color:#87CEEB!important;
+            box-shadow:0 0 12px rgba(135, 206, 235, 0.6)!important;
+            background:#1B5E20!important;
+        }
         
-        /* Красный border - цена ниже цены докупки (готов покупать) - ЕЩЁ ТЕМНЕЕ ФОН */
+        /* ⏳ Индикация загрузки при переключении валюты */
+        .base-currency-tabs .tab-item.switching {
+            opacity: 0.6;
+            pointer-events: none;
+            animation: pulse-border 1s ease-in-out infinite;
+        }
+        @keyframes pulse-border {
+            0%, 100% { border-color: #4CAF50; }
+            50% { border-color: #81C784; }
+        }
+        
+        /* 🟡 Жёлтый border - цена выше цены продажи (готов продавать) */
+        .base-currency-tabs .tab-item.ready-to-sell {border-color:#FFC107!important}
+        .base-currency-tabs .tab-item.ready-to-sell:hover {border-color:#FFD54F!important}
+        .base-currency-tabs .tab-item.active.ready-to-sell {
+            background:#7A5C00!important;
+            border-color:#FFC107!important;
+        }
+        
+        /* 🟢 Зелёный border - цена между порогами (нормальное состояние) */
+        .base-currency-tabs .tab-item.price-normal {border-color:#4CAF50!important}
+        .base-currency-tabs .tab-item.price-normal:hover {border-color:#66BB6A!important}
+        .base-currency-tabs .tab-item.active.price-normal {
+            background:#2E7D32!important;
+            border-color:#4CAF50!important;
+        }
+        
+        /* 🔴 Красный border - цена ниже цены докупки (готов покупать) */
         .base-currency-tabs .tab-item.ready-to-buy {border-color:#D32F2F!important}
         .base-currency-tabs .tab-item.ready-to-buy:hover {border-color:#E53935!important}
-        .base-currency-tabs .tab-item.active.ready-to-buy {background:#8B1C1C!important;border-color:#8B1C1C!important}
+        .base-currency-tabs .tab-item.active.ready-to-buy {
+            background:#8B1C1C!important;
+            border-color:#D32F2F!important;
+        }
         
         /* 🔵 СИНИЙ цвет названия валюты - торговля выключена (inactive) - МАКСИМАЛЬНАЯ СПЕЦИФИЧНОСТЬ */
         .base-currency-tabs .tab-item.inactive-currency .code-label {color:#2196F3!important;text-shadow:0 0 2px rgba(33,150,243,0.5)!important}
@@ -962,7 +1008,7 @@ table tbody tr {
 }
 */
 
-/* Стили для первого столбца таблицы отключены - возврат к стандартному виду */
+/* Стили для первого столбца таблицы отключены - возврат к стандартному вида */
 /* 
 #breakEvenTable tbody td:first-child {
     background: linear-gradient(135deg, #1a4d1a 0%, #2e7d32 100%) !important;

@@ -1506,9 +1506,9 @@ class AutoTrader:
                 if order_res.get('success') and filled >= rem * 0.999:
                     avg_invest_price = cycle['total_invested_usd'] / cycle['base_volume'] if cycle.get('base_volume') else exec_price
                     pnl = (exec_price - avg_invest_price) * rem
-                    start_price = cycle.get('start_price', 0.0)
-                    if start_price > 0:
-                        real_growth_pct = (exec_price - start_price) / start_price * 100.0
+                    # ✅ ИСПРАВЛЕНО: используем avg_invest_price вместо start_price
+                    if avg_invest_price > 0:
+                        real_growth_pct = (exec_price - avg_invest_price) / avg_invest_price * 100.0
                     else:
                         real_growth_pct = 0.0
                     self.logger.log_sell(base, filled, exec_price, real_growth_pct, pnl)

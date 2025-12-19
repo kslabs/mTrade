@@ -1,84 +1,31 @@
-﻿window.__diagLogs=[];
-function logDbg(m){
-  try{
-    __diagLogs.push(Date.now()+': '+m);
-    if(__diagLogs.length>200) __diagLogs.shift();
-  }catch(_){/* noop */}
-  console.log('[DBG]',m);
-}
+﻿// === Импорты модулей ===
+import { logDbg, formatPrice, $, formatUptime } from './js/utils.js';
+import { showMessageModal, closeMessageModal, copyMessageModalContent } from './js/ui-helpers.js';
+import * as api from './js/api-client.js';
+import { updateOrderBook, setGlobalBuyPrice, setGlobalSellPrice } from './js/orderbook.js';
 
-// Глобальные переменные для уровней покупки/продажи (для подсветки в стакане)
-let globalBuyPrice = null;
-let globalSellPrice = null;
+// Инициализация для обратной совместимости
+window.__diagLogs = [];
+
+// Экспортируем функции в глобальную область для использования в HTML
+window.showMessageModal = showMessageModal;
+window.closeMessageModal = closeMessageModal;
+window.copyMessageModalContent = copyMessageModalContent;
+
+// 🔍 Диагностика: проверка импорта
+console.log('[INIT] Импортированные функции:', {
+  logDbg: typeof logDbg,
+  formatPrice: typeof formatPrice,
+  $: typeof $
+});
+
 let globalActiveStep = null; // Текущий активный шаг в таблице безубыточности
 
-// === Copyable Message Modal ===
-function showMessageModal(title, content) {
-  const modal = document.getElementById('messageModal');
-  const modalTitle = document.getElementById('messageModalTitle');
-  const modalContent = document.getElementById('messageModalContent');
-  
-  if (!modal || !modalTitle || !modalContent) {
-    // Fallback to alert if modal not found
-    alert(title + '\n\n' + content);
-    return;
-  }
-  
-  modalTitle.textContent = title;
-  modalContent.textContent = content;
-  modal.style.display = 'flex';
-}
 
-function closeMessageModal() {
-  const modal = document.getElementById('messageModal');
-  if (modal) {
-    modal.style.display = 'none';
-  }
-}
+// === UI функции импортированы из ui-helpers.js ===
+// showMessageModal, closeMessageModal, copyMessageModalContent доступны через window
 
-function copyMessageModalContent() {
-  const modalContent = document.getElementById('messageModalContent');
-  if (!modalContent) return;
-  
-  const text = modalContent.textContent;
-  
-  // Try modern clipboard API first
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = event.target;
-      const originalText = btn.textContent;
-      btn.textContent = '✓ Скопировано!';
-      setTimeout(() => { btn.textContent = originalText; }, 1500);
-    }).catch(err => {
-      console.error('Clipboard API failed:', err);
-      fallbackCopyText(text);
-    });
-  } else {
-    fallbackCopyText(text);
-  }
-}
-
-function fallbackCopyText(text) {
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand('copy');
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.textContent = '✓ Скопировано!';
-    setTimeout(() => { btn.textContent = originalText; }, 1500);
-  } catch (err) {
-    console.error('Fallback copy failed:', err);
-    alert('Не удалось скопировать текст');
-  }
-  document.body.removeChild(textarea);
-}
-
-const $=id=>document.getElementById(id);
+// $ импортируется из utils.js
 let currentNetworkMode='work';
 let currentBaseCurrency=null; // Будет установлено после загрузки currencies
 try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
@@ -90,6 +37,10 @@ let currentPairPricePrecision=8; // Точность цены для текущ�
 let autoTradeActive=false;
 let autoTradeEnabled = true; // По умолчанию включено (ON), будет загружено из state
 let tradingPermissions = {}; // статус разрешений торговли
+
+// Флаг для предотвращения множественных одновременных переключений валюты
+let isSwitchingCurrency = false;
+let pendingSwitchCurrency = null; // Последняя запрошенная валюта во время блокировки
 
 // Объекты для хранения шагов и диагностических решений по валютам
 let activeSteps = {};
@@ -297,12 +248,7 @@ const UIStateManager = {
       if (updates.tradingMode) stateUpdates.trading_mode = updates.tradingMode;
       if (updates.breakeven_params) stateUpdates.breakeven_params = updates.breakeven_params;
       
-      const response = await fetch('/api/ui/state/partial', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(stateUpdates)
-      });
-      const result = await response.json();
+      const result = await api.loadPartialUIState([stateUpdates]);
       if (result.success) {
         logDbg('UI State: частичное сохранение успешно - ' + JSON.stringify(stateUpdates));
       } else {
@@ -316,21 +262,6 @@ const UIStateManager = {
   }
 };
 
-function formatPrice(v, precision){
-  const n=parseFloat(v);
-  if(isNaN(n)) return '-';
-  if(n === 0) return '0';
-  
-  // Используем указанную точность или автоматическую
-  if(precision !== undefined && precision >= 0){
-    return n.toFixed(precision);
-  }
-  
-  if(n<0.0001 && n>0) return n.toExponential(4);
-  if(n>=1000) return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8});
-  return n.toFixed(8).replace(/\.0+$/,'').replace(/0+$/,'')
-}
-
 // Глобальная переменная для хранения точности текущей пары
 let currentPricePrecision = 5;
 function updateTradeIndicators(d){
@@ -338,9 +269,13 @@ function updateTradeIndicators(d){
   const priceEl=$('indPrice');
   if(priceEl&&d.price) priceEl.textContent=formatPrice(d.price, currentPricePrecision);
   
-  // Получаем данные из autotrade_levels
+  // Поддерживаем старый формат: autotrade_levels внутри d
   const levels = d.autotrade_levels || {};
-  
+
+  // Если в WS-пакете указана валюта — используем её как целевую вкладку.
+  // Фолбэк — currentBaseCurrency.
+  const targetCurrency = (levels.base_currency || d.base_currency || d.currency || currentBaseCurrency || '').toString().toUpperCase();
+
   // Обновляем значения в футере индикатора с единой точностью
   const updates = {
     'sell': levels.sell_price,
@@ -351,17 +286,14 @@ function updateTradeIndicators(d){
   };
   
   for(const [key, value] of Object.entries(updates)){
-    // Для BE используем 'indBE' (обе буквы заглавные), для остальных - первая заглавная
     const elementId = key === 'be' ? 'indBE' : 'ind' + key.charAt(0).toUpperCase() + key.slice(1);
     const el = $(elementId);
-    if(key === 'be') console.log('[BE_UPDATE] elementId:', elementId, 'el:', el, 'value:', value);
     if(el){
       if(value === null || value === undefined || value === 0){
         el.textContent = '-';
       } else {
         el.textContent = formatPrice(value, currentPricePrecision);
       }
-      if(key === 'be') console.log('[BE_UPDATE] el.textContent:', el.textContent);
     }
   }
   
@@ -369,14 +301,106 @@ function updateTradeIndicators(d){
   if(d.autotrade_levels){
     updateAutoTradeLevels(d.autotrade_levels);
   }
+
+  // APPLY per-currency tab border coloring based on incoming levels
+  try {
+    const diag = levels.diagnostic_decision;
+
+    const currentPrice = levels.current_price != null ? parseFloat(levels.current_price) : NaN;
+    const sellPrice = levels.sell_price != null ? parseFloat(levels.sell_price) : null;
+    const buyPrice = levels.next_buy_price != null ? parseFloat(levels.next_buy_price) : null;
+
+    // 1) Обновляем общий контейнер (как раньше) — оставляем для визуального индикатора
+    const container = document.querySelector('.indicator-card');
+    if (container) {
+      container.style.transition = 'box-shadow 160ms ease, border-color 160ms ease';
+
+      let applied = false;
+
+      if (!isNaN(currentPrice) && sellPrice !== null && !isNaN(sellPrice) && currentPrice >= sellPrice) {
+        container.style.border = '3px solid #28a745';
+        container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
+        applied = true;
+      } else if (!isNaN(currentPrice) && buyPrice !== null && !isNaN(buyPrice) && currentPrice <= buyPrice) {
+        container.style.border = '3px solid #dc3545';
+        container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
+        applied = true;
+      } else if (!isNaN(currentPrice) && (sellPrice !== null || buyPrice !== null)) {
+        container.style.border = '';
+        container.style.boxShadow = '';
+        applied = true;
+      }
+
+      if (!applied) {
+        if (diag && diag.decision === 'sell') {
+          container.style.border = '3px solid #28a745';
+          container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
+        } else if (diag && diag.decision === 'buy') {
+          container.style.border = '3px solid #dc3545';
+          container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
+        } else if (diag && diag.decision === 'sell_attempt_failed') {
+          container.style.border = '3px solid #ff8c00';
+          container.style.boxShadow = '0 6px 18px rgba(255,140,0,0.12)';
+        } else {
+          const shouldSell = (levels.last_detected && levels.last_detected.sell) || (levels.should_sell === true);
+          const shouldBuy = (levels.last_detected && levels.last_detected.buy) || (levels.should_buy === true);
+          if (shouldSell) {
+            container.style.border = '3px solid #28a745';
+            container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
+          } else if (shouldBuy) {
+            container.style.border = '3px solid #dc3545';
+            container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
+          } else {
+            container.style.border = '';
+            container.style.boxShadow = '';
+          }
+        }
+      }
+    }
+
+    // 2) Теперь ОБЯЗАТЕЛЬНО обновляем бордюр и классы соответствующей вкладки валюты
+    if(targetCurrency){
+      const tab = document.querySelector(`.tab-item[data-code="${targetCurrency}"]`);
+      if(tab){
+        // Убираем старые классы бордюра
+        tab.classList.remove('ready-to-sell','ready-to-buy','price-normal','ws-disconnected');
+
+        // 🔥 КРИТИЧЕСКИ ВАЖНАЯ ПРОВЕРКА: Если цена отсутствует или равна 0 → WS отключён (светло-синий бордюр)
+        const hasValidPrice = currentPrice !== undefined && !isNaN(currentPrice) && currentPrice > 0;
+        const hasSellPrice = sellPrice !== null && !isNaN(sellPrice) && sellPrice > 0;
+        const hasBuyPrice = buyPrice !== null && !isNaN(buyPrice) && buyPrice > 0;
+        
+        if (!hasValidPrice || !hasSellPrice || !hasBuyPrice) {
+          // 🔵 Нет цены или она равна 0 → считаем, что WS отключён (светло-синий)
+          tab.classList.add('ws-disconnected');
+          console.log(`[BORDER_WS] ${targetCurrency}: ws-disconnected (currentPrice=${currentPrice}, sell=${sellPrice}, buy=${buyPrice})`);
+        } else if(currentPrice >= sellPrice){
+          // 🟡 Цена есть и выше порога продажи → жёлтый бордюр
+          tab.classList.add('ready-to-sell');
+          console.log(`[BORDER_WS] ${targetCurrency}: ready-to-sell (YELLOW) (current=${currentPrice} >= sell=${sellPrice})`);
+        } else if(currentPrice <= buyPrice){
+          // 🔴 Цена есть и ниже порога покупки → красный бордюр
+          tab.classList.add('ready-to-buy');
+          console.log(`[BORDER_WS] ${targetCurrency}: ready-to-buy (RED) (current=${currentPrice} <= buy=${buyPrice})`);
+        } else {
+          // 🟢 Цена есть и между порогами → зелёный бордюр
+          tab.classList.add('price-normal');
+          console.log(`[BORDER_WS] ${targetCurrency}: price-normal (GREEN) (buy=${buyPrice} < current=${currentPrice} < sell=${sellPrice})`);
+        }
+      } else {
+        console.warn('[BORDER_WS] Вкладка для валюты не найдена:', targetCurrency);
+      }
+    }
+
+  } catch (e) { console.error('apply diag color failed', e); }
 }
 
 function updateAutoTradeLevels(levels){
   if(!levels) return;
   
   // Сохраняем уровни покупки/продажи для подсветки в стакане
-  globalBuyPrice = levels.next_buy_price;
-  globalSellPrice = levels.sell_price;
+  setGlobalBuyPrice(levels.next_buy_price);
+  setGlobalSellPrice(levels.sell_price);
   
   // Сохраняем активный шаг для подсветки в таблице безубыточности
   globalActiveStep = levels.active_step;
@@ -432,7 +456,7 @@ function updateAutoTradeLevels(levels){
     orderbookLevelEl.textContent = (levels.orderbook_level !== null && levels.orderbook_level !== undefined) ? levels.orderbook_level : '-';
   }
   
-  // Обновляем процент роста
+  // Обновляем процент роста от P0
   const growthEl = $('autotradeGrowthPct');
   if(growthEl){
     if(levels.current_growth_pct !== null && levels.current_growth_pct !== undefined){
@@ -445,6 +469,19 @@ function updateAutoTradeLevels(levels){
     }
   }
   
+  // Обновляем процент роста от последней покупки
+  const growthFromLastBuyEl = $('autotradeGrowthFromLastBuy');
+  if(growthFromLastBuyEl){
+    if(levels.growth_from_last_buy_pct !== null && levels.growth_from_last_buy_pct !== undefined){
+      const pct = levels.growth_from_last_buy_pct;
+      growthFromLastBuyEl.textContent = pct.toFixed(2) + '%';
+      growthFromLastBuyEl.className = 'value ' + (pct >= 0 ? 'positive' : 'negative');
+    } else {
+      growthFromLastBuyEl.textContent = '-';
+      growthFromLastBuyEl.className = 'value';
+    }
+  }
+  
   // Обновляем инвестировано
   const investedEl = $('autotradeInvested');
   if(investedEl){
@@ -453,8 +490,38 @@ function updateAutoTradeLevels(levels){
   
   // Обновляем объём базовой валюты
   const volumeEl = $('autotradeBaseVolume');
+  let totalBaseVolume = null;
   if(volumeEl){
-    volumeEl.textContent = levels.base_volume !== null ? levels.base_volume.toFixed(8) : '-';
+    // Показываем реальный баланс (если есть) или base_volume из цикла
+    if (levels.real_balance && levels.real_balance.total !== undefined) {
+      const total = levels.real_balance.total;
+      const available = levels.real_balance.available;
+      const locked = levels.real_balance.locked;
+      totalBaseVolume = total; // сохраняем для расчёта эквивалента
+      
+      if (locked > 0) {
+        volumeEl.innerHTML = `${total.toFixed(8)}<br><small style="color: #999;">(${available.toFixed(8)} + <span style="color: #ff9800;">${locked.toFixed(8)} 🔒</span>)</small>`;
+      } else {
+        volumeEl.textContent = total.toFixed(8);
+      }
+    } else if (levels.base_volume !== null) {
+      totalBaseVolume = levels.base_volume;
+      volumeEl.textContent = levels.base_volume.toFixed(8);
+    } else {
+      volumeEl.textContent = '-';
+    }
+  }
+  
+  // Обновляем эквивалент объёма базы в котируемой валюте (USDT)
+  const volumeUSDTEl = $('autotradeBaseVolumeUSDT');
+  if(volumeUSDTEl){
+    const currentPrice = levels.current_price;
+    if (totalBaseVolume !== null && totalBaseVolume > 0 && currentPrice !== null && currentPrice !== undefined && currentPrice > 0) {
+      const equivalent = totalBaseVolume * parseFloat(currentPrice);
+      volumeUSDTEl.textContent = equivalent.toFixed(2) + ' USDT';
+    } else {
+      volumeUSDTEl.textContent = '-';
+    }
   }
   
   // Обновляем визуальную шкалу с маркерами
@@ -679,8 +746,7 @@ function setNetworkConnectionState(st){
 }
 async function loadNetworkMode(){
   try{
-    const r=await fetch('/api/network');
-    const d=await r.json();
+    const d = await api.getNetworkMode();
     if(d.success){
       currentNetworkMode=d.mode;
       updateNetworkUI();
@@ -703,18 +769,24 @@ async function loadNetworkMode(){
   }
 }
 async function loadCurrenciesFromServer(){
-  console.log('[DEBUG] loadCurrenciesFromServer called');
+  console.log('[CURRENCIES] 🌐 loadCurrenciesFromServer вызвана');
   try{
-    const r=await fetch('/api/currencies');
-    const d=await r.json();
-    console.log('[DEBUG] loadCurrenciesFromServer response:', d);
+    console.log('[CURRENCIES] 📡 Отправка запроса /api/currencies...');
+    const d = await api.getCurrencies();
+    console.log('[CURRENCIES] 📦 Данные получены:', d);
     if(d.success&&Array.isArray(d.currencies)){
+      console.log('[CURRENCIES] ✅ Валюты получены, количество:', d.currencies.length);
+      console.log('[CURRENCIES] 📋 Список валют:', d.currencies);
       currenciesList=d.currencies;
       renderCurrencyTabs(currenciesList);
     } else {
+      console.error('[CURRENCIES] ❌ Ошибка: success=', d.success, 'currencies=', d.currencies);
       logDbg('loadCurrencies fail');
     }
-  }catch(e){ logDbg('loadCurrencies exc '+e) }
+  }catch(e){ 
+    console.error('[CURRENCIES] ❌ Исключение:', e);
+    logDbg('loadCurrencies exc '+e);
+  }
 }
 
 // 🔥 ПРИНУДИТЕЛЬНАЯ функция для окрашивания валют с неактивным циклом в синий цвет
@@ -781,8 +853,7 @@ function forceApplyInactiveColors(){
 async function loadTradingPermissions(){
   console.log('[DEBUG] loadTradingPermissions called');
   try{
-    const r=await fetch('/api/trade/permissions');
-    const d=await r.json();
+    const d = await api.getTradingPermissions();
     console.log('[DEBUG] loadTradingPermissions response:', d);
     if(d.success && d.permissions){
       // Обновляем глобальный объект разрешений (если нужно)
@@ -810,15 +881,7 @@ async function toggleTradingPermission(code, event){
   console.log(`[DEBUG] toggleTradingPermission: ${code} ${currentState} -> ${newState}`);
   
   try{
-    const r = await fetch('/api/trade/permission', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        base_currency: code,
-        enabled: newState
-      })
-    });
-    const d = await r.json();
+    const d = await api.toggleTradingPermission(code, newState);
     
     if(d.success){
       // Обновляем локальное состояние
@@ -840,16 +903,25 @@ async function toggleTradingPermission(code, event){
 }
 
 function renderCurrencyTabs(list){
+  console.log('[RENDER_TABS] 🎯 renderCurrencyTabs вызвана, list:', list);
   const cont=$('currencyTabsContainer');
-  if(!cont) return;
+  if(!cont) {
+    console.error('[RENDER_TABS] ❌ Элемент currencyTabsContainer НЕ НАЙДЕН!');
+    return;
+  }
+  console.log('[RENDER_TABS] ✅ Контейнер найден:', cont);
   cont.innerHTML='';
   const arr=Array.isArray(list)?list:[];
+  console.log('[RENDER_TABS] 📊 Массив валют, длина:', arr.length, 'данные:', arr);
   logDbg('renderCurrencyTabs raw len='+(arr.length));
   let norm=arr.map(c=>{if(typeof c==='string')return {code:c.toUpperCase(),symbol:''};return {code:(c.code||'').toUpperCase(),symbol:(c.symbol||'').trim()};}).filter(o=>o.code);
+  console.log('[RENDER_TABS] 📋 Нормализованные валюты:', norm);
   // Если список пуст – загрузить дефолтные
   if(!norm.length){
+    console.warn('[RENDER_TABS] ⚠️ Список пуст, загружаем дефолтные валюты');
     logDbg('список пуст – добавляю дефолтные');
     norm=['BTC','ETH','SOL','BNB','XRP','ADA','AVAX','DOT','MATIC','LINK'].map(c=>({code:c,symbol:''}));
+    console.log('[RENDER_TABS] 📋 Дефолтные валюты загружены:', norm);
   }
   // Установить активную валюту: если текущая есть в списке - оставляем, иначе - первая из списка
   const codes=new Set(norm.map(o=>o.code));
@@ -862,6 +934,7 @@ function renderCurrencyTabs(list){
     logDbg('установлена активная валюта: '+currentBaseCurrency);
   }
   norm.forEach(cur=>{
+    console.log('[RENDER_TABS] 🔨 Создаём вкладку для валюты:', cur.code);
     const el=document.createElement('div');
     el.className='tab-item'+(cur.code===currentBaseCurrency?' active':'');
     el.dataset.code=cur.code;
@@ -898,7 +971,9 @@ function renderCurrencyTabs(list){
     
     el.onclick=()=>switchBaseCurrency(cur.code);
     cont.appendChild(el);
+    console.log('[RENDER_TABS] ✅ Вкладка добавлена в контейнер:', cur.code);
   });
+  console.log('[RENDER_TABS] 🎉 Все вкладки созданы, всего:', norm.length);
   updatePairNameUI();
   updateTabsPermissionsUI();
   // 🔥 ПРИНУДИТЕЛЬНО применяем синий цвет после создания вкладок
@@ -975,8 +1050,8 @@ function updateTabsPermissionsUI(){
     }
     
     // === НОВАЯ ЛОГИКА: динамическое изменение цвета бордюра по цене ===
-    // Удаляем старые классы готовности к продаже/покупке
-    tab.classList.remove('ready-to-sell', 'ready-to-buy', 'inactive-currency');
+    // Удаляем старые классы готовности к продаже/покупке/отключения WS
+    tab.classList.remove('ready-to-sell', 'ready-to-buy', 'ws-disconnected', 'inactive-currency');
     
     // Получаем цены для этой валюты
     const currentPrice = currentPrices[code];
@@ -987,11 +1062,17 @@ function updateTabsPermissionsUI(){
     const cycleActive = activeCycles[code]; // true = активен, false = неактивен, undefined = нет данных
     const isCycleInactive = (cycleActive === false); // Синий ТОЛЬКО если явно false
     
-    // ✅ ИСПРАВЛЕНИЕ: СНАЧАЛА обновляем бордюр по ценам, ПОТОМ красим текст
-    // Бордюр должен обновляться ВСЕГДА, независимо от статуса цикла!
-    if(currentPrice !== undefined && currentPrice !== null && 
-       sellPrice !== undefined && sellPrice !== null &&
-       buyPrice !== undefined && buyPrice !== null){
+    // 🔥 КРИТИЧЕСКИ ВАЖНАЯ ПРОВЕРКА: Если цена отсутствует или равна 0 → WS отключён (светло-синий бордюр)
+    const hasValidPrice = currentPrice !== undefined && currentPrice !== null && currentPrice > 0;
+    const hasSellPrice = sellPrice !== undefined && sellPrice !== null && sellPrice > 0;
+    const hasBuyPrice = buyPrice !== undefined && buyPrice !== null && buyPrice > 0;
+    
+    if (!hasValidPrice || !hasSellPrice || !hasBuyPrice) {
+      // ❌ Нет цены или она равна 0 → считаем, что WS отключён
+      tab.classList.add('ws-disconnected');
+      console.log(`[BORDER] ${code}: ws-disconnected (currentPrice=${currentPrice}, sell=${sellPrice}, buy=${buyPrice})`);
+    } else {
+      // ✅ Цена есть и валидна → проверяем условия покупки/продажи
       
       // Зелёный бордюр: цена выше или равна цене продажи (готов к продаже)
       if(currentPrice >= sellPrice){
@@ -1061,29 +1142,94 @@ function updateTabsPermissionsUI(){
 }
 
 async function switchBaseCurrency(code){
-  const oldCurrency = currentBaseCurrency;
-  currentBaseCurrency=code.toUpperCase();
-  // keep window property in sync so other modules using window.currentBaseCurrency see correct value
-  try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
-  currencySetByUser = true; // Валюта установлена пользователем
-  console.log('[DEBUG] switchBaseCurrency: changed from', oldCurrency, 'to', currentBaseCurrency);
-  const cont=$('currencyTabsContainer');
-  if(cont){
-    [...cont.querySelectorAll('.tab-item')].forEach(n=>n.classList.toggle('active',n.dataset.code===currentBaseCurrency));
-  }
-  updatePairNameUI();
-  logDbg(`switchBaseCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
-  await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
-  // Даём время WebSocket получить данные, затем загружаем их с force=true
-  await new Promise(resolve => setTimeout(resolve, 500));
-  await loadMarketData(true);  // force refresh
-  await loadPairBalances();
-  await loadPairParams(true);
-  await loadTradeParams();  // Загружаем параметры торговли для новой валюты
-  await loadBreakEvenTable();  // Таблица автоматически обновится с новыми параметрами
+  const requestedCurrency = code.toUpperCase();
   
-  // Сохраняем выбор базовой валюты в UI state
-  await UIStateManager.savePartial({active_base_currency: currentBaseCurrency});
+  // Если уже переключаем валюту - запоминаем последний запрос и выходим
+  if (isSwitchingCurrency) {
+    console.log('[SWITCH] Уже идёт переключение, запоминаем запрос:', requestedCurrency);
+    pendingSwitchCurrency = requestedCurrency;
+    return;
+  }
+  
+  // Если кликнули на уже активную валюту - ничего не делаем
+  if (requestedCurrency === currentBaseCurrency) {
+    console.log('[SWITCH] Валюта уже активна:', requestedCurrency);
+    return;
+  }
+  
+  // Устанавливаем блокировку
+  isSwitchingCurrency = true;
+  const oldCurrency = currentBaseCurrency;
+  currentBaseCurrency = requestedCurrency;
+  
+  // Находим вкладку и добавляем класс загрузки
+  const cont = $('currencyTabsContainer');
+  let targetTab = null;
+  if(cont){
+    targetTab = cont.querySelector(`.tab-item[data-code="${requestedCurrency}"]`);
+    if(targetTab) {
+      targetTab.classList.add('switching');
+    }
+  }
+  
+  try {
+    // keep window property in sync so other modules using window.currentBaseCurrency see correct value
+    try{ window.currentBaseCurrency = currentBaseCurrency; }catch(_){/* noop */}
+    currencySetByUser = true; // Валюта установлена пользователем
+    console.log('[SWITCH] Переключение с', oldCurrency, 'на', currentBaseCurrency);
+    
+    // Моментально обновляем UI (вкладки, название пары)
+    if(cont){
+      [...cont.querySelectorAll('.tab-item')].forEach(n=>n.classList.toggle('active',n.dataset.code===currentBaseCurrency));
+    }
+    updatePairNameUI();
+    logDbg(`switchBaseCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
+    
+    // Запускаем подписку БЕЗ await (не блокируем выполнение)
+    subscribeToPairData(currentBaseCurrency, currentQuoteCurrency).catch(e => console.error('[SWITCH] subscribe error:', e));
+    
+    // Параллельно загружаем все необходимые данные СРАЗУ (не ждем подписки)
+    const loadPromises = [
+      loadMarketData(true).catch(e => console.error('[SWITCH] loadMarketData error:', e)),
+      loadPairBalances().catch(e => console.error('[SWITCH] loadPairBalances error:', e)),
+      loadPairParams(true).catch(e => console.error('[SWITCH] loadPairParams error:', e)),
+      loadTradeParams().catch(e => console.error('[SWITCH] loadTradeParams error:', e)),
+      loadBreakEvenTable().catch(e => console.error('[SWITCH] loadBreakEvenTable error:', e))
+    ];
+    
+    // Обновляем прибыль сессии
+    if (typeof updateSessionProfit === 'function') {
+      loadPromises.push(updateSessionProfit().catch(e => console.error('[SWITCH] updateSessionProfit error:', e)));
+    }
+    
+    // Сохранение UI state тоже делаем параллельно (не критично для отображения)
+    loadPromises.push(UIStateManager.savePartial({active_base_currency: currentBaseCurrency}).catch(e => console.error('[SWITCH] UIState save error:', e)));
+    
+    // Ждём завершения всех загрузок параллельно (быстрее чем по очереди)
+    await Promise.all(loadPromises);
+    
+    console.log('[SWITCH] ✅ Переключение завершено:', currentBaseCurrency);
+  } catch (error) {
+    console.error('[SWITCH] ❌ Ошибка при переключении валюты:', error);
+  } finally {
+    // Убираем класс загрузки
+    if(targetTab) {
+      targetTab.classList.remove('switching');
+    }
+    
+    // Снимаем блокировку
+    isSwitchingCurrency = false;
+    
+    // Если во время переключения был запрос на другую валюту - выполняем его
+    if (pendingSwitchCurrency && pendingSwitchCurrency !== currentBaseCurrency) {
+      const nextCurrency = pendingSwitchCurrency;
+      pendingSwitchCurrency = null;
+      console.log('[SWITCH] Выполняем отложенный запрос на:', nextCurrency);
+      setTimeout(() => switchBaseCurrency(nextCurrency), 0);
+    } else {
+      pendingSwitchCurrency = null;
+    }
+  }
 }
 async function changeQuoteCurrency(){
   const sel=document.querySelector('#quoteCurrency');
@@ -1092,14 +1238,18 @@ async function changeQuoteCurrency(){
   try{ window.currentQuoteCurrency = currentQuoteCurrency; }catch(_){/* noop */}
   updatePairNameUI();
   logDbg(`changeQuoteCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
-  await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
-  // Даём время WebSocket получить данные, затем загружаем их с force=true
-  await new Promise(resolve => setTimeout(resolve, 500));
-  await loadMarketData(true);  // force refresh
-  await loadPairBalances();
-  await loadPairParams(true);
-  await loadTradeParams();  // Перезагружаем параметры для отображения правильной таблицы
-  await loadBreakEvenTable();
+  
+  // Запускаем подписку БЕЗ await (не блокируем)
+  subscribeToPairData(currentBaseCurrency,currentQuoteCurrency).catch(e => console.error('[QUOTE] subscribe error:', e));
+  
+  // Параллельная загрузка всех данных
+  await Promise.all([
+    loadMarketData(true).catch(e => console.error('[QUOTE] loadMarketData error:', e)),
+    loadPairBalances().catch(e => console.error('[QUOTE] loadPairBalances error:', e)),
+    loadPairParams(true).catch(e => console.error('[QUOTE] loadPairParams error:', e)),
+    loadTradeParams().catch(e => console.error('[QUOTE] loadTradeParams error:', e)),
+    loadBreakEvenTable().catch(e => console.error('[QUOTE] loadBreakEvenTable error:', e))
+  ]);
 }
 // Функция для нового селектора котируемой валюты в заголовке "Рынок и стакан"
 async function switchQuoteCurrency(newQuote){
@@ -1115,14 +1265,18 @@ async function switchQuoteCurrency(newQuote){
   
   updatePairNameUI();
   logDbg(`switchQuoteCurrency -> ${currentBaseCurrency}_${currentQuoteCurrency}`);
-  await subscribeToPairData(currentBaseCurrency,currentQuoteCurrency);
-  // Даём время WebSocket получить данные, затем загружаем их с force=true
-  await new Promise(resolve => setTimeout(resolve, 500));
-  await loadMarketData(true);  // force refresh
-  await loadPairBalances();
-  await loadPairParams(true);
-  await loadTradeParams();  // Обновляем параметры при смене валюты
-  await loadBreakEvenTable();
+  
+  // Запускаем подписку БЕЗ await (не блокируем)
+  subscribeToPairData(currentBaseCurrency,currentQuoteCurrency).catch(e => console.error('[QUOTE] subscribe error:', e));
+  
+  // Параллельная загрузка всех данных
+  await Promise.all([
+    loadMarketData(true).catch(e => console.error('[QUOTE] loadMarketData error:', e)),
+    loadPairBalances().catch(e => console.error('[QUOTE] loadPairBalances error:', e)),
+    loadPairParams(true).catch(e => console.error('[QUOTE] loadPairParams error:', e)),
+    loadTradeParams().catch(e => console.error('[QUOTE] loadTradeParams error:', e)),
+    loadBreakEvenTable().catch(e => console.error('[QUOTE] loadBreakEvenTable error:', e))
+  ]);
 }
 
 async function loadPairParams(force){
@@ -1192,16 +1346,35 @@ async function loadPairParams(force){
     }
   }catch(e){ logDbg('loadPairParams exc '+e) }
 }
+
+// Функция для обновления WebSocket статуса вкладки валюты
+function updateCurrencyTabWSStatus(currency, isConnected) {
+  if (!currency) return;
+  const cont = document.getElementById('currencyTabsContainer');
+  if (!cont) return;
+  const tab = cont.querySelector(`.tab-item[data-code="${currency.toUpperCase()}"]`);
+  if (!tab) return;
+  
+  if (isConnected) {
+    tab.classList.remove('ws-disconnected');
+  } else {
+    tab.classList.add('ws-disconnected');
+  }
+}
+
 async function subscribeToPairData(base,quote){
   try{
     logDbg(`subscribeToPairData ${base}_${quote}`);
     setNetworkConnectionState('pending');
     const wsStatus=$('wsStatus');
     if(wsStatus){ wsStatus.textContent='🔄 Подключение...'; wsStatus.style.color='#ffa500'; }
-    const resp=await fetch('/api/pair/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base_currency:base,quote_currency:quote})});
-    const data=await resp.json();
+    // Добавляем класс ws-disconnected к вкладке валюты
+    updateCurrencyTabWSStatus(base, false);
+    const data = await api.subscribeToPair(base, quote);
     if(data.success){
       if(wsStatus){ wsStatus.textContent='✅ WebSocket подключен'; wsStatus.style.color='#4caf50'; }
+      // Убираем класс ws-disconnected при успешном подключении
+      updateCurrencyTabWSStatus(base, true);
       setNetworkConnectionState('connected');
       setTimeout(()=>{
         try{
@@ -1213,12 +1386,14 @@ async function subscribeToPairData(base,quote){
     }else{
       logDbg('subscribe error '+data.error);
       if(wsStatus){ wsStatus.textContent='❌ Ошибка подключения'; wsStatus.style.color='#f44336'; }
+      updateCurrencyTabWSStatus(base, false);
       setNetworkConnectionState('error');
     }
   }catch(e){
     logDbg('subscribe exception '+e);
     const wsStatus=$('wsStatus');
     if(wsStatus){ wsStatus.textContent='❌ Ошибка подключения'; wsStatus.style.color='#f44336'; }
+    updateCurrencyTabWSStatus(base || currentBaseCurrency, false);
     setNetworkConnectionState('error');
   }
 }
@@ -1297,83 +1472,6 @@ function updateHeaderQuoteBalance(balance){
   }
 }
 
-function updateOrderBook(ob){
-  try{
-    if(!ob||!Array.isArray(ob.asks)||!Array.isArray(ob.bids)) return;
-    const asksEl=$('orderbookAsks');
-    const bidsEl=$('orderbookBids');
-    if(asksEl) asksEl.innerHTML='';
-    if(bidsEl) bidsEl.innerHTML='';
-
-    // Нормализуем и фильтруем данные
-    const asksAll = ob.asks.map(r=>[parseFloat(r[0]), parseFloat(r[1])]).filter(r=>isFinite(r[0])&&isFinite(r[1]));
-    const bidsAll = ob.bids.map(r=>[parseFloat(r[0]), parseFloat(r[1])]).filter(r=>isFinite(r[0])&&isFinite(r[1]));
-    if(!asksAll.length && !bidsAll.length) return;
-
-    // Центральная цена (mid) = среднее между лучшим бидом и лучшим аском
-    const bestAsk = asksAll.length ? Math.min.apply(null, asksAll.map(r=>r[0])) : NaN;
-    const bestBid = bidsAll.length ? Math.max.apply(null, bidsAll.map(r=>r[0])) : NaN;
-    let mid = NaN;
-    if(isFinite(bestAsk) && isFinite(bestBid)) mid = (bestAsk + bestBid)/2;
-    else if(isFinite(bestAsk)) mid = bestAsk; else if(isFinite(bestBid)) mid = bestBid;
-
-    // Сортируем по близости к центральной цене (минимальная разница первее)
-    const asksSorted = isFinite(mid)
-      ? asksAll.slice().sort((a,b)=>Math.abs(a[0]-mid)-Math.abs(b[0]-mid))
-      : asksAll.slice().sort((a,b)=>a[0]-b[0]);
-    const bidsSorted = isFinite(mid)
-      ? bidsAll.slice().sort((a,b)=>Math.abs(a[0]-mid)-Math.abs(b[0]-mid))
-      : bidsAll.slice().sort((a,b)=>b[0]-a[0]);
-
-    // Кумулятивы: для асков снизу вверх, для бидов сверху вниз
-    // Asks: разворачиваем массив, чтобы лучшие цены (ближе к спреду) были ВНИЗУ списка
-    // (так они окажутся ближе к центральной линии спреда)
-    const asksReversed = asksSorted.slice().reverse();
-    const asksCum = [];
-    let cumA = 0;
-    for(let i = asksReversed.length - 1; i >= 0; i--) {
-      cumA += asksReversed[i][1];
-      asksCum[i] = cumA;
-    }
-    asksReversed.forEach((r, idx) => {
-      const p=r[0], a=r[1], t=p*a;
-      const div=document.createElement('div');
-      div.className='orderbook-row';
-      
-      // Проверяем, является ли эта строка уровнем продажи
-      if(globalSellPrice && Math.abs(p - globalSellPrice) / globalSellPrice < 0.001){
-        div.classList.add('orderbook-sell-level');
-      }
-      
-      div.innerHTML=`<div class='price'>${formatPrice(p)}</div><div class='amount'>${a.toFixed(6)}</div><div class='total'>${t.toFixed(6)}</div><div class='cumulative'>${(asksCum[idx]||0).toFixed(4)}</div>`;
-      if(asksEl) asksEl.appendChild(div);
-    });
-
-    let cumB=0;
-    bidsSorted.forEach(r=>{
-      const p=r[0], a=r[1], t=p*a; cumB+=a;
-      const div=document.createElement('div');
-      div.className='orderbook-row';
-      
-      // Проверяем, является ли эта строка уровнем покупки
-      if(globalBuyPrice && Math.abs(p - globalBuyPrice) / globalBuyPrice < 0.001){
-        div.classList.add('orderbook-buy-level');
-      }
-      
-      div.innerHTML=`<div class='price'>${formatPrice(p)}</div><div class='amount'>${a.toFixed(6)}</div><div class='total'>${t.toFixed(6)}</div><div class='cumulative'>${cumB.toFixed(4)}</div>`;
-      if(bidsEl) bidsEl.appendChild(div);
-    });
-    
-    // Прокрутка к лучшим ценам:
-    // Для asks: лучшие цены теперь ВНИЗУ списка (после reverse), прокручиваем вниз так, чтобы они были видны
-    // Для bids: лучшие цены ВВЕРХУ списка, оставляем прокрутку в начале
-    if(asksEl && asksEl.scrollHeight > asksEl.clientHeight){
-      // Прокручиваем так, чтобы последние ~10 строк (лучшие цены) были видны
-      asksEl.scrollTop = Math.max(0, asksEl.scrollHeight - asksEl.clientHeight);
-    }
-    if(bidsEl) bidsEl.scrollTop = 0; // прокрутка вверх к началу (к лучшим ценам)
-  }catch(e){ logDbg('updateOrderBook err '+e) }
-}
 async function loadPerBaseIndicators(){
   try{
     const r=await fetch(`/api/trade/indicators?base_currency=${currentBaseCurrency}&quote_currency=${currentQuoteCurrency}`);
@@ -1394,7 +1492,7 @@ async function loadAllIndicators(){
   if(!Array.isArray(currenciesList) || currenciesList.length===0) return;
   console.log('[INDICATORS] Загружаем индикаторы для всех валют...');
   for(const cur of currenciesList){
-    const code = typeof cur==='string' ? cur : cur.code;
+       const code = typeof cur==='string' ? cur : cur.code;
     if(code){
       try{
         const r=await fetch(`/api/trade/indicators?base_currency=${code}&quote_currency=${currentQuoteCurrency}`);
@@ -1732,13 +1830,7 @@ async function saveTradeParams(){
     statusEl.textContent = 'Сохранение...';
     statusEl.className = 'params-save-status';
     
-    const r = await fetch('/api/trade/params', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(params)
-    });
-    
-    const d = await r.json();
+    const d = await api.saveTradeParams(params);
     
     if(d.success){
       statusEl.textContent = '✓ Сохранено';
@@ -1778,8 +1870,7 @@ async function switchNetworkMode(targetMode){
  
   
   try{
-    const resp=await fetch('/api/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:targetMode})});
-    const data=await resp.json();
+    const data = await api.setNetworkMode(targetMode);
     logDbg('network POST resp '+JSON.stringify(data));
     
     if(data.success){
@@ -1852,8 +1943,7 @@ async function switchTradingMode(targetMode){
     // Преобразуем 'normal' -> 'trade' для API
     const apiMode = targetMode === 'normal' ? 'trade' : targetMode;
     console.log('[TRADE MODE] Отправка на сервер:', apiMode);
-    const resp=await fetch('/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:apiMode})});
-    const data=await resp.json();
+    const data = await api.setTradingMode(apiMode);
     console.log('[TRADE MODE] Ответ сервера:', data);
     logDbg('trading mode POST resp '+JSON.stringify(data));
     if(data.success){
@@ -1897,8 +1987,7 @@ function updateTradingModeUI(){
 }
 async function loadTradingMode(){
   try{
-    const r=await fetch('/api/mode');
-    const d=await r.json();
+    const d = await api.getTradingMode();
     console.log('[TRADE MODE] Загружен режим с сервера:', d);
     if(d.mode){
       // Преобразуем 'trade' -> 'normal' для совместимости с UI
@@ -1959,8 +2048,7 @@ function updateAutoTradeUI(){
 async function loadUIState() {
   console.log('[DEBUG] loadUIState called, currencySetByUser:', currencySetByUser, 'currentBaseCurrency:', currentBaseCurrency);
   try {
-    const response = await fetch('/api/ui/state');
-    const result = await response.json();
+    const result = await api.loadUIState();
     if (result.success && result.state) {
       const state = result.state;
       
@@ -2118,9 +2206,8 @@ function closeEmojiPicker(){
 function buildCurrencyManagerRows(){const rows=$('currencyManagerRows');if(!rows)return;rows.innerHTML='';const arr=Array.isArray(currenciesList)?currenciesList:[];arr.forEach((c,i)=>{const code=(c.code||c||'').toUpperCase();const symbol=(c.symbol||c.code||c||'');const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='${code}' placeholder='Код'><div class='cm-symbol-picker'><input type='text' class='cm-symbol' value='${symbol}' placeholder='Символ' readonly onclick='showEmojiPicker(${i})'><button class='cm-emoji-btn' onclick='showEmojiPicker(${i})' title='Выбрать символ'>😀</button></div><div style='color:#888;font-size:11px;'>${tradingPermissions[code]!==false?'Торговля: ✅':'Торговля: ❌'}</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row);});}
 function addCurrencyRow(){const rows=$('currencyManagerRows');const i=rows.querySelectorAll('.cm-row').length;const row=document.createElement('div');row.className='cm-row';row.dataset.index=i;row.innerHTML=`<input type='text' class='cm-code' value='' placeholder='Код'><div class='cm-symbol-picker'><input type='text' class='cm-symbol' value='' placeholder='Символ' readonly onclick='showEmojiPicker(${i})'><button class='cm-emoji-btn' onclick='showEmojiPicker(${i})' title='Выбрать символ'>😀</button></div><div style='color:#888;font-size:11px;'>Новая</div><button class='cm-btn delete' onclick='deleteCurrencyRow(${i})'>🗑️</button>`;rows.appendChild(row);}
 function deleteCurrencyRow(idx){const rows=$('currencyManagerRows');const row=[...rows.querySelectorAll('.cm-row')].find(r=>r.dataset.index==idx);if(row)row.remove();}
-function saveCurrenciesList(){const rows=$('currencyManagerRows');const items=[...rows.querySelectorAll('.cm-row')].map(r=>({code:r.querySelector('.cm-code').value.trim().toUpperCase(),symbol:r.querySelector('.cm-symbol').value.trim()})).filter(o=>o.code);if(!items.length){alert('Нужна минимум 1 валюта');return;}const codes=items.map(i=>i.code);const dup=codes.filter((c,i)=>codes.indexOf(c)!==i);if(dup.length){alert('Дубликаты: '+dup.join(','));return;}fetch('/api/currencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currencies:items})}).then(r=>r.json()).then(d=>{if(d.success){currenciesList=items;renderCurrencyTabs(currenciesList);closeCurrencyManager();logDbg('currencies saved');}else alert('Ошибка: '+(d.error||'fail'))}).catch(e=>alert('Ошибка сохранения: '+e));}
+async function saveCurrenciesList(){const rows=$('currencyManagerRows');const items=[...rows.querySelectorAll('.cm-row')].map(r=>({code:r.querySelector('.cm-code').value.trim().toUpperCase(),symbol:r.querySelector('.cm-symbol').value.trim()})).filter(o=>o.code);if(!items.length){alert('Нужна минимум 1 валюта');return;}const codes=items.map(i=>i.code);const dup=codes.filter((c,i)=>codes.indexOf(c)!==i);if(dup.length){alert('Дубликаты: '+dup.join(','));return;}try{const d=await api.saveCurrencies(items);if(d.success){currenciesList=items;renderCurrencyTabs(currenciesList);closeCurrencyManager();logDbg('currencies saved');}else alert('Ошибка: '+(d.error||'fail'));}catch(e){alert('Ошибка сохранения: '+e);}}
 
-// === Currency Sync with Gate.io ===
 async function syncCurrenciesFromGateIO() {
   const syncBtn = event.target;
   const originalText = syncBtn.innerHTML;
@@ -2130,15 +2217,7 @@ async function syncCurrenciesFromGateIO() {
   
   try {
     // Отправляем текущую котируемую валюту для проверки торговых пар
-    const response = await fetch('/api/currencies/sync', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        quote_currency: currentQuoteCurrency || 'USDT'
-      })
-    });
-    
-    const result = await response.json();
+    const result = await api.syncCurrenciesFromGateIO(currentQuoteCurrency || 'USDT');
     
     if (result.success) {
       alert(`✅ Синхронизация символов завершена!\n\n` +
@@ -2165,8 +2244,7 @@ async function syncCurrenciesFromGateIO() {
 
 async function updateSyncInfo() {
   try {
-    const response = await fetch('/api/currencies/sync-info');
-    const data = await response.json();
+    const data = await api.getSyncInfo();
     
     if (data.success && data.info) {
       const info = data.info;
@@ -2227,14 +2305,7 @@ async function subscribeToAllCurrencies(){
 async function handleServerRestart() {
   try {
     if (!confirm('Перезагрузить сервер? Текущие соединения будут разорваны.')) return;
-    const resp = await fetch('/api/server/restart', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'manual_restart_from_ui' })
-    });
-    const data = await resp.json().catch(() => ({ success: false }));
-    logDbg('[SERVER] restart response: ' + JSON.stringify(data));
-    alert(data.message || 'Команда перезапуска сервера отправлена. Подождите 3–5 секунд и обновите страницу.');
+    const data = await api.restartServer();
     // Небольшая задержка и попытка перезагрузить страницу
     setTimeout(() => {
       try { window.location.reload(); } catch (e) {}
@@ -2248,12 +2319,7 @@ async function handleServerRestart() {
 async function handleServerShutdown() {
   try {
     if (!confirm('Остановить сервер? После остановки страница станет недоступной.')) return;
-    const resp = await fetch('/api/server/shutdown', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'manual_shutdown_from_ui' })
-    });
-    const data = await resp.json().catch(() => ({ success: false }));
+    const data = await api.shutdownServer().catch(() => ({ success: false }));
     logDbg('[SERVER] shutdown response: ' + JSON.stringify(data));
     alert(data.message || 'Команда остановки сервера отправлена.');
   } catch (e) {
@@ -2262,35 +2328,62 @@ async function handleServerShutdown() {
   }
 }
 
+async function handleResetBotSession() {
+  try {
+    if (!confirm('Сбросить сессию бота? Это обнулит время сессии и прибыль всех валют.')) return;
+    const response = await fetch('/api/reset-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await response.json();
+    
+    if (data.status === 'success') {
+      // Сбрасываем локальный счётчик времени сессии бота
+      _botSessionUptimeSeconds = 0;
+      
+      // Обновляем отображение
+      const botSessionUptimeEl = document.getElementById('botSessionUptime');
+      if(botSessionUptimeEl) botSessionUptimeEl.textContent = formatUptime(0);
+      
+      // Обновляем данные торговли для текущей валюты
+      if(currentBaseCurrency) {
+        loadTradeData(currentBaseCurrency, currentQuoteCurrency);
+      }
+      
+      alert('✅ Сессия бота сброшена успешно');
+      logDbg('[SESSION] Сессия бота сброшена: ' + JSON.stringify(data));
+    } else {
+      alert('❌ Ошибка при сбросе сессии: ' + (data.error || 'Неизвестная ошибка'));
+    }
+  } catch (e) {
+    console.error('[SESSION] Ошибка сброса сессии бота:', e);
+    alert('Ошибка при попытке сброса сессии бота: ' + e);
+  }
+}
+
 // Периодическое обновление статуса сервера (PID и Uptime)
 let _serverStatusTimer = null;
 let _serverUptimeSeconds = 0;
-
-function formatUptime(sec){
-  sec = Math.max(0, Math.floor(sec || 0));
-  const d = Math.floor(sec / 86400); sec %= 86400;
-  const h = Math.floor(sec / 3600); sec %= 3600;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  const pad = n => n.toString().padStart(2,'0');
-  if(d>0) return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`;
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
-}
+let _botSessionUptimeSeconds = 0;
 
 async function fetchServerStatusOnce(){
   try{
-    const resp = await fetch('/api/server/status');
-    if(!resp.ok){
-      throw new Error('HTTP '+resp.status);
-    }
-    const data = await resp.json();
+    const data = await api.getServerStatus();
     logDbg('[SERVER] status: '+JSON.stringify(data));
     const pidEl = document.getElementById('serverPID');
-    const upEl  = document.getElementById('uptimeDisplay');
-    if(pidEl) pidEl.textContent = 'PID: ' + (data.pid != null ? String(data.pid) : '---');
+    const serverUptimeEl = document.getElementById('serverUptime');
+    const botSessionUptimeEl = document.getElementById('botSessionUptime');
+    
+    if(pidEl) pidEl.textContent = (data.pid != null ? String(data.pid) : '---');
+    
     if(typeof data.uptime === 'number'){
       _serverUptimeSeconds = data.uptime;
-      if(upEl) upEl.innerHTML = '<strong>' + formatUptime(_serverUptimeSeconds) + '</strong>';
+      if(serverUptimeEl) serverUptimeEl.textContent = formatUptime(_serverUptimeSeconds);
+    }
+    
+    if(typeof data.bot_session_uptime === 'number'){
+      _botSessionUptimeSeconds = data.bot_session_uptime;
+      if(botSessionUptimeEl) botSessionUptimeEl.textContent = formatUptime(_botSessionUptimeSeconds);
     }
   }catch(e){
     console.error('[SERVER] status error', e);
@@ -2305,11 +2398,49 @@ function startUptimeLoops(){
   _serverStatusTimer = setInterval(fetchServerStatusOnce, 5000);
   // Локальный таймер тикает каждую секунду между опросами
   setInterval(()=>{
-    const upEl = document.getElementById('uptimeDisplay');
-    if(!upEl) return;
+    const serverUptimeEl = document.getElementById('serverUptime');
+    const botSessionUptimeEl = document.getElementById('botSessionUptime');
+    
     _serverUptimeSeconds += 1;
-    upEl.innerHTML = '<strong>' + formatUptime(_serverUptimeSeconds) + '</strong>';
+    _botSessionUptimeSeconds += 1;
+    
+    if(serverUptimeEl) serverUptimeEl.textContent = formatUptime(_serverUptimeSeconds);
+    if(botSessionUptimeEl) botSessionUptimeEl.textContent = formatUptime(_botSessionUptimeSeconds);
   }, 1000);
+  
+  // Запускаем обновление общей прибыли
+  updateTotalProfit();
+  setInterval(updateTotalProfit, 5000);
+}
+
+// Функция для обновления общей прибыли всех валют
+async function updateTotalProfit(){
+  try{
+    const response = await fetch('/api/session-profit');
+    const data = await response.json();
+    
+    if(data.success){
+      const totalProfit = data.total_profit ?? 0;
+      const profitEl = document.getElementById('totalProfit');
+      
+      if(profitEl){
+        const formatted = (typeof totalProfit === 'number' ? totalProfit : 0).toFixed(2);
+        
+        if(totalProfit > 0){
+          profitEl.style.color = '#4CAF50';
+          profitEl.textContent = '+' + formatted;
+        } else if(totalProfit < 0){
+          profitEl.style.color = '#f44336';
+          profitEl.textContent = formatted;
+        } else {
+          profitEl.style.color = '#999';
+          profitEl.textContent = '0.00';
+        }
+      }
+    }
+  } catch(e){
+    console.error('[PROFIT] Update error:', e);
+  }
 }
 
 // === Quick Trade Functions (Быстрая торговля) ===
@@ -2330,13 +2461,7 @@ async function handleBuyMinOrder(){
     
     console.log('[BUY-MIN] Отправка запроса:', payload);
     
-    const resp = await fetch('/api/trade/buy-min', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
-    
-    const data = await resp.json();
+    const data = await api.buyMinOrder(currentBaseCurrency, currentQuoteCurrency);
     console.log('[BUY-MIN] Ответ сервера:', data);
     
     if(data.success){
@@ -2370,13 +2495,7 @@ async function handleSellAll(){
     
     console.log('[SELL-ALL] Отправка запроса:', payload);
     
-    const resp = await fetch('/api/trade/sell-all', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
-    
-    const data = await resp.json();
+    const data = await api.sellAll(currentBaseCurrency, currentQuoteCurrency);
     console.log('[SELL-ALL] Ответ сервера:', data);
     
     if(data.success){
@@ -2395,6 +2514,7 @@ async function handleSellAll(){
 
 const rb=$('restartServerBtn'); if(rb){ rb.title='Перезагрузка сервера'; rb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerRestart(); }); }
 const sb=$('shutdownServerBtn'); if(sb){ sb.title='Остановить сервер'; sb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleServerShutdown(); }); }
+const rsb=$('resetBotSessionBtn'); if(rsb){ rsb.title='Сбросить сессию бота'; rsb.addEventListener('click', (ev)=>{ ev.preventDefault(); handleResetBotSession(); }); }
 const spb=$('saveParamsBtn'); if(spb){ spb.addEventListener('click', (ev)=>{ ev.preventDefault(); saveTradeParams(); }); }
 
 const buyBtn=$('buyMinOrderBtn'); if(buyBtn){ buyBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); handleBuyMinOrder(); }); }
@@ -2471,6 +2591,22 @@ async function initApp(){
 
     // 8. Подписываемся на все валюты (для прогрева WS), а затем на активную пару
     await subscribeToAllCurrencies();
+    
+    // 🔧 HOTFIX: Немедленно переподключаем известные проблемные валюты
+    const problemCurrencies = ['XRP', 'ADA', 'LINK', 'TAO', 'ANIME', 'ICP'];
+    console.log('[WS_HOTFIX] Переподключение проблемных валют:', problemCurrencies);
+    for(const code of problemCurrencies){
+      if(currenciesList.some(c => (typeof c === 'string' ? c : c.code) === code)){
+        try{
+          console.log(`[WS_HOTFIX] Переподключение ${code}...`);
+          await subscribeToPairData(code, currentQuoteCurrency);
+          await new Promise(resolve => setTimeout(resolve, 400));
+        }catch(e){
+          console.error(`[WS_HOTFIX] Ошибка для ${code}:`, e);
+        }
+      }
+    }
+    console.log('[WS_HOTFIX] Переподключение завершено');
 
     // 8. Загружаем данные для текущей пары (рынок, баланс, параметры, таблица)
     await Promise.all([
@@ -2490,6 +2626,27 @@ async function initApp(){
     setInterval(()=>{ loadTradingPermissions(); },10000);
     // Периодически обновляем индикаторы для всех валют, чтобы табы обновлялись автоматически
     setInterval(()=>{ try{ loadAllIndicators(); }catch(e){ console.error('periodic loadAllIndicators failed', e); } }, 5000);
+    
+    // 🔄 АВТОМАТИЧЕСКОЕ ПЕРЕПОДКЛЮЧЕНИЕ WS для отключенных валют
+    setInterval(async ()=>{
+      try{
+        const disconnectedTabs = document.querySelectorAll('.tab-item.ws-disconnected');
+        if(disconnectedTabs.length > 0){
+          console.log(`[WS_RECONNECT] Найдено ${disconnectedTabs.length} отключенных валют, переподключаем...`);
+          for(const tab of disconnectedTabs){
+            const code = tab.dataset.code;
+            if(code){
+              console.log(`[WS_RECONNECT] Переподключение ${code}...`);
+              await subscribeToPairData(code, currentQuoteCurrency);
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+          }
+        }
+      }catch(e){
+        console.error('[WS_RECONNECT] Ошибка:', e);
+      }
+    }, 30000); // Каждые 30 секунд проверяем и переподключаем
+    
     // Единоразовый стартовый вызов (в дополнение к загрузке при инициализации)
     try{ loadAllIndicators(); }catch(e){ console.error('initial loadAllIndicators failed', e); }
   }catch(e){
@@ -2514,22 +2671,7 @@ async function handleResetCycle(){
   console.log(`[RESET] Отправка запроса на сброс цикла для ${currentBaseCurrency}...`);
   
   try{
-    const response = await fetch('/api/autotrader/reset_cycle', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({base_currency: currentBaseCurrency})
-    });
-    
-    console.log('[RESET] Ответ получен:', response.status, response.statusText);
-    
-    if(!response.ok){
-      const errorText = await response.text();
-      console.error('[RESET] Ошибка HTTP:', response.status, errorText);
-      alert(`❌ Ошибка сброса цикла: ${response.status} ${response.statusText}\n${errorText}`);
-      return;
-    }
-    
-    const data = await response.json();
+    const data = await api.resetCycle(currentBaseCurrency, currentQuoteCurrency);
     console.log('[RESET] Данные ответа:', data);
     
     if(data.success){
@@ -2561,22 +2703,7 @@ async function handleResumeCycle(){
   console.log(`[RESUME] Отправка запроса на старт цикла для ${currentBaseCurrency}...`);
   
   try{
-    const response = await fetch('/api/autotrader/resume_cycle', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({base_currency: currentBaseCurrency})
-    });
-    
-    console.log('[RESUME] Ответ получен:', response.status, response.statusText);
-    
-    if(!response.ok){
-      const errorText = await response.text();
-      console.error('[RESUME] Ошибка HTTP:', response.status, errorText);
-      alert(`❌ Ошибка старта цикла: ${response.status} ${response.statusText}\n${errorText}`);
-      return;
-    }
-    
-    const data = await response.json();
+    const data = await api.resumeCycle(currentBaseCurrency, currentQuoteCurrency);
     console.log('[RESUME] Данные ответа:', data);
     
     if(data.success){
@@ -2593,83 +2720,67 @@ async function handleResumeCycle(){
   }
 }
 
-document.addEventListener('DOMContentLoaded',()=>{
+// === Привязка обработчиков к кнопкам ===
+const resetCycleBtn = $('resetCycleBtn');
+if(resetCycleBtn){
+  resetCycleBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleResetCycle();
+  });
+}
+
+const resumeCycleBtn = $('resumeCycleBtn');
+if(resumeCycleBtn){
+  resumeCycleBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleResumeCycle();
+  });
+}
+
+const resetSessionBtn = $('resetSessionBtn');
+if(resetSessionBtn){
+  resetSessionBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (!confirm('🔄 Вы уверены, что хотите сбросить время старта сессии?\n\nПрибыль и длительность сессии будут пересчитаны с текущего момента.')) {
+      return;
+    }
+    try {
+      const response = await fetch('/api/reset-session', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert('✅ Время старта сессии сброшено!\n\nПрибыль и длительность обнулены.');
+        // Немедленно обновляем отображение прибыли
+        if (typeof updateSessionProfit === 'function') {
+          updateSessionProfit();
+        }
+      } else {
+        alert('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+      }
+    } catch (error) {
+      console.error('Ошибка сброса сессии:', error);
+      alert('❌ Ошибка связи с сервером: ' + error.message);
+    }
+  });
+}
+
+// === Инициализация приложения при загрузке страницы ===
+console.log('[APP] 🚀 Скрипт app.js загружен, ожидание DOMContentLoaded...');
+
+if (document.readyState === 'loading') {
+  // DOM ещё не загружен, ждём события
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('[APP] ✅ DOMContentLoaded сработал, запуск initApp()...');
+    initApp();
+    startUptimeLoops(); // Запуск таймера uptime
+  });
+} else {
+  // DOM уже загружен (скрипт выполняется после загрузки)
+  console.log('[APP] ⚡ DOM уже загружен, немедленный запуск initApp()...');
   initApp();
   startUptimeLoops();
-  loadTradeParams();
-  
-  // 🔥 ПРИНУДИТЕЛЬНО применяем синий цвет для неактивных валют после загрузки
-  setTimeout(() => {
-    console.log('[INIT] Применяем синий цвет для неактивных валют после загрузки страницы');
-    forceApplyInactiveColors();
-  }, 200);
-  
-  // 🔥 ПОСТОЯННЫЙ МОНИТОРИНГ: Проверяем и перекрашиваем каждые 500ms
-  // ПРОСТАЯ ЛОГИКА: Если у вкладки индикатор .perm-indicator.off - красим название в синий
-  let paintDebugCounter = 0;
-  setInterval(() => {
-    const tabs = document.querySelectorAll('.tab-item');
-    paintDebugCounter++;
-    const showDebug = (paintDebugCounter % 10 === 0); // Детальные логи каждые 5 секунд
-    
-    tabs.forEach(tab => {
-      const permIndicator = tab.querySelector('.perm-indicator');
-      const codeLabel = tab.querySelector('.code-label');
-      const code = tab.dataset.code || '???';
-      
-      if(showDebug){
-        console.log(`[AUTO_PAINT_DEBUG] ${code}: indicator=${permIndicator ? 'найден' : 'НЕТ'}, label=${codeLabel ? 'найден' : 'НЕТ'}`);
-        if(permIndicator){
-          const classes = Array.from(permIndicator.classList);
-          console.log(`[AUTO_PAINT_DEBUG] ${code}: классы индикатора = [${classes.join(', ')}]`);
-        }
-      }
-      
-      if(permIndicator && codeLabel){
-        // ЕСЛИ индикатор OFF (красный) - название СИНЕЕ
-        if(permIndicator.classList.contains('off')){
-          const isActive = tab.classList.contains('active');
-          const blueColor = isActive ? '#64B5F6' : '#2196F3'; // Светло-синий для активной, ярко-синий для неактивной
-          
-          // Проверяем текущий цвет
-          const computedColor = window.getComputedStyle(codeLabel).color;
-          const needsUpdate = !computedColor.includes('33, 150, 243') && !computedColor.includes('100, 181, 246');
-          
-          if(needsUpdate){
-            codeLabel.style.cssText = `color: ${blueColor} !important;`;
-            console.log(`[AUTO_PAINT] ${code}: индикатор OFF → покрашен в СИНИЙ ${blueColor} (было: ${computedColor})`);
-          } else if(showDebug){
-            console.log(`[AUTO_PAINT_DEBUG] ${code}: уже синий (${computedColor})`);
-          }
-        }
-        // ЕСЛИ индикатор ON (зелёный) - убираем синий цвет
-        else if(permIndicator.classList.contains('on')){
-          const computedColor = window.getComputedStyle(codeLabel).color;
-          const isBlue = computedColor.includes('33, 150, 243') || computedColor.includes('100, 181, 246');
-          
-          if(isBlue){
-            codeLabel.style.cssText = '';
-            console.log(`[AUTO_PAINT] ${code}: индикатор ON → убран синий цвет (было: ${computedColor})`);
-          } else if(showDebug){
-            console.log(`[AUTO_PAINT_DEBUG] ${code}: уже не синий (${computedColor})`);
-          }
-        }
-        else if(showDebug){
-          console.log(`[AUTO_PAINT_DEBUG] ${code}: индикатор не имеет класса 'on' или 'off'!`);
-        }
-      }
-    });
-  }, 500);
-  
-  // Обработчик кнопки сброса цикла
-  const resetCycleBtn = document.getElementById('resetCycleBtn');
-  if(resetCycleBtn){
-    resetCycleBtn.addEventListener('click', handleResetCycle);
-  }
-  
-  // Обработчик кнопки старта цикла
-  const resumeCycleBtn = document.getElementById('resumeCycleBtn');
-  if(resumeCycleBtn){
-    resumeCycleBtn.addEventListener('click', handleResumeCycle);
-  }
-});
+}
+
+console.log('[APP] 📝 app.js полностью загружен и готов к работе');

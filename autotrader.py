@@ -1095,12 +1095,16 @@ class AutoTrader:
         params_row = table[active_step]
         required_growth_pct = float(params_row.get('breakeven_pct', 0))
         
-        # 4. Расчёт роста от start_price
-        start_price = cycle.get('start_price', 0)
-        if start_price <= 0:
+        # 4. Расчёт роста от средневзвешенной цены покупок
+        # ✅ ИСПРАВЛЕНО: используем avg_invest_price вместо start_price
+        total_invested = cycle.get('total_invested_usd', 0)
+        base_volume = cycle.get('base_volume', 0)
+        
+        if total_invested <= 0 or base_volume <= 0:
             return
         
-        current_growth_pct = ((price - start_price) / start_price) * 100.0
+        avg_invest_price = total_invested / base_volume
+        current_growth_pct = ((price - avg_invest_price) / avg_invest_price) * 100.0
         
         # 5. Проверка условия продажи
         if current_growth_pct < required_growth_pct:
@@ -1108,7 +1112,7 @@ class AutoTrader:
             return
         
         print(f"[SELL_CHECK][{base}] ✅ Условие продажи выполнено:")
-        print(f"[SELL_CHECK][{base}]   start_price={start_price:.8f}")
+        print(f"[SELL_CHECK][{base}]   avg_invest_price={avg_invest_price:.8f}")
         print(f"[SELL_CHECK][{base}]   current_price={price:.8f}")
         print(f"[SELL_CHECK][{base}]   current_growth={current_growth_pct:.4f}% >= required={required_growth_pct:.4f}%")
         
@@ -1588,6 +1592,9 @@ class AutoTrader:
             # ВЫПОЛНЕНИЕ MARKET ОРДЕРА
             api_client = self.api_client_provider()
             currency_pair = f"{base}_{quote}".upper()
+            
+            # Вычисляем предполагаемый объём в базовой валюте
+            amount_base = purchase_usd / price if price > 0 else 0
             
             if not api_client:
                 # SIMULATION

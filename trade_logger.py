@@ -326,6 +326,10 @@ class TradeLogger:
         
         # 🔍 ОТЛАДКА: Выводим состояние ПОСЛЕ покупки
         print(f"[{currency}] ✅ LOG_BUY ПОСЛЕ: total_invested={self.total_invested[currency]:.4f}")
+        
+        # 🔍 ДИАГНОСТИКА: Проверяем разницу между пересчитанной и реальной суммой
+        if abs(volume_quote - investment) > 0.0001:
+            print(f"[{currency}] ⚠️ РАСХОЖДЕНИЕ: volume*price={volume_quote:.4f}, реальная сумма={investment:.4f}, разница={abs(volume_quote - investment):.4f}")
 
         
 
@@ -385,95 +389,175 @@ class TradeLogger:
 
             # Лог только в котируемой валюте:
         # Все суммы в логах показываем в котируемой валюте (USDT)
+        # ✅ ИСПРАВЛЕНО: Показываем РЕАЛЬНУЮ сумму инвестиции (investment), а не пересчитанную (volume_quote)
+        # investment - это РЕАЛЬНАЯ сумма, потраченная на покупку (из ордера)
         # Инвест - показываем НАКОПИТЕЛЬНУЮ сумму инвестиций (total_invested)
-        print(f"[{entry['time']}] [{currency}] 🟢 Buy{{{volume_quote:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{self.total_invested[currency]:.4f}}}")
+        print(f"[{entry['time']}] [{currency}] 🟢 Buy{{{investment:.4f}; Курс:{price:.4f}; ↓Δ%:{delta_percent:.2f}; ↓%:{total_drop_percent:.2f}; Инвест:{self.total_invested[currency]:.4f}}}")
         logging.info(f"BUY: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, total_drop_percent={total_drop_percent}, investment={investment}, total_invested={self.total_invested[currency]}")
     def log_sell(self, currency: str, volume: float, price: float, 
-                 delta_percent: float, pnl: float, source: str = "AUTO"):
+                 delta_percent: float, pnl: float, source: str = "AUTO",
+                 detection_time: float = None, completion_time: float = None,
+                 operation_duration: float = None):
         """Логировать операцию продажи (в файл конкретной валюты)
         
         Args:
             source: "AUTO" для автоматических продаж из _try_sell, "MANUAL" для ручных
+            detection_time: Unix timestamp момента детекции условия продажи
+            completion_time: Unix timestamp момента завершения продажи
+            operation_duration: Длительность операции в секундах
         
         ВАЖНО: Профит = (сумма от продажи) - (сумма всех инвестиций в цикле)
+        
+        🔥 УСИЛЕННАЯ ВЕРСИЯ: С подробной диагностикой и защитой от ошибок
         """
-        currency = currency.upper()
-        volume_quote = volume * price  # Сумма от продажи в котируемой валюте
-        
-        # 🔍 ОТЛАДКА: Выводим состояние ДО расчёта
-        if currency not in self.total_invested:
-            self.total_invested[currency] = 0.0
-            print(f"[{currency}] ❗ ИНИЦИАЛИЗАЦИЯ total_invested = 0.0 (в продаже)")
-        
-        print(f"[{currency}] 🔍 LOG_SELL ДО: total_invested={self.total_invested[currency]:.4f}, volume_quote={volume_quote:.4f}")
-        
-        # ✅ ПРАВИЛЬНЫЙ РАСЧЁТ ПРОФИТА:
-        # Профит = (сумма от продажи) - (сумма всех инвестиций в цикле)
-        cycle_profit = volume_quote - self.total_invested[currency]
-        
-        print(f"[{currency}] 💰 ПРОФИТ: {cycle_profit:.4f} = {volume_quote:.4f} - {self.total_invested[currency]:.4f}")
-        
-        # Сохраняем сумму инвестиций до обнуления (для отображения в логе)
-        total_invested_before = self.total_invested[currency]
-        
-        # После продажи обнуляем инвестиции (цикл завершён)
-        self.total_invested[currency] = 0.0
-        
-        print(f"[{currency}] ♻️ LOG_SELL ПОСЛЕ: total_invested ОБНУЛЁН = 0.0")
-        
-        entry = {
-            'timestamp': datetime.now().isoformat(),
-            'time': datetime.now().strftime('%H:%M:%S'),
-            'type': 'sell',
-            'currency': currency,
-            'volume': volume,
-            'volume_quote': volume_quote,
-            'price': price,
-            'delta_percent': delta_percent,
-            'pnl': pnl,  # PnL от автотрейдера (может быть неточным)
-            'total_pnl': cycle_profit,  # ✅ ПРАВИЛЬНЫЙ ПРОФИТ ЦИКЛА
-            'total_invested': total_invested_before  # Показываем сколько было инвестировано
-        }
-
-        
-        with self.lock:
-            # Убедиться что для валюты есть контейнер
-            self._ensure_currency_logs(currency)
-            
-            # Добавить в память
-            self.logs_by_currency[currency].append(entry)
-            
-            # Сохранить в файл валюты
-            self._save_log_entry(currency, entry)
-            
-            # Периодически обрезаем файл (каждые 100 записей для данной валюты)
-            if len(self.logs_by_currency[currency]) % 100 == 0:
-                self._trim_log_file(currency)
-        
-        # Лог только в котируемой валюте:
-        # Показываем суммы в котируемой валюте без текстового суффикса 'USDT' и без дублирования имени валюты
-        # В формате продаж: показываем PnL и Профит (который теперь = сумма от продажи - инвестиции)
-        # Окрасим числа профита в консоли: положительный — зелёный, отрицательный — красный
         try:
-            # ANSI escape sequences
-            RED = '\x1b[31m'
-            GREEN = '\x1b[32m'
-            RESET = '\x1b[0m'
-            pnl_color = GREEN if pnl >= 0 else RED
-            profit_color = GREEN if cycle_profit >= 0 else RED
-            pnl_str = f"{pnl_color}{pnl:.4f}{RESET}"
-            profit_str = f"{profit_color}{cycle_profit:.4f}{RESET}"
-        except Exception:
-            pnl_str = f"{pnl:.4f}"
-            profit_str = f"{cycle_profit:.4f}"
+            currency = currency.upper()
+            volume_quote = volume * price  # Сумма от продажи в котируемой валюте
+            
+            print(f"\n[{currency}] 🔒 === ВХОД В log_sell() === 🔒")
+            print(f"[{currency}] 📝 Параметры: volume={volume:.8f}, price={price:.8f}, delta={delta_percent:.2f}%, pnl={pnl:.4f}")
+            print(f"[{currency}] 📝 Source: {source}")
+            
+            # 🔍 ОТЛАДКА: Выводим состояние ДО расчёта
+            if currency not in self.total_invested:
+                self.total_invested[currency] = 0.0
+                print(f"[{currency}] ❗ ИНИЦИАЛИЗАЦИЯ total_invested = 0.0 (в продаже)")
+            
+            print(f"[{currency}] 🔍 LOG_SELL ДО: total_invested={self.total_invested[currency]:.4f}, volume_quote={volume_quote:.4f}")
+            
+            # ✅ ПРАВИЛЬНЫЙ РАСЧЁТ ПРОФИТА:
+            # Профит = (сумма от продажи) - (сумма всех инвестиций в цикле)
+            cycle_profit = volume_quote - self.total_invested[currency]
+            
+            print(f"[{currency}] 💰 ПРОФИТ: {cycle_profit:.4f} = {volume_quote:.4f} - {self.total_invested[currency]:.4f}")
+            
+            # Сохраняем сумму инвестиций до обнуления (для отображения в логе)
+            total_invested_before = self.total_invested[currency]
+            
+            # После продажи обнуляем инвестиции (цикл завершён)
+            self.total_invested[currency] = 0.0
+            
+            print(f"[{currency}] ♻️ LOG_SELL ПОСЛЕ: total_invested ОБНУЛЁН = 0.0")
+            
+            # Форматируем временные метки
+            detection_timestamp = None
+            completion_timestamp = None
+            time_from_detection = None
+            
+            try:
+                if detection_time:
+                    detection_timestamp = datetime.fromtimestamp(detection_time).strftime('%Y-%m-%d %H:%M:%S')
+                if completion_time:
+                    completion_timestamp = datetime.fromtimestamp(completion_time).strftime('%Y-%m-%d %H:%M:%S')
+                if detection_time and completion_time:
+                    time_from_detection = completion_time - detection_time
+                print(f"[{currency}] 🕒 Временные метки обработаны: detection={detection_timestamp}, completion={completion_timestamp}")
+            except Exception as time_error:
+                print(f"[{currency}] ⚠️ Ошибка форматирования временных меток: {time_error}")
+                # Продолжаем без временных меток, это не критично
+            
+            print(f"[{currency}] 📦 Создание entry...")
+            entry = {
+                'timestamp': datetime.now().isoformat(),
+                'time': datetime.now().strftime('%H:%M:%S'),
+                'type': 'sell',
+                'currency': currency,
+                'volume': volume,
+                'volume_quote': volume_quote,
+                'price': price,
+                'delta_percent': delta_percent,
+                'pnl': pnl,  # PnL от автотрейдера (может быть неточным)
+                'total_pnl': cycle_profit,  # ✅ ПРАВИЛЬНЫЙ ПРОФИТ ЦИКЛА
+                'total_invested': total_invested_before,  # Показываем сколько было инвестировано
+                'detection_time': detection_timestamp,  # Время обнаружения условия
+                'completion_time': completion_timestamp,  # Время завершения продажи
+                'time_from_detection': time_from_detection,  # Время от детекции до завершения (секунды)
+                'operation_duration': operation_duration  # Общая длительность операции (секунды)
+            }
+            print(f"[{currency}] ✅ Entry создан: {entry}")
+            
+            print(f"[{currency}] 🔒 Захват lock для записи в файл...")
+            with self.lock:
+                print(f"[{currency}] ✅ Lock захвачен")
+                
+                # Убедиться что для валюты есть контейнер
+                print(f"[{currency}] 📂 _ensure_currency_logs()...")
+                self._ensure_currency_logs(currency)
+                print(f"[{currency}] ✅ Контейнер валюты готов")
+                
+                # Добавить в память
+                print(f"[{currency}] 💾 Добавление в память (logs_by_currency)...")
+                self.logs_by_currency[currency].append(entry)
+                print(f"[{currency}] ✅ Добавлено в память (всего записей: {len(self.logs_by_currency[currency])})")
+                
+                # Сохранить в файл валюты
+                print(f"[{currency}] 💾 Сохранение в файл (_save_log_entry)...")
+                self._save_log_entry(currency, entry)
+                print(f"[{currency}] ✅ Сохранено в файл")
+                
+                # Периодически обрезаем файл (каждые 100 записей для данной валюты)
+                if len(self.logs_by_currency[currency]) % 100 == 0:
+                    print(f"[{currency}] ✂️ Обрезка файла (_trim_log_file)...")
+                    self._trim_log_file(currency)
+                    print(f"[{currency}] ✅ Файл обрезан")
+            
+            print(f"[{currency}] 🔓 Lock освобождён")
+            
+            # Лог только в котируемой валюте:
+            # Показываем суммы в котируемой валюте без текстового суффикса 'USDT' и без дублирования имени валюты
+            # В формате продаж: показываем PnL и Профит (который теперь = сумма от продажи - инвестиции)
+            # Окрасим числа профита в консоли: положительный — зелёный, отрицательный — красный
+            try:
+                # ANSI escape sequences
+                RED = '\x1b[31m'
+                GREEN = '\x1b[32m'
+                RESET = '\x1b[0m'
+                pnl_color = GREEN if pnl >= 0 else RED
+                profit_color = GREEN if cycle_profit >= 0 else RED
+                pnl_str = f"{pnl_color}{pnl:.4f}{RESET}"
+                profit_str = f"{profit_color}{cycle_profit:.4f}{RESET}"
+            except Exception:
+                pnl_str = f"{pnl:.4f}"
+                profit_str = f"{cycle_profit:.4f}"
 
-        # Маркер источника продажи
-        source_marker = "🟢[AUTO]" if source == "AUTO" else "🔴[MANUAL]"
+            # Маркер источника продажи
+            source_marker = "🟢[AUTO]" if source == "AUTO" else "🔴[MANUAL]"
         
-        # Показываем: сумму продажи, курс, рост, PnL, ПРОФИТ (= сумма продажи - инвестиции)
-        # Убрано поле "Инвест" — оно нужно только в покупках!
-        print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}}}")
-        logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}, cycle_profit={cycle_profit}")
+            # Показываем: сумму продажи, курс, рост, PnL, ПРОФИТ (= сумма продажи - инвестиции)
+            # Убрано поле "Инвест" — оно нужно только в покупках!
+            print(f"[{entry['time']}] [{currency}] {source_marker} Sell{{{volume_quote:.4f}; Курс:{price:.4f}; ↑Δ%:{delta_percent:.2f}; PnL:{pnl_str}; Профит:{profit_str}}}")
+            
+            # Дополнительный вывод временных меток, если они доступны
+            if detection_timestamp and completion_timestamp and time_from_detection is not None:
+                print(f"[{entry['time']}] [{currency}] 🕒 Детекция: {detection_timestamp} | Завершение: {completion_timestamp} | Δt: {time_from_detection:.2f}s")
+            
+            logging.info(f"SELL[{source}]: currency={currency}, volume={volume}, price={price}, delta_percent={delta_percent}, pnl={pnl}, cycle_profit={cycle_profit}, detection={detection_timestamp}, completion={completion_timestamp}, time_delta={time_from_detection}s")
+            
+            print(f"[{currency}] 🔒 === ВЫХОД ИЗ log_sell() (УСПЕХ) === 🔒\n")
+        
+        except Exception as log_sell_error:
+            print(f"\n[{currency}] ❌❌❌ КРИТИЧЕСКАЯ ОШИБКА В log_sell() ❌❌❌")
+            print(f"[{currency}] ❌ Тип ошибки: {type(log_sell_error).__name__}")
+            print(f"[{currency}] ❌ Сообщение: {log_sell_error}")
+            print(f"[{currency}] ❌ Параметры вызова:")
+            print(f"[{currency}] ❌   currency={currency}")
+            print(f"[{currency}] ❌   volume={volume}")
+            print(f"[{currency}] ❌   price={price}")
+            print(f"[{currency}] ❌   delta_percent={delta_percent}")
+            print(f"[{currency}] ❌   pnl={pnl}")
+            print(f"[{currency}] ❌   source={source}")
+            print(f"[{currency}] ❌   detection_time={detection_time}")
+            print(f"[{currency}] ❌   completion_time={completion_time}")
+            print(f"[{currency}] ❌   operation_duration={operation_duration}")
+            
+            import traceback
+            print(f"[{currency}] ❌ ПОЛНАЯ ТРАССИРОВКА:")
+            traceback.print_exc()
+            
+            print(f"[{currency}] 🔒 === ВЫХОД ИЗ log_sell() (ОШИБКА) === 🔒\n")
+            
+            # Пробрасываем исключение дальше, чтобы autotrader_v2 мог обработать
+            raise
 
 
     
@@ -807,6 +891,51 @@ class TradeLogger:
         with self.lock:
 
             return sorted(list(self.logs_by_currency.keys()))
+    
+    def get_session_profit(self, currency: Optional[str] = None, session_start_time: Optional[datetime] = None) -> Dict[str, float]:
+        """Получить прибыль с момента старта сессии
+        
+        Args:
+            currency: Конкретная валюта (если None - все валюты)
+            session_start_time: Время старта сессии (если None - считаем все логи)
+            
+        Returns:
+            Dict[currency, profit] - прибыль по каждой валюте
+        """
+        profits = {}
+        
+        with self.lock:
+            currencies = [currency.upper()] if currency else list(self.logs_by_currency.keys())
+            
+            for curr in currencies:
+                if curr not in self.logs_by_currency:
+                    profits[curr] = 0.0
+                    continue
+                
+                total_profit = 0.0
+                
+                # Проходим по всем логам валюты
+                for entry in self.logs_by_currency[curr]:
+                    # Учитываем только продажи
+                    if entry.get('type') != 'sell':
+                        continue
+                    
+                    # Если указано время старта сессии, фильтруем
+                    if session_start_time:
+                        try:
+                            entry_time = datetime.fromisoformat(entry.get('timestamp', ''))
+                            if entry_time < session_start_time:
+                                continue
+                        except:
+                            continue
+                    
+                    # Суммируем прибыль из поля total_pnl
+                    profit = entry.get('total_pnl', 0.0)
+                    total_profit += profit
+                
+                profits[curr] = total_profit
+        
+        return profits
 
 
 

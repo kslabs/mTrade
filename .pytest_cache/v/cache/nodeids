@@ -56,5 +56,15 @@
   "tests/test_trade_logger_format.py::test_formatted_logs_no_usdt_or_totalinvest",
   "tests/test_trade_logger_ordering.py::test_get_formatted_logs_newest_first",
   "tests/test_user_reported_scenario.py::test_user_reported_rebuy_case",
-  "tests/test_user_reported_scenario.py::test_user_reported_sell_case"
+  "tests/test_user_reported_scenario.py::test_user_reported_sell_case",
+  "tests/test_websocket_reconnect.py::TestWebSocketAutoReconnect::test_case_insensitive_pair_format",
+  "tests/test_websocket_reconnect.py::TestWebSocketAutoReconnect::test_create_new_connection",
+  "tests/test_websocket_reconnect.py::TestWebSocketAutoReconnect::test_multiple_pairs_reconnect",
+  "tests/test_websocket_reconnect.py::TestWebSocketAutoReconnect::test_multiple_reconnects",
+  "tests/test_websocket_reconnect.py::TestWebSocketAutoReconnect::test_recreate_disconnected_connection",
+  "tests/test_websocket_reconnect.py::TestWebSocketAutoReconnect::test_return_existing_active_connection",
+  "tests/test_websocket_reconnect.py::TestWebSocketManagerStatus::test_connection_status",
+  "tests/test_websocket_reconnect.py::TestWebSocketManagerStatus::test_status_format",
+  "tests/test_websocket_reconnect.py::TestWebSocketStateTracking::test_error_tracking",
+  "tests/test_websocket_reconnect.py::TestWebSocketStateTracking::test_is_running_flag"
 ]
