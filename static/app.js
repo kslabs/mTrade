@@ -8,6 +8,8 @@ import { updateTabsPermissionsUI as updateTabsPermissionsUIModule } from './js/t
 import { forceApplyInactiveColors as forceApplyInactiveColorsModule } from './js/inactive-colors.js';
 import { loadTradingPermissions as loadTradingPermissionsModule, toggleTradingPermission as toggleTradingPermissionModule } from './js/trading-permissions.js';
 import { renderCurrencyTabs as renderCurrencyTabsModule } from './js/currency-tabs.js';
+import { installDebugPanel, installCurrencyWatcher } from './js/debug-panel.js';
+import { createAutotradeUI } from './js/autotrade-ui.js';
 
 // Инициализация для обратной совместимости
 window.__diagLogs = [];
@@ -16,6 +18,10 @@ window.__diagLogs = [];
 window.showMessageModal = showMessageModal;
 window.closeMessageModal = closeMessageModal;
 window.copyMessageModalContent = copyMessageModalContent;
+
+// Вынесенная отладочная панель + watcher
+installDebugPanel();
+installCurrencyWatcher(() => currentBaseCurrency);
 
 // 🔍 Диагностика: проверка импорта
 console.log('[INIT] Импортированные функции:', {
@@ -56,189 +62,10 @@ let currentPrices = {};
 let activeCycles = {}; // Статус цикла для каждой валюты (true = активен, false = неактивен)
 
 // --- On-page debug panel --------------------------------------------------
-// Creates a collapsible debug panel with a side tab
-// Use window.uiDebugLog(message, level) from any script to append messages
-window.uiDebugLog = function(msg, level='DEBUG'){
-  try{
-    if(!window.__uiDebugPanel){
-      // Create main panel container
-      const panel = document.createElement('div');
-      panel.id = 'uiDebugPanel';
-      panel.style.position = 'fixed';
-      panel.style.right = '0';
-      panel.style.bottom = '12px';
-      panel.style.width = '420px';
-      panel.style.maxHeight = '40vh';
-      panel.style.background = 'rgba(18,18,18,0.95)';
-      panel.style.color = '#ddd';
-      panel.style.border = '1px solid rgba(255,255,255,0.08)';
-      panel.style.borderRight = 'none';
-      panel.style.borderRadius = '8px 0 0 8px';
-      panel.style.fontSize = '12px';
-      panel.style.zIndex = 99999;
-      panel.style.padding = '8px';
-      panel.style.boxShadow = '-4px 4px 20px rgba(0,0,0,0.7)';
-      panel.style.transition = 'transform 0.3s ease';
-      panel.style.transform = 'translateX(100%)'; // Initially hidden
-      
-      // Create toggle tab
-      const tab = document.createElement('div');
-      tab.id = 'uiDebugTab';
-      tab.innerHTML = '◀<br>D<br>E<br>B<br>U<br>G';
-      tab.style.position = 'fixed';
-      tab.style.right = '0';
-      tab.style.bottom = '50%';
-      tab.style.transform = 'translateY(50%)';
-      tab.style.width = '28px';
-      tab.style.padding = '8px 4px';
-      tab.style.background = 'rgba(18,18,18,0.95)';
-      tab.style.color = '#4a9eff';
-      tab.style.border = '1px solid rgba(255,255,255,0.08)';
-      tab.style.borderRight = 'none';
-      tab.style.borderRadius = '8px 0 0 8px';
-      tab.style.fontSize = '11px';
-      tab.style.fontWeight = '700';
-      tab.style.letterSpacing = '1px';
-      tab.style.textAlign = 'center';
-      tab.style.lineHeight = '1.2';
-      tab.style.cursor = 'pointer';
-      tab.style.zIndex = 99998;
-      tab.style.userSelect = 'none';
-      tab.style.boxShadow = '-2px 2px 8px rgba(0,0,0,0.5)';
-      tab.style.transition = 'background 0.2s';
-      
-      tab.onmouseenter = () => { tab.style.background = 'rgba(74,158,255,0.2)'; };
-      tab.onmouseleave = () => { tab.style.background = 'rgba(18,18,18,0.95)'; };
-      
-      // Toggle panel visibility
-      let isOpen = false;
-      tab.onclick = () => {
-        isOpen = !isOpen;
-        if(isOpen){
-          panel.style.transform = 'translateX(0)';
-          tab.innerHTML = '▶<br>D<br>E<br>B<br>U<br>G';
-        } else {
-          panel.style.transform = 'translateX(100%)';
-          tab.innerHTML = '◀<br>D<br>E<br>B<br>U<br>G';
-        }
-      };
-
-      const header = document.createElement('div');
-      header.style.display = 'flex';
-      header.style.justifyContent = 'space-between';
-      header.style.alignItems = 'center';
-      header.style.marginBottom = '6px';
-
-      const title = document.createElement('div');
-      title.textContent = 'DEBUG PANEL';
-      title.style.fontWeight = '700';
-      title.style.color = '#fff';
-      title.style.letterSpacing = '0.6px';
-      header.appendChild(title);
-
-      const controls = document.createElement('div');
-      controls.style.display = 'flex';
-      controls.style.gap = '6px';
-
-      const clearBtn = document.createElement('button');
-      clearBtn.textContent = 'Clear';
-      clearBtn.style.background = '#333';
-      clearBtn.style.color = '#fff';
-      clearBtn.style.border = 'none';
-      clearBtn.style.padding = '4px 8px';
-      clearBtn.style.borderRadius = '4px';
-      clearBtn.style.cursor = 'pointer';
-      clearBtn.onclick = () => { panel.querySelector('.dbg-body').innerHTML = ''; };
-
-      const copyBtn = document.createElement('button');
-      copyBtn.textContent = 'Copy';
-      copyBtn.style.background = '#1f6feb';
-      copyBtn.style.color = '#fff';
-      copyBtn.style.border = 'none';
-      copyBtn.style.padding = '4px 8px';
-      copyBtn.style.borderRadius = '4px';
-      copyBtn.style.cursor = 'pointer';
-      copyBtn.onclick = () => {
-        const text = [...panel.querySelectorAll('.dbg-row')].map(n=>n.textContent).join('\n');
-        navigator.clipboard?.writeText(text).then(()=>{ copyBtn.textContent = 'Copied!'; setTimeout(()=>copyBtn.textContent='Copy',800) });
-      };
-      
-      const closeBtn = document.createElement('button');
-      closeBtn.textContent = '✕';
-      closeBtn.style.background = '#dc3545';
-      closeBtn.style.color = '#fff';
-      closeBtn.style.border = 'none';
-      closeBtn.style.padding = '4px 10px';
-      closeBtn.style.borderRadius = '4px';
-      closeBtn.style.cursor = 'pointer';
-      closeBtn.style.fontWeight = 'bold';
-      closeBtn.onclick = () => { 
-        isOpen = false;
-        panel.style.transform = 'translateX(100%)';
-        tab.innerHTML = '◀<br>D<br>E<br>B<br>U<br>G';
-      };
-
-      controls.appendChild(clearBtn);
-      controls.appendChild(copyBtn);
-      controls.appendChild(closeBtn);
-      header.appendChild(controls);
-
-      const body = document.createElement('div');
-      body.className = 'dbg-body';
-      body.style.maxHeight = 'calc(40vh - 36px)';
-      body.style.overflow = 'auto';
-      body.style.padding = '4px';
-
-      panel.appendChild(header);
-      panel.appendChild(body);
-      document.body.appendChild(panel);
-      document.body.appendChild(tab);
-
-      window.__uiDebugPanel = panel;
-      window.__uiDebugTab = tab;
-      window.__uiDebugBuffer = [];
-    }
-
-    const timestamp = new Date().toLocaleTimeString();
-    const row = document.createElement('div');
-    row.className = 'dbg-row';
-    row.style.padding = '4px 6px';
-    row.style.borderBottom = '1px dashed rgba(255,255,255,0.03)';
-    row.style.fontFamily = 'monospace';
-    row.style.fontSize = '12px';
-    row.textContent = `[${timestamp}] ${level}: ${msg}`;
-
-    // cap buffer size
-    const body = window.__uiDebugPanel.querySelector('.dbg-body');
-    body.insertBefore(row, body.firstChild);
-    window.__uiDebugBuffer.unshift(row.textContent);
-    if(window.__uiDebugBuffer.length > 400){
-      window.__uiDebugBuffer.pop();
-      const nodes = body.querySelectorAll('.dbg-row');
-      if(nodes.length>400) nodes[nodes.length-1].remove();
-    }
-    return true;
-  }catch(e){ console.error('uiDebugLog err', e); return false; }
-};
+// (перенесено в static/js/debug-panel.js)
 
 // ------------------ Watcher для currentBaseCurrency ---------------------
-// Если значение меняется в рантайме — пишем в debug панель (с небольшой подписью стека)
-try{
-  window.__lastObservedBaseCurrency = currentBaseCurrency;
-  setInterval(()=>{
-    try{
-      if(window.__lastObservedBaseCurrency !== currentBaseCurrency){
-        const from = window.__lastObservedBaseCurrency;
-        const to = currentBaseCurrency;
-        window.__lastObservedBaseCurrency = currentBaseCurrency;
-        const stack = (new Error()).stack || '';
-        const shortStack = stack.split('\n').slice(2,7).map(s=>s.trim()).join(' | ');
-        if(window.uiDebugLog) window.uiDebugLog(`currentBaseCurrency changed ${from} -> ${to}  stack: ${shortStack}`,'CHANGE');
-        else console.debug('currentBaseCurrency changed', from, '->', to);
-      }
-    }catch(e){/* nop */}
-  }, 400);
-}catch(e){ console.warn('currency watcher not started', e); }
+// (перенесено в static/js/debug-panel.js)
 
 // UI State Manager - простой менеджер для сохранения состояния UI
 const UIStateManager = {
@@ -269,6 +96,17 @@ const UIStateManager = {
 
 // Глобальная переменная для хранения точности текущей пары
 let currentPricePrecision = 5;
+
+// UI helper для автотрейда (вынесено в static/js/autotrade-ui.js)
+const autotradeUI = createAutotradeUI({
+  $,
+  formatPrice,
+  setGlobalBuyPrice,
+  setGlobalSellPrice,
+  updateVisualIndicatorScale: updateVisualIndicatorScaleModule,
+  updateTabsPermissionsUI
+});
+
 function updateTradeIndicators(d){
   return updateTradeIndicatorsModule(d, {
     $,
@@ -280,211 +118,8 @@ function updateTradeIndicators(d){
 }
 
 function updateAutoTradeLevels(levels){
-  if(!levels) return;
-  
-  // Сохраняем уровни покупки/продажи для подсветки в стакане
-  setGlobalBuyPrice(levels.next_buy_price);
-  setGlobalSellPrice(levels.sell_price);
-  
-  // Сохраняем активный шаг для подсветки в таблице безубыточности
-  globalActiveStep = levels.active_step;
-  
-  // Сохраняем шаги и диагностические решения для всех валют
-  activeSteps[currentBaseCurrency] = levels.active_step;
-  diagnosticDecisions[currentBaseCurrency] = levels.diagnostic_decision;
-  sellPrices[currentBaseCurrency] = levels.sell_price;
-  buyPrices[currentBaseCurrency] = levels.next_buy_price;
-  currentPrices[currentBaseCurrency] = levels.current_price;
-  activeCycles[currentBaseCurrency] = levels.active_cycle; // 🔥 СОХРАНЯЕМ СТАТУС ЦИКЛА
-  
-  // Обновляем UI разрешений для отображения активного шага
-  updateTabsPermissionsUI();
-  
-  // Обновляем индикаторы текущего цикла
-  const activeEl = $('autotradeCycleActive');
-  if(activeEl){
-    activeEl.textContent = levels.active_cycle ? 'Активен' : 'Неактивен';
-    activeEl.className = 'value ' + (levels.active_cycle ? 'active' : 'inactive');
-  }
-  
-  // Обновляем текущий шаг
-  const stepEl = $('autotradeCurrentStep');
-  if(stepEl){
-    if(levels.active_step !== null && levels.total_steps !== null){
-      stepEl.textContent = `${levels.active_step} / ${levels.total_steps}`;
-    } else {
-      stepEl.textContent = '-';
-    }
-  }
-  
-  // Обновляем все уровни цен
-  const priceFields = {
-    'autotradePriceCurrent': levels.current_price,
-    'autotradePriceStart': levels.start_price,
-    'autotradePriceBreakeven': levels.breakeven_price,
-    'autotradePriceLastBuy': levels.last_buy_price,
-    'autotradePriceSell': levels.sell_price,
-    'autotradePriceNextBuy': levels.next_buy_price
-  };
-  
-  for(const [id, value] of Object.entries(priceFields)){
-    const el = $(id);
-    if(el){
-      el.textContent = (value === null || value === undefined) ? '-' : formatPrice(value);
-    }
-  }
-  
-  // Обновляем уровень стакана
-  const orderbookLevelEl = $('autotradeOrderbookLevel');
-  if(orderbookLevelEl){
-    orderbookLevelEl.textContent = (levels.orderbook_level !== null && levels.orderbook_level !== undefined) ? levels.orderbook_level : '-';
-  }
-  
-  // Обновляем процент роста от P0
-  const growthEl = $('autotradeGrowthPct');
-  if(growthEl){
-    if(levels.current_growth_pct !== null && levels.current_growth_pct !== undefined){
-      const pct = levels.current_growth_pct;
-      growthEl.textContent = pct.toFixed(2) + '%';
-      growthEl.className = 'value ' + (pct >= 0 ? 'positive' : 'negative');
-    } else {
-      growthEl.textContent = '-';
-      growthEl.className = 'value';
-    }
-  }
-  
-  // Обновляем процент роста от последней покупки
-  const growthFromLastBuyEl = $('autotradeGrowthFromLastBuy');
-  if(growthFromLastBuyEl){
-    if(levels.growth_from_last_buy_pct !== null && levels.growth_from_last_buy_pct !== undefined){
-      const pct = levels.growth_from_last_buy_pct;
-      growthFromLastBuyEl.textContent = pct.toFixed(2) + '%';
-      growthFromLastBuyEl.className = 'value ' + (pct >= 0 ? 'positive' : 'negative');
-    } else {
-      growthFromLastBuyEl.textContent = '-';
-      growthFromLastBuyEl.className = 'value';
-    }
-  }
-  
-  // Обновляем инвестировано
-  const investedEl = $('autotradeInvested');
-  if(investedEl){
-    investedEl.textContent = levels.invested_usd !== null ? levels.invested_usd.toFixed(2) + ' USDT' : '-';
-  }
-  
-  // Обновляем объём базовой валюты
-  const volumeEl = $('autotradeBaseVolume');
-  let totalBaseVolume = null;
-  if(volumeEl){
-    // Показываем реальный баланс (если есть) или base_volume из цикла
-    if (levels.real_balance && levels.real_balance.total !== undefined) {
-      const total = levels.real_balance.total;
-      const available = levels.real_balance.available;
-      const locked = levels.real_balance.locked;
-      totalBaseVolume = total; // сохраняем для расчёта эквивалента
-      
-      if (locked > 0) {
-        volumeEl.innerHTML = `${total.toFixed(8)}<br><small style="color: #999;">(${available.toFixed(8)} + <span style="color: #ff9800;">${locked.toFixed(8)} 🔒</span>)</small>`;
-      } else {
-        volumeEl.textContent = total.toFixed(8);
-      }
-    } else if (levels.base_volume !== null) {
-      totalBaseVolume = levels.base_volume;
-      volumeEl.textContent = levels.base_volume.toFixed(8);
-    } else {
-      volumeEl.textContent = '-';
-    }
-  }
-  
-  // Обновляем эквивалент объёма базы в котируемой валюте (USDT)
-  const volumeUSDTEl = $('autotradeBaseVolumeUSDT');
-  if(volumeUSDTEl){
-    const currentPrice = levels.current_price;
-    if (totalBaseVolume !== null && totalBaseVolume > 0 && currentPrice !== null && currentPrice !== undefined && currentPrice > 0) {
-      const equivalent = totalBaseVolume * parseFloat(currentPrice);
-      volumeUSDTEl.textContent = equivalent.toFixed(2) + ' USDT';
-    } else {
-      volumeUSDTEl.textContent = '-';
-    }
-  }
-  
-  // Обновляем визуальную шкалу с маркерами
-  updateVisualIndicatorScaleModule(levels, { $, formatPrice });
-
-  // Apply diagnostic decision coloring: green border for sell, red for buy
-  try {
-    const diag = levels.diagnostic_decision;
-    const container = document.querySelector('.indicator-card');
-    if (container) {
-      container.style.transition = 'box-shadow 160ms ease, border-color 160ms ease';
-
-      // Preferred: use numeric price bands when available.
-      //  - if current_price >= sell_price -> GREEN
-      //  - else if current_price <= next_buy_price -> RED
-      //  - else -> GREY (neutral)
-      // If either price is missing, fall back to detection/diagnostic state so clients still get a signal.
-
-      const currentPrice = parseFloat(levels.current_price);
-      const sellPrice = levels.sell_price !== null && levels.sell_price !== undefined ? parseFloat(levels.sell_price) : null;
-      const buyPrice = levels.next_buy_price !== null && levels.next_buy_price !== undefined ? parseFloat(levels.next_buy_price) : null;
-
-      let applied = false;
-
-      if (!isNaN(currentPrice) && sellPrice !== null && !isNaN(sellPrice) && currentPrice >= sellPrice) {
-        // price above or equal sell price -> green
-        container.style.border = '3px solid #28a745';
-        container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
-        applied = true;
-      } else if (!isNaN(currentPrice) && buyPrice !== null && !isNaN(buyPrice) && currentPrice <= buyPrice) {
-        // price at or below next buy price -> red
-        container.style.border = '3px solid #dc3545';
-        container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
-        applied = true;
-      } else if (!isNaN(currentPrice) && (sellPrice !== null || buyPrice !== null)) {
-        // price is between buy and sell (or one side missing) -> neutral
-        container.style.border = '';
-        container.style.boxShadow = '';
-        applied = true;
-      }
-
-      if (!applied) {
-        // No numeric band applied — fallback to diagnostic decision/last_detected
-        if (diag && diag.decision === 'sell') {
-          container.style.border = '3px solid #28a745'; // green
-          container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
-        } else if (diag && diag.decision === 'buy') {
-          container.style.border = '3px solid #dc3545'; // red
-          container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
-        } else if (diag && diag.decision === 'sell_attempt_failed') {
-          container.style.border = '3px solid #ff8c00';
-          container.style.boxShadow = '0 6px 18px rgba(255,140,0,0.12)';
-        } else {
-          // fallback: use derived sentiment flags should_sell / should_buy OR last_detected events
-          const shouldSell = (levels.last_detected && levels.last_detected.sell) || (levels.should_sell === true);
-          const shouldBuy = (levels.last_detected && levels.last_detected.buy) || (levels.should_buy === true);
-          if (shouldSell) {
-            container.style.border = '3px solid #28a745';
-            container.style.boxShadow = '0 6px 18px rgba(40,167,69,0.12)';
-          } else if (shouldBuy) {
-            container.style.border = '3px solid #dc3545';
-            container.style.boxShadow = '0 6px 18px rgba(220,53,69,0.12)';
-          } else {
-            container.style.border = '';
-            container.style.boxShadow = '';
-          }
-        }
-      }
-
-      // Sync border color with active currency tab
-      // const activeTab = document.querySelector('.tab-item.active');
-      // if (activeTab) {
-      //   activeTab.style.transition = 'border-color 160ms ease';
-      //   activeTab.style.border = container.style.border;
-      // }
-    }
-  } catch (e) { console.error('apply diag color failed', e); }
+  return autotradeUI.updateAutoTradeLevels(levels, currentBaseCurrency);
 }
-
 
 function updateNetworkUI(){
   const sw=$('networkSwitcher');
@@ -1307,7 +942,7 @@ async function loadTradeParams(){
     }
   }catch(e){ 
     console.error('[PARAMS] Ошибка загрузки:', e);
-    logDbg('loadTradeParams err '+e);
+    logDbg('loadTradingMode err '+e);
   }
 }
 
