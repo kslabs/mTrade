@@ -1,0 +1,175 @@
+{
+  "ETH": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765015312.003577,
+      "reason": "start_buy_completed",
+      "start_price": 3031.13,
+      "base_volume": 0.0032
+    }
+  },
+  "ADA": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765002158.3265855,
+      "reason": "start_buy_completed",
+      "start_price": 0.4145,
+      "base_volume": 24.13
+    }
+  },
+  "XRP": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765015306.291321,
+      "reason": "start_buy_completed",
+      "start_price": 2.028,
+      "base_volume": 4.931
+    }
+  },
+  "SOL": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765015339.6467094,
+      "reason": "start_buy_completed",
+      "start_price": 132.53,
+      "base_volume": 0.075
+    }
+  },
+  "DOGE": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765001892.7724137,
+      "reason": "start_buy_completed",
+      "start_price": 0.13938,
+      "base_volume": 71.75
+    }
+  },
+  "LINK": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765002591.7101934,
+      "reason": "start_buy_completed",
+      "start_price": 13.638,
+      "base_volume": 0.75
+    }
+  },
+  "TAO": {
+    "last_detected": {
+      "buy": {
+        "decision": "buy_detected",
+        "timestamp": 1764714200.0910497,
+        "reason": "rebuy_conditions_met",
+        "cumulative_drop": 3.7191518943343724,
+        "required_cumulative_drop": 3.7,
+        "determined_step": 4,
+        "next_step": 4,
+        "level_price": 277.0,
+        "ticker_price": 276.6,
+        "last_buy": 279.9
+      }
+    },
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764997880.3137038,
+      "reason": "start_buy_completed",
+      "start_price": 277.8,
+      "base_volume": 0.037
+    }
+  },
+  "LTC": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764971041.9742367,
+      "reason": "start_buy_completed",
+      "start_price": 79.98,
+      "base_volume": 0.126
+    }
+  },
+  "BNB": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1765004941.7349818,
+      "reason": "start_buy_completed",
+      "start_price": 886.6,
+      "base_volume": 0.012
+    }
+  },
+  "WLD": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764757338.5563302,
+      "reason": "start_buy_completed",
+      "start_price": 0.6348,
+      "base_volume": 15.753
+    }
+  },
+  "ANIME": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764927384.8016768,
+      "reason": "start_buy_completed",
+      "start_price": 0.006652,
+      "base_volume": 1503.31
+    }
+  },
+  "XRP5L": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764970850.7754989,
+      "reason": "start_buy_completed",
+      "start_price": 0.0666,
+      "base_volume": 150.16
+    }
+  },
+  "BTC": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764981783.9099584,
+      "reason": "start_buy_completed",
+      "start_price": 89393.8,
+      "base_volume": 0.000112
+    }
+  },
+  "SUI": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764971335.919733,
+      "reason": "start_buy_completed",
+      "start_price": 1.5441,
+      "base_volume": 6.48
+    }
+  },
+  "ICP": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764998117.8625915,
+      "reason": "start_buy_completed",
+      "start_price": 3.512,
+      "base_volume": 2.85
+    }
+  },
+  "GT": {
+    "last_detected": {},
+    "last_decision": {
+      "decision": "cycle_started",
+      "timestamp": 1764757372.9792829,
+      "reason": "start_buy_completed",
+      "start_price": 10.48,
+      "base_volume": 0.96
+    }
+  }
+}

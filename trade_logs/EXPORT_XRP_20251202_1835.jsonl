@@ -1,0 +1,2 @@
+{"timestamp": "2025-12-02T18:34:37.974196", "time": "18:34:37", "type": "sell", "currency": "XRP", "volume": 11.029, "volume_quote": 23.745437, "price": 2.153, "delta_percent": 0.0, "pnl": 0.0, "total_pnl": 0.0, "total_invested": -23.745437}
+{"timestamp": "2025-12-02T18:34:56.800316", "time": "18:34:56", "type": "buy", "currency": "XRP", "volume": 4.6, "volume_quote": 10.000399999999999, "price": 2.174, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.000399999999999, "total_invested": -13.745037}

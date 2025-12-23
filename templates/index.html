@@ -1,7 +1,7 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
-    <!-- VERSION: 2025-11-10-21:00 - REFACTORED (CSS/JS SEPARATED) {{ cache_buster }} -->
+    <!-- VERSION: 2025-01-14-23:00 - NO TIMING BUTTON - ONLY 2 BUTTONS (BREAKEVEN + LOGS) {{ cache_buster }} -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -10,7 +10,7 @@
     <title>Gate.io Multi-Trading Platform [{{ cache_buster }}]</title>
     
     <!-- External CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=no_shadow_fix">
 </head>
 <body>
 <div class="container">
@@ -47,9 +47,24 @@
             </div>
         </div>
         <div class="header-right">
-            <div class="server-status-inline"><div class="status-dot" id="statusDot"></div><span id="serverPID" style="color:#999;font-size:11px;">PID: ---</span></div>
-            <div class="uptime-display" id="uptimeDisplay"><strong>00д 00:00:00</strong></div>
-            <div class="server-controls-inline"><button class="server-btn-small restart" id="restartServerBtn">🔄</button><button class="server-btn-small shutdown" id="shutdownServerBtn">⏹️</button></div>
+            <div class="server-status-inline">
+                <div class="status-dot" id="statusDot"></div>
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <div style="font-size:14px;line-height:1.2;color:#999;"><strong>PID:</strong> <span id="serverPID">---</span></div>
+                    <div style="font-size:14px;line-height:1.2;color:#999;">
+                        <strong>Profit:</strong> <span id="totalProfit" style="font-weight:600;">0.00</span>
+                    </div>
+                </div>
+            </div>
+            <div class="uptime-display" id="uptimeDisplay">
+                <div style="font-size:14px;line-height:1.3;"><strong>UpTime:</strong> <span id="serverUptime">00д 00:00:00</span></div>
+                <div style="font-size:14px;line-height:1.3;"><strong>Сессия:</strong> <span id="botSessionUptime">00д 00:00:00</span></div>
+            </div>
+            <div class="server-controls-inline">
+                <button class="server-btn-small reset-session" id="resetBotSessionBtn" title="Сбросить сессию бота">🔄</button>
+                <button class="server-btn-small restart" id="restartServerBtn" title="Перезагрузить сервер">🔄</button>
+                <button class="server-btn-small shutdown" id="shutdownServerBtn" title="Остановить сервер">⏹️</button>
+            </div>
         </div>
     </div>
 
@@ -60,44 +75,99 @@
     <!-- Модальное окно управления валютами -->
     <div id="currencyManagerModal" onclick="if(event.target===this)closeCurrencyManager()">
         <div class="modal-inner">
-            <h4>⚙️ Управление базовыми валютами</h4>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h4 style="margin:0;">⚙️ Управление базовыми валютами</h4>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="cm-btn" onclick="syncCurrenciesFromGateIO()" style="background:#17a2b8;padding:6px 12px;">
+                        🔄 Синхронизация с Gate.io
+                    </button>
+                    <div id="syncInfo" style="font-size:11px;color:#888;"></div>
+                </div>
+            </div>
             <div id="currencyManagerRows"></div>
             <div class="cm-actions">
                 <button class="cm-btn add" onclick="addCurrencyRow()">➕ Добавить</button>
                 <button class="cm-btn save" onclick="saveCurrenciesList()">💾 Сохранить</button>
                 <button class="cm-btn cancel" onclick="closeCurrencyManager()">✖ Отмена</button>
             </div>
-            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">Данные сохраняются на сервере (currencies.json). Минимум 1 валюта, коды уникальны.</div>
+            <div style="margin-top:10px;font-size:11px;color:#888;line-height:1.4">
+                Данные сохраняются на сервере (currencies.json). Минимум 1 валюта, коды уникальны.<br>
+                <strong>Синхронизация с Gate.io:</strong> загружает официальный список валют с их символами.
+            </div>
         </div>
     </div>
 
 
 
     <div class="grid">
-        <div class="card">
-            <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                <span>📈 Рынок и стакан</span>
+        <div class="card" id="marketCard">
+            <h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:16px;line-height:1.2;">📈 Рынок и стакан</span>
+                        <span style="font-size:14px;line-height:1.2;color:#4a9eff;font-weight:600;" id="currentPairName">BTC_USDT</span>
+                    </div>
+                    <span style="font-size:11px;color:#888;font-weight:normal;line-height:1.2;" id="wsStatus">🔄 Подключение к WebSocket...</span>
+                </div>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <button id="buyMinOrderBtn" class="server-btn-small" style="background:#28a745;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Купить минимальный ордер">
-                        💰
-                    </button>
-                    <button id="sellAllBtn" class="server-btn-small" style="background:#dc3545;color:#fff;width:32px;height:32px;padding:0;font-size:16px;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Продать все">
-                        💸
-                    </button>
-                    <span style="font-size:11px;color:#888;">Баланс:</span>
-                    <span id="headerQuoteBalance" style="font-size:16px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;" title="Баланс котируемой валюты">0.00</span>
-                    <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:4px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer;outline:none;" onchange="switchQuoteCurrency(this.value)">
-                        <option value="USDT">USDT</option>
-                        <option value="USDC">USDC</option>
-                        <option value="BTC">BTC</option>
-                        <option value="ETH">ETH</option>
-                    </select>
+                    <button id="buyMinOrderBtn" class="server-btn-small control-large" style="background:#28a745;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Купить минимальный ордер">&#x1F6D2;</button>
+                    <button id="sellAllBtn" class="server-btn-small control-large" style="background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Продать всё">💰</button>
+                    <button id="resumeCycleBtn" class="server-btn-small control-large" style="background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Старт цикла">▶</button>
+                    <button id="resetCycleBtn" class="server-btn-small control-large" style="background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс цикла">&#x23EE;</button>
+                    <button id="resetSessionBtn" class="server-btn-small control-large" style="background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;" title="Сброс сессии (обнулить прибыль и время)">&#x1F501;</button>
+                    <div style="display:flex;flex-direction:column;gap:1px;align-items:flex-end;">
+                        <select id="quoteCurrencySelect" style="background:#1a1a1a;color:#ccc;border:1px solid #3a3a3a;border-radius:3px;padding:2px 8px;font-size:12px;font-weight:600;cursor:pointer;outline:none;height:auto;line-height:1.2;" onchange="switchQuoteCurrency(this.value)">
+                            <option value="USDT">USDT</option>
+                            <option value="USDC">USDC</option>
+                            <option value="BTC">BTC</option>
+                            <option value="ETH">ETH</option>
+                        </select>
+                        <span id="headerQuoteBalance" style="font-size:13px;color:#4a9eff;font-weight:700;min-width:60px;text-align:right;line-height:1.2;" title="Баланс котируемой валюты">0.00</span>
+                    </div>
                 </div>
             </h3>
-            <div class="market-header"><div class="pair-name" id="currentPairName">BTC_USDT</div><div class="pair-price" id="currentPairPrice">$0.00</div></div>
-            <div class="balances-grid">
-                <div class="balance-item"><div class="balance-label">Баланс <span id="baseSymbol">BTC</span></div><div class="balance-value" id="baseBalance">0.00000000</div><div class="balance-usd" id="baseBalanceUSD">≈ $0.00</div></div>
-                <div class="balance-item" id="pairParamsBlock"><div class="balance-label">Параметры пары</div><div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:10px;color:#ccc;"><div>Min Quote:</div><div id="minQuoteAmount">-</div><div>Min Base:</div><div id="minBaseAmount">-</div><div>Amt Prec:</div><div id="amountPrecision">-</div><div>Price Prec:</div><div id="pricePrecision">-</div></div></div>
+            <div class="balances-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <!-- Уровни цен -->
+                <div class="balance-item">
+                    <div class="balance-label" style="display:flex;justify-content:space-between;align-items:center;">
+                        <span>📈 Уровни цен</span>
+                        <span style="font-size:10px;padding:2px 6px;border-radius:3px;background:#2a2a2a;" id="autotradeCycleActive">Неактивен</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:12px;color:#ccc;">
+                        <div>Текущая:</div><div id="autotradePriceCurrent">-</div>
+                        <div>Стакан:</div><div id="autotradeOrderbookLevel">-</div>
+                        <div>Start (P0):</div><div id="autotradePriceStart">-</div>
+                        <div>BE:</div><div id="autotradePriceBreakeven">-</div>
+                        <div>Последняя:</div><div id="autotradePriceLastBuy">-</div>
+                        <div style="color:#33ff33;">📤 Продажа:</div><div style="color:#33ff33;font-weight:600;" id="autotradePriceSell">-</div>
+                        <div style="color:#ff6666;">📥 Покупка:</div><div style="color:#ff6666;font-weight:600;" id="autotradePriceNextBuy">-</div>
+                    </div>
+                </div>
+                
+                <!-- Статистика цикла -->
+                <div class="balance-item">
+                    <div class="balance-label">📊 Статистика</div>
+                    <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:12px;color:#ccc;">
+                        <div>Шаг:</div><div id="autotradeCurrentStep">-</div>
+                        <div>Рост от P0:</div><div id="autotradeGrowthPct">-</div>
+                        <div>От посл.покупки:</div><div id="autotradeGrowthFromLastBuy">-</div>
+                        <div>Инвестировано:</div><div id="autotradeInvested">-</div>
+                        <div>Объём базы:</div><div id="autotradeBaseVolume">-</div>
+                        <div>Эквивалент USDT:</div><div id="autotradeBaseVolumeUSDT">-</div>
+                        <div>Торговля:</div><div id="tradeIndicator" style="font-weight:bold;">⏸️ Ожидание</div>
+                    </div>
+                </div>
+                
+                <!-- Параметры пары -->
+                <div class="balance-item" id="pairParamsBlock">
+                    <div class="balance-label">⚙️ Параметры пары</div>
+                    <div style="display:grid;grid-template-columns:auto 1fr;row-gap:2px;column-gap:6px;font-size:12px;color:#ccc;">
+                        <div>Min Quote:</div><div id="minQuoteAmount">-</div>
+                        <div>Min Base:</div><div id="minBaseAmount">-</div>
+                        <div>Amt Prec:</div><div id="amountPrecision">-</div>
+                        <div>Price Prec:</div><div id="pricePrecision">-</div>
+                    </div>
+                </div>
             </div>
             <div class="orderbook-container">
                 <div class="orderbook-header"><div>Цена (<span id="obQuoteSymbol">USDT</span>)</div><div>Кол-во</div><div>Сумма</div><div>Σ Накоп.</div></div>
@@ -105,25 +175,39 @@
                 <div class="orderbook-spread"><span id="currentPrice">-</span><span><span style="margin-right:5px;">Спред:</span><span id="spreadValue">-</span></span></div>
                 <div class="orderbook-bids" id="orderbookBids"><div class="loading">Загрузка...</div></div>
             </div>
-            <div style="margin-top:10px;text-align:center;font-size:.85em;color:#888;"><span id="wsStatus">🔄 Подключение к WebSocket...</span></div>
         </div>
-        <div class="card indicator-card" style="grid-column:2;display:flex;align-items:flex-end;justify-content:center;">
+        <div class="card indicator-card" style="grid-column:2;display:flex;flex-direction:column;justify-content:space-between;align-items:center;">
             <div id="indicatorScale" class="indicator-scale" aria-hidden="false">
-                <div id="markerSell" class="indicator-marker marker-sell"><span class="label">Sell</span><div class="marker-tooltip">Sell: -</div></div>
-                <div id="markerBE" class="indicator-marker marker-be"><span class="label">BE</span><div class="marker-tooltip">BE: -</div></div>
-                <div id="markerLast" class="indicator-marker marker-last"><span class="label">Last</span><div class="marker-tooltip">Last: -</div></div>
-                <div id="markerStart" class="indicator-marker marker-start"><span class="label">Start</span><div class="marker-tooltip">Start: -</div></div>
-                <div id="markerBuy" class="indicator-marker marker-buy"><span class="label">Buy</span><div class="marker-tooltip">Buy: -</div></div>
-                <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label">Price:</div><div class="value" id="indPrice">-</div></div><div class="row"><div class="label">Sell:</div><div class="value" id="indSell">-</div></div><div class="row"><div class="label">BE:</div><div class="value" id="indBE">-</div></div><div class="row"><div class="label">Last:</div><div class="value" id="indLast">-</div></div><div class="row"><div class="label">Start:</div><div class="value" id="indStart">-</div></div><div class="row"><div class="label">Buy:</div><div class="value" id="indBuy">-</div></div></div>
+                <div id="markerSell" class="indicator-marker marker-sell" style="background:#00ff00;"><span class="label" style="color:#00ff00;">Sell</span><div class="marker-tooltip">Sell: -</div></div>
+                <div id="markerBE" class="indicator-marker marker-be" style="background:#00bfff;"><span class="label" style="color:#00bfff;">BE</span><div class="marker-tooltip">BE: -</div></div>
+                <div id="markerPrice" class="indicator-marker marker-price" style="background:#ffff00;"><span class="label" style="color:#ffff00;">Price</span><div class="marker-tooltip">Price: -</div></div>
+                <div id="markerLast" class="indicator-marker marker-last" style="background:#ff8c00;"><span class="label" style="color:#ff8c00;">Last</span><div class="marker-tooltip">Last: -</div></div>
+                <div id="markerStart" class="indicator-marker marker-start" style="background:#da70d6;"><span class="label" style="color:#da70d6;">Start</span><div class="marker-tooltip">Start: -</div></div>
+                <div id="markerBuy" class="indicator-marker marker-buy" style="background:#ff0000;"><span class="label" style="color:#ff0000;">Buy</span><div class="marker-tooltip">Buy: -</div></div>
             </div>
+            <div class="indicator-footer" id="indicatorFooter"><div class="row price"><div class="label" style="color:#ffff00;">Price:</div><div class="value" id="indPrice" style="color:#ffff00;">-</div></div><div class="row"><div class="label" style="color:#00ff00;">Sell:</div><div class="value" id="indSell" style="color:#00ff00;">-</div></div><div class="row"><div class="label" style="color:#00bfff;">BE:</div><div class="value" id="indBE" style="color:#00bfff;">-</div></div><div class="row"><div class="label" style="color:#ff8c00;">Last:</div><div class="value" id="indLast" style="color:#ff8c00;">-</div></div><div class="row"><div class="label" style="color:#da70d6;">Start:</div><div class="value" id="indStart" style="color:#da70d6;">-</div></div><div class="row"><div class="label" style="color:#ff0000;">Buy:</div><div class="value" id="indBuy" style="color:#ff0000;">-</div></div></div>
         </div>
-        <div class="card">
+        
+        <!-- Таблица безубыточности (перенесена на место активного цикла) -->
+        <div class="card breakeven-table" style="display:flex;flex-direction:column;">
             <div class="params-header">
-                <h3>📊 Таблица безубыточности</h3>
-                <div class="params-header-actions">
-                    <div id="paramsSaveStatus" class="params-save-status"></div>
-                    <button id="saveParamsBtn" class="save-params-btn-compact">💾 Сохранить</button>
-                </div>
+                <h3 style="display:flex;align-items:center;gap:10px;margin:0;width:100%;">
+                    <div class="view-toggle-group">
+                        <button id="btn-view-breakeven" class="view-toggle-btn active">Таблица безубыточности</button>
+                        <span class="view-toggle-separator">/</span>
+                        <button id="btn-view-logs" class="view-toggle-btn">Логи</button>
+                    </div>
+                    <div style="flex:1;min-width:20px;"></div>
+                    <div id="session-profit-display" style="display:flex;flex-direction:column;align-items:flex-end;font-size:12px;text-align:right;padding-right:5px;flex-shrink:0;">
+                        <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;white-space:nowrap;">
+                            <span style="color:#999;">Прибыль:</span>
+                            <span id="session-total-profit" style="font-weight:bold;color:#4CAF50;">0.00</span>
+                        </div>
+                        <div style="color:#999;font-size:11px;margin-top:2px;text-align:right;white-space:nowrap;">
+                            <span id="session-duration">0д 0ч 0м</span>
+                        </div>
+                    </div>
+                </h3>
             </div>
             
             <!-- Блок редактируемых параметров -->
@@ -155,8 +239,12 @@
                 <!-- Вторая строка параметров -->
                 <div class="params-row">
                     <div class="param-field">
-                        <label for="paramTargetR" title="Устанавливает шаг в процентах к безубыточной цели на последней строчке">БезУб, % (цель R):</label>
-                        <input type="number" id="paramTargetR" step="0.01" value="3.65" min="0.01" />
+                        <label for="paramTargetR" title="Шаг изменения процента закупки (используется в формуле: (# × Rk) + R)">R:</label>
+                        <input type="number" id="paramTargetR" step="0.001" value="3.650" min="0" />
+                    </div>
+                    <div class="param-field">
+                        <label for="paramRk" title="Коэффициент изменения шага процента закупки (используется в формуле: (# × Rk) + R)">Rk:</label>
+                        <input type="number" id="paramRk" step="0.001" value="0.000" min="0" />
                     </div>
                     <div class="param-field">
                         <label for="paramGeomMultiplier" title="Определяет шаг геометрии объёмов закупок">Множитель геометрии:</label>
@@ -174,16 +262,27 @@
                         <label for="paramKeep" title="Постоянная сумма на балансе, которая должна оставаться при продаже. Если не хватает объёма для продажи при окончании цикла, то всё равно заканчивать цикл фиктивной продажей, чтобы начать новый цикл">Keep:</label>
                         <input type="number" id="paramKeep" step="0.01" value="0" min="0" placeholder="Остаток" />
                     </div>
+                    <div class="param-field">
+                        <label for="paramOrderbookLevel" title="Определяет уровень стакана для быстрых сделок (1 = лучшая цена, 2 = второй уровень и т.д.)">Стакан:</label>
+                        <input type="number" id="paramOrderbookLevel" step="0.1" value="1" min="0" />
+                    </div>
+                    <div style="display:flex;align-items:flex-end;gap:8px;margin-left:auto;">
+                        <div id="paramsSaveStatus" class="params-save-status"></div>
+                        <button id="saveParamsBtn" class="save-params-btn-compact">💾 Сохранить</button>
+                    </div>
                 </div>
             </div>
             
-            <div id="breakEvenNote" style="font-size:11px;color:#999;margin-bottom:8px;">Таблица безубыточности для текущих параметров</div>
-            <div style="overflow-x:auto;">
-                <table id="breakEvenTable" style="width:100%;border-collapse:collapse;font-size:11px;">
+            <div class="breakeven-table-content">
+                <div id="breakEvenNote" style="font-size:11px;color:#999;margin-bottom:8px;">Таблица безубыточности для текущих параметров</div>
+                <div style="overflow-x:auto;">
+                    <table id="breakEvenTable" style="width:100%;border-collapse:collapse;font-size:11px;">
                     <thead>
                         <tr style="background:#1a1a1a;color:#ccc;text-align:right;border-bottom:1px solid #3a3a3a;">
                             <th style="padding:6px 8px;text-align:center;">#</th>
-                            <th style="padding:6px 8px;">↓, %</th>
+                            <th style="padding:6px 8px;text-align:center;" title="Уровень стакана для покупки: (# * Стакан) + 1">Ст.</th>
+                            <th style="padding:6px 8px;" title="Накопленная сумма процентов снижения">↓, %</th>
+                            <th style="padding:6px 8px;" title="Шаг процента снижения: -((# × Rk) + R)">↓Δ,%</th>
                             <th style="padding:6px 8px;">Курс</th>
                             <th style="padding:6px 8px;">Покупка, $</th>
                             <th style="padding:6px 8px;">Инв.Сумм,$</th>
@@ -193,16 +292,179 @@
                         </tr>
                     </thead>
                     <tbody id="breakEvenBody">
-                        <tr><td colspan="8" style="padding:12px;text-align:center;color:#999;">Загрузка данных...</td></tr>
+                        <tr><td colspan="10" style="padding:12px;text-align:center;color:#999;">Загрузка данных...</td></tr>
                     </tbody>
                 </table>
+                </div>
+            </div>
+            
+            <!-- Trade Logs Container -->
+            <div id="trade-logs-container" class="trade-logs-content" style="display:none;">
+                <div class="logs-header">
+                    <h3 style="margin:0 0 8px 0;color:#fff;font-size:16px;">Логи торгов</h3>
+                </div>
+                <div class="logs-toolbar" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+                    <button id="btn-refresh-logs" class="btn-secondary" style="padding:4px 8px;font-size:12px;">🔄 Обновить</button>
+                    <button id="btn-pause-logs" class="btn-warning" style="padding:4px 8px;font-size:12px;">⏸️ Пауза</button>
+                    <button id="btn-clear-logs" class="btn-danger" style="padding:4px 8px;font-size:12px;">🗑️ Очистить</button>
+                    <div class="logs-stats" style="margin-left:auto;font-size:12px;color:#999;">
+                        <span id="logs-count">0</span> записей
+                    </div>
+                </div>
+                <div class="logs-content" id="logs-content" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:4px;max-height:400px;overflow-y:auto;padding:8px;">
+                    <div id="logs-list" style="font-family:monospace;font-size:11px;color:#e0e0e0;">
+                        <div style="text-align:center;color:#666;padding:20px;">Загрузка логов...</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
+<!-- Modal for copyable messages -->
+<div id="messageModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#1e1e1e;border:1px solid #444;border-radius:8px;max-width:600px;width:90%;padding:20px;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 id="messageModalTitle" style="margin:0;color:#fff;font-size:18px;">Сообщение</h3>
+            <button onclick="closeMessageModal()" style="background:transparent;border:none;color:#aaa;font-size:24px;cursor:pointer;padding:0;line-height:1;">&times;</button>
+        </div>
+        <div style="background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:12px;margin-bottom:16px;max-height:300px;overflow-y:auto;">
+            <pre id="messageModalContent" style="margin:0;color:#e0e0e0;font-size:14px;white-space:pre-wrap;word-wrap:break-word;font-family:monospace;"></pre>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button onclick="copyMessageModalContent()" style="background:#4caf50;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px;">📋 Копировать</button>
+            <button onclick="closeMessageModal()" style="background:#666;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px;">Закрыть</button>
+        </div>
+    </div>
+</div>
+
 <!-- External JavaScript -->
-<script src="{{ url_for('static', filename='app.js') }}"></script>
-<script src="{{ url_for('static', filename='trade-logs-manager.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='app.js') }}?v={{ cache_buster }}"></script>
+<script src="{{ url_for('static', filename='trade-logs-manager.js') }}?v={{ cache_buster }}"></script>
+
+<!-- Patch: ensure TradeLogsManager requests use selected base currency -->
+<script>
+    (function(){
+        function ensureInit(){
+            if(window.tradeLogsManager){
+                const mgr = window.tradeLogsManager;
+                const origLoad = mgr.loadLogs.bind(mgr);
+                mgr.loadLogs = function(currency){
+                    const c = currency || (window.currentBaseCurrency ? window.currentBaseCurrency.toUpperCase() : null);
+                    return origLoad(c);
+                };
+                mgr.refreshLogs = function(){
+                    return mgr.loadLogs(window.currentBaseCurrency || null);
+                };
+                mgr.clearLogs = function(){
+                    if (!confirm('Вы уверены, что хотите очистить логи для текущей валюты?')) return;
+                    const currency = window.currentBaseCurrency || null;
+                    const payload = currency ? { currency: currency } : {};
+                    (async ()=>{
+                        try{
+                            const resp = await fetch('/api/trade/logs/clear', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(payload)
+                            });
+                            const d = await resp.json();
+                            if(d.success){
+                                mgr.logs = [];
+                                mgr.renderLogs();
+                                await mgr.loadStats(currency);
+                            } else {
+                                alert('Ошибка очистки логов: ' + (d.error||''));
+                            }
+                        }catch(e){
+                            alert('Ошибка связи: ' + e);
+                        }
+                    })();
+                };
+            } else {
+                setTimeout(ensureInit, 200);
+            }
+        }
+        ensureInit();
+    })();
+
+    // Функция для обновления прибыли сессии и длительности
+    async function updateSessionProfit() {
+        try {
+            // Получаем текущую валюту
+            const currentCurrency = window.currentBaseCurrency || null;
+            
+            // Формируем URL с параметром валюты
+            const url = currentCurrency 
+                ? `/api/session-profit?currency=${currentCurrency}`
+                : '/api/session-profit';
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.success) {
+                // Обновляем прибыль (защита от undefined)
+                const profit = data.currency_profit ?? data.total_profit ?? 0;
+                const profitElement = document.getElementById('session-total-profit');
+                
+                if (profitElement) {
+                    const formattedProfit = (typeof profit === 'number' ? profit : 0).toFixed(4);
+                    
+                    if (profit > 0) {
+                        profitElement.style.color = '#4CAF50';
+                        profitElement.textContent = '+' + formattedProfit;
+                    } else if (profit < 0) {
+                        profitElement.style.color = '#f44336';
+                        profitElement.textContent = formattedProfit;
+                    } else {
+                        profitElement.style.color = '#999';
+                        profitElement.textContent = '0.00';
+                    }
+                }
+                
+                // Обновляем длительность сессии
+                if (data.session_start_time) {
+                    const startTime = new Date(data.session_start_time);
+                    const now = new Date();
+                    const diffMs = now - startTime;
+                    
+                    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    
+                    const durationElement = document.getElementById('session-duration');
+                    if (durationElement) {
+                        durationElement.textContent = `${days}д ${hours}ч ${minutes}м`;
+                    }
+                } else {
+                    const durationElement = document.getElementById('session-duration');
+                    if (durationElement) {
+                        durationElement.textContent = '0д 0ч 0м';
+                    }
+                }
+            } else {
+                // Если success === false, используем значения по умолчанию
+                const profit = data.currency_profit ?? data.total_profit ?? 0;
+                const profitElement = document.getElementById('session-total-profit');
+                if (profitElement) {
+                    profitElement.style.color = '#999';
+                    profitElement.textContent = '0.00';
+                }
+                const durationElement = document.getElementById('session-duration');
+                if (durationElement) {
+                    durationElement.textContent = '0д 0ч 0м';
+                }
+                console.warn('Не удалось получить прибыль сессии:', data.error || 'Unknown error');
+            }
+        } catch (error) {
+            console.error('Ошибка обновления прибыли сессии:', error);
+        }
+    }
+
+    // Обновляем прибыль при загрузке страницы
+    updateSessionProfit();
+
+    // Обновляем прибыль каждые 5 секунд
+    setInterval(updateSessionProfit, 5000);
+</script>
 </body>
 </html>

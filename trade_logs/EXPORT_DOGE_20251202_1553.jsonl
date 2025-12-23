@@ -1,0 +1,2 @@
+{"timestamp": "2025-12-02T15:52:48.492009", "time": "15:52:48", "type": "sell", "currency": "DOGE", "volume": 357.39, "volume_quote": 50.316938099999994, "price": 0.14079, "delta_percent": 0.0, "pnl": 0.0, "total_pnl": 0.0, "total_invested": -50.316938099999994}
+{"timestamp": "2025-12-02T15:53:02.194824", "time": "15:53:02", "type": "buy", "currency": "DOGE", "volume": 70.91, "volume_quote": 10.0011464, "price": 0.14104, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.0011464, "total_invested": -40.31579169999999}

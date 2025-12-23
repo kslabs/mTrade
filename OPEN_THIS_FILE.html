@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>🔥 КРИТИЧЕСКАЯ ИНСТРУКЦИЯ</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #0d0d0d 0%, #1a1a1a 100%);
+            color: #fff;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #ff4444;
+            font-size: 32px;
+            margin: 20px 0;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(255,68,68,0.5);
+        }
+        .alert {
+            background: #ff4444;
+            color: #fff;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-weight: bold;
+            font-size: 18px;
+            text-align: center;
+        }
+        .success {
+            background: #4CAF50;
+            color: #fff;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-size: 16px;
+        }
+        .test-block {
+            background: #2a2a2a;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+            padding: 30px;
+            margin: 30px 0;
+            box-shadow: 0 4px 20px rgba(76,175,80,0.3);
+        }
+        .test-block h2 {
+            color: #4CAF50;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        .button-demo {
+            background: #1a1a1a;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        h3.demo-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+        }
+        .save-btn {
+            padding: 6px 12px;
+            background: #4CAF50;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .save-btn:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+        .instructions {
+            background: #1e1e1e;
+            border-left: 4px solid #2196F3;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .instructions h3 {
+            color: #2196F3;
+            margin-bottom: 15px;
+        }
+        .instructions ol {
+            margin-left: 20px;
+        }
+        .instructions li {
+            margin: 10px 0;
+            padding-left: 10px;
+        }
+        .code {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        .btn-big {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #2196F3;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 10px;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-big:hover {
+            background: #1976D2;
+            transform: scale(1.05);
+        }
+        .btn-success {
+            background: #4CAF50;
+        }
+        .btn-success:hover {
+            background: #45a049;
+        }
+        .center {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .warning {
+            background: #ff9800;
+            color: #000;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔥 КРИТИЧЕСКАЯ ИНСТРУКЦИЯ 🔥</h1>
+        
+        <div class="alert">
+            ⚠️ КНОПКА "СОХРАНИТЬ" УЖЕ В КОДЕ! ПРОБЛЕМА ТОЛЬКО В КЭШЕ БРАУЗЕРА!
+        </div>
+
+        <div class="test-block">
+            <h2>✅ ТЕСТ: Эталонная кнопка (как должно быть)</h2>
+            <p style="margin-bottom: 20px;">Если вы видите кнопку ниже - ваш браузер работает нормально:</p>
+            
+            <div class="button-demo">
+                <h3 class="demo-header">
+                    <span>📊 Таблица безубыточности</span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="font-size:10px;color:#4CAF50;">✓ Сохранено</div>
+                        <button class="save-btn" onclick="alert('✅ Кнопка работает! Это эталон.')">💾 Сохранить</button>
+                    </div>
+                </h3>
+            </div>
+            
+            <div class="success">
+                ✅ Если вы видите кнопку "💾 Сохранить" выше справа - ваш браузер работает правильно!
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3>🎯 ЧТО ДЕЛАТЬ СЕЙЧАС:</h3>
+            <ol>
+                <li><strong>Откройте главную страницу:</strong>
+                    <div class="center">
+                        <a href="http://localhost:5000" class="btn-big btn-success" target="_blank">
+                            🚀 ОТКРЫТЬ http://localhost:5000
+                        </a>
+                    </div>
+                </li>
+                <li><strong>Нажмите F12</strong> (откроется DevTools)</li>
+                <li><strong>Правой кнопкой мыши</strong> по значку ⟳ (обновить страницу)</li>
+                <li>Выберите <strong>"Empty Cache and Hard Reload"</strong> (Очистить кэш и жесткая перезагрузка)</li>
+                <li>Найдите секцию <strong>"📊 Таблица безубыточности"</strong></li>
+                <li>Справа от заголовка должна быть кнопка <strong>"💾 Сохранить"</strong></li>
+            </ol>
+        </div>
+
+        <div class="warning">
+            ⚠️ НЕ ИСПОЛЬЗУЙТЕ просто F5 или Ctrl+R - это НЕ очищает кэш!
+        </div>
+
+        <div class="instructions">
+            <h3>🔍 ПРОВЕРКА В DEVTOOLS:</h3>
+            <p>После жесткой перезагрузки откройте Console (F12) и выполните:</p>
+            <div class="code">
+document.getElementById('saveParamsBtn')
+            </div>
+            <p><strong>Ожидаемый результат:</strong></p>
+            <div class="code">
+&lt;button id="saveParamsBtn" class="save-params-btn-compact"&gt;💾 Сохранить&lt;/button&gt;
+            </div>
+            <p>Если вернёт <code>null</code> - кэш не очищен, повторите жесткую перезагрузку.</p>
+        </div>
+
+        <div class="center">
+            <button class="btn-big" onclick="checkButton()">
+                🔍 ПРОВЕРИТЬ НАЛИЧИЕ КНОПКИ
+            </button>
+        </div>
+
+        <div id="result" style="margin-top: 20px;"></div>
+
+        <div class="instructions" style="border-left-color: #ff9800;">
+            <h3 style="color: #ff9800;">📝 АЛЬТЕРНАТИВНЫЕ СПОСОБЫ:</h3>
+            <ol>
+                <li><strong>Режим инкогнито:</strong>
+                    <ul>
+                        <li>Нажмите <strong>Ctrl + Shift + N</strong> (Chrome/Edge)</li>
+                        <li>Откройте http://localhost:5000</li>
+                        <li>Проверьте наличие кнопки</li>
+                    </ul>
+                </li>
+                <li><strong>Полная очистка кэша:</strong>
+                    <ul>
+                        <li>Нажмите <strong>Ctrl + Shift + Delete</strong></li>
+                        <li>Выберите "Изображения и файлы в кэше"</li>
+                        <li>Период: "Всё время"</li>
+                        <li>Нажмите "Удалить данные"</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="success" style="margin-top: 30px;">
+            <strong>✅ ФАКТ:</strong> Файл templates/index.html УЖЕ ИСПРАВЛЕН!<br>
+            <strong>✅ ФАКТ:</strong> Сервер ПЕРЕЗАПУЩЕН и читает новую версию!<br>
+            <strong>⚠️ ПРОБЛЕМА:</strong> Браузер показывает старую версию из кэша!<br>
+            <strong>🔥 РЕШЕНИЕ:</strong> Жесткая перезагрузка (F12 → ПКМ на ⟳)
+        </div>
+    </div>
+
+    <script>
+        function checkButton() {
+            const resultDiv = document.getElementById('result');
+            
+            // Открываем главную страницу в новом окне
+            const win = window.open('http://localhost:5000', '_blank');
+            
+            setTimeout(() => {
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        ✅ Страница открыта в новой вкладке.<br>
+                        Теперь на той вкладке:<br>
+                        1. Нажмите F12<br>
+                        2. Откройте Console<br>
+                        3. Выполните: <code>document.getElementById('saveParamsBtn')</code><br>
+                        4. Если вернёт элемент - кнопка есть!<br>
+                        5. Если вернёт null - очистите кэш (ПКМ на ⟳)
+                    </div>
+                `;
+            }, 1000);
+        }
+
+        // Автоматически открываем главную страницу через 3 секунды
+        setTimeout(() => {
+            if (confirm('Открыть http://localhost:5000 в новой вкладке?')) {
+                window.open('http://localhost:5000', '_blank');
+            }
+        }, 3000);
+    </script>
+</body>
+</html>

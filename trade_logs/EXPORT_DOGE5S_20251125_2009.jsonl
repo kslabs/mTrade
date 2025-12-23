@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-25T20:08:59.546594", "time": "20:08:59", "type": "sell", "currency": "DOGE5S", "volume": 5.12, "volume_quote": 10.085888, "price": 1.9699, "delta_percent": 0.7879253005883898, "pnl": 0.07884800000000042, "total_pnl": 1.3433285952139113, "total_invested": 2421.952241}
+{"timestamp": "2025-11-25T20:09:35.165883", "time": "20:09:35", "type": "buy", "currency": "DOGE5S", "volume": 4.99, "volume_quote": 10.001457000000002, "price": 2.0043, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.001457000000002, "total_invested": 2431.953698}

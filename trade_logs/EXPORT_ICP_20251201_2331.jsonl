@@ -1,0 +1,2 @@
+{"timestamp": "2025-12-01T23:30:34.732717", "time": "23:30:34", "type": "sell", "currency": "ICP", "volume": 2.7, "volume_quote": 9.9306, "price": 3.678, "delta_percent": 0.0, "pnl": 0.0, "total_pnl": 0.0, "total_invested": -9.9306}
+{"timestamp": "2025-12-01T23:30:55.418895", "time": "23:30:55", "type": "buy", "currency": "ICP", "volume": 2.71, "volume_quote": 10.03242, "price": 3.702, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.03242, "total_invested": 0.10182000000000002}

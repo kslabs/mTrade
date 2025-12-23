@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-23T14:36:35.877638", "time": "14:36:35", "type": "buy", "currency": "LINK", "volume": 9.93741, "volume_quote": 98.7521175081, "price": 9.93741, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 98.7521175081, "total_invested": 543.2080369395}
+{"timestamp": "2025-11-23T14:36:39.695529", "time": "14:36:39", "type": "sell", "currency": "LINK", "volume": 0.79, "volume_quote": 9.93662, "price": 12.578, "delta_percent": 26.57221549679443, "pnl": 2.0860660999999996, "total_pnl": 12.515014099999998, "total_invested": 533.2714169395}

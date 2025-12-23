@@ -1,0 +1,2 @@
+{"timestamp": "2025-11-24T21:26:53.163474", "time": "21:26:53", "type": "buy", "currency": "XRP5L", "volume": 76.35, "volume_quote": 10.000323, "price": 0.13098, "delta_percent": 0.0, "total_drop_percent": 0.0, "investment": 10.000323, "total_invested": 420.2553660999999}
+{"timestamp": "2025-11-24T21:27:24.437862", "time": "21:27:24", "type": "sell", "currency": "XRP5L", "volume": 76.27, "volume_quote": 10.06764, "price": 0.132, "delta_percent": 0.7787448465414514, "pnl": 0.07779539999999947, "total_pnl": -0.725741721366161, "total_invested": 410.1877260999999}

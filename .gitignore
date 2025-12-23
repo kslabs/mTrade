@@ -1,112 +1,241 @@
 # === Python ===
+
 __pycache__/
+
 *.py[cod]
+
 *$py.class
+
 *.so
+
 .Python
+
 build/
+
 develop-eggs/
+
 dist/
+
 downloads/
+
 eggs/
+
 .eggs/
+
 lib/
+
 lib64/
+
 parts/
+
 sdist/
+
 var/
+
 wheels/
+
 pip-wheel-metadata/
+
 share/python-wheels/
+
 *.egg-info/
+
 .installed.cfg
+
 *.egg
+
 MANIFEST
 
+
+
 # === Virtual Environment ===
+
 venv/
+venv_*
 ENV/
 env/
 .venv
+.env/
+python_modules/
+
+
 
 # === Flask ===
+
 instance/
+
 .webassets-cache
 
+
+
 # === IDE ===
+
 .vscode/
+
 .idea/
+
 *.swp
+
 *.swo
+
 *~
+
 .DS_Store
 
+
+
 # === Конфигурационные файлы (чувствительные данные) ===
-config.json
-accounts.json
-# Игнорируем любые варианты файлов с секретами
-config/secrets*.json
+
+# Игнорировать всю папку `config/` (реальные секреты остаются локально)
+config/*
+
+# Но оставить файлы-примеры (пример: `config/secrets.example.json`)
 !config/secrets.example.json
-# Игнорируем любые варианты файлов аккаунтов, но оставляем пример
+!config/*.example.json
+
+# Остальные одиночные конфиги/примеры
+config.json
+
+# Игнорировать локальные аккаунты и реальные ключи
+accounts.json
 accounts*.json
 !accounts.json.example
+
 config/*.key
 config/*.pem
 
+
+
 # === Логи ===
+
 *.log
+
 server.log
+
 run_output.log
+
 trade_logs.jsonl
+
 trade_logs.json
 
+
+
 # === PID файлы ===
+
 *.pid
+
 mtrade_server.pid
 
+
+
 # === Временные файлы ===
+
 *.tmp
+
 *.temp
+
 out_pair.txt
 
+
+
 # === Тестовые данные ===
+
 test_balances.json
+
 # Тестовые файлы с реальными API ключами
+
 test_api_endpoints.py
+
 test_direct_api.py
+
 test_futures_api.py
+
 test_testnet_balance.py
+
 test_breakeven.py
+
 test_autotrader.py
+
 test_orderbook.py
+
 test_network_mode_refactor.py
+
 test_network_switch_interactive.py
+
 test_new_keys.py
+
 verify_network_switch.py
+
 test_breakeven_table.html
+
 run_all_checks.py
+
 test_quick_trade.py
+
 test_square_buttons.html
 
+
+
 # Файлы документации с реальными ключами
+
 GIT_SETUP.md
+
 NETWORK_SWITCH_ANALYSIS.md
+
 NETWORK_SWITCH_GUIDE.md
+
 STATUS_CURRENT.md
+
 TESTNET_BALANCE_READY.md
+
 TESTNET_INTEGRATION_COMPLETE.md
 
+
+
 # === Состояние приложения ===
+
 ui_state.json
 network_mode.json
 app_state.json
+autotrader_cycles_state.json
+autotrader_cycles_state.json.*
+*.state.json
+
+
 
 # === Windows ===
+
 Thumbs.db
+
 ehthumbs.db
+
 Desktop.ini
+
 $RECYCLE.BIN/
 
+
+
 # === Backup файлы ===
+
 *.bak
 *.backup
+*_backup_*.py
+*_backup_*.json
+autotrader_backup_*.py
+
+# === Кеш и временные файлы Python ===
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.cover
+*.coverage
+.cache/
+nosetests.xml
+coverage.xml
+*.mo
+*.pot
+
